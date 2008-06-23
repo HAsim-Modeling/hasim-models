@@ -1,0 +1,35 @@
+
+----------
+nikhil      Date: Mon Jun 23 16:25:03 CDT 2008  CSN: CSN-hasim-models-2
+                  Mon Jun 23 21:25:03 UTC 2008
+
+
+Directory config/pm/hasim-models
+ 5stage/                   Locally Added               0 
+
+Directory config/pm/hasim-models/5stage
+ 5stage_hybrid_exe.apm     Locally Added               0 
+
+Directory modules
+ hasim/                    Locally Added               0 
+
+Directory modules/hasim
+ timing-models/            Locally Added               0 
+
+Directory modules/hasim/timing-models
+ inorder/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/inorder
+ CPU.bsv                   Locally Added               0 
+ 5stage.awb                Locally Added               0 
+ Fetch.bsv                 Locally Added               0 
+ PipelineTypes.bsv         Locally Added               0 
+ WriteBack.bsv             Locally Added               0 
+ Mem.bsv                   Locally Added               0 
+ Execute.bsv               Locally Added               0 
+ Decode.bsv                Locally Added               0 
+
+
+Five stage pipeline model using StallPorts.
+
+Probably doesn't work yet.
