@@ -7,7 +7,7 @@ import module_local_controller::*;
 import PipelineTypes::*;
 import Vector::*;
 
-typedef enum { STATE_BUS, STATE_INST, STATE_DEP, STATE_SEND } STATE deriving (Bits, Eq);
+typedef enum { DECODE_STATE_BUS, DECODE_STATE_INST, DECODE_STATE_DEP, DECODE_STATE_SEND } DECODE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkDecode ();
 
@@ -21,7 +21,7 @@ module [HASIM_MODULE] mkDecode ();
 
     Connection_Client#(TOKEN, Tuple2#(TOKEN, ISA_DEPENDENCY_INFO)) getDependencies <- mkConnection_Client("funcp_getDependencies");
 
-    Reg#(STATE) state <- mkReg(STATE_BUS);
+    Reg#(DECODE_STATE) state <- mkReg(DECODE_STATE_BUS);
     Reg#(Maybe#(Tuple2#(TOKEN, ISA_DEPENDENCY_INFO))) memoDependencies <- mkReg(Invalid);
 
     //Local Controller
@@ -80,7 +80,7 @@ module [HASIM_MODULE] mkDecode ();
                         dests: dests };
     endfunction
 
-    rule bus (state == STATE_BUS);
+    rule bus (state == DECODE_STATE_BUS);
         local_ctrl.startModelCC();
         for (Integer i = 0; i < 3; i = i + 1)
         begin
@@ -94,34 +94,34 @@ module [HASIM_MODULE] mkDecode ();
                 end
             end
         end
-        state <= STATE_INST;
+        state <= DECODE_STATE_INST;
     endrule
 
-    rule stall (state == STATE_INST && !outQ.canSend);
+    rule stall (state == DECODE_STATE_INST && !outQ.canSend);
         inQ.pass();
         outQ.pass();
-        state <= STATE_BUS;
+        state <= DECODE_STATE_BUS;
     endrule
 
-    rule bubble (state == STATE_INST && outQ.canSend && !isValid(inQ.peek));
+    rule bubble (state == DECODE_STATE_INST && outQ.canSend && !isValid(inQ.peek));
         let x <- inQ.receive();
         outQ.send(Invalid);
-        state <= STATE_BUS;
+        state <= DECODE_STATE_BUS;
     endrule
 
-    rule inst (state == STATE_INST &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .* });
+    rule inst (state == DECODE_STATE_INST &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .* });
         if (!isValid(memoDependencies))
             getDependencies.makeReq(tok);
-        state <= STATE_DEP;
+        state <= DECODE_STATE_DEP;
     endrule
 
-    rule dep (state == STATE_DEP);
+    rule dep (state == DECODE_STATE_DEP);
         if (!isValid(memoDependencies))
             memoDependencies <= Valid(getDependencies.getResp());
-        state <= STATE_SEND;
+        state <= DECODE_STATE_SEND;
     endrule
 
-    rule send (state == STATE_SEND &&& memoDependencies matches tagged Valid { .tok, .inf });
+    rule send (state == DECODE_STATE_SEND &&& memoDependencies matches tagged Valid { .tok, .inf });
         match { .srcmap, .dstmap } = inf;
         if (readyToGo(srcmap))
         begin
@@ -136,7 +136,7 @@ module [HASIM_MODULE] mkDecode ();
             inQ.pass();
             outQ.send(Invalid);
         end
-        state <= STATE_BUS;
+        state <= DECODE_STATE_BUS;
     endrule
 
 endmodule

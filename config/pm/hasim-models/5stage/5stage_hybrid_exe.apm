@@ -14,7 +14,7 @@ hasim_chip=Uniprocessor chip
 hasim_isa=Alpha ISA Definition
 
 [Model]
-DefaultAttributes=hasim smips 5-stage hybrid simulation
+DefaultAttributes=hasim 5-stage hybrid simulation
 model=HAsim Hybrid Model Foundation
 
 [Hasim - Hardware (fpga) based system]

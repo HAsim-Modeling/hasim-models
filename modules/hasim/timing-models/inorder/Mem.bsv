@@ -7,7 +7,7 @@ import module_local_controller::*;
 import PipelineTypes::*;
 import Vector::*;
 
-typedef enum { STATE_REQ, STATE_LOAD, STATE_STORE } STATE deriving (Bits, Eq);
+typedef enum { MEM_STATE_REQ, MEM_STATE_LOAD, MEM_STATE_STORE } MEM_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkMem ();
 
@@ -19,7 +19,7 @@ module [HASIM_MODULE] mkMem ();
     Connection_Client#(TOKEN,TOKEN) doLoads  <- mkConnection_Client("funcp_doLoads");
     Connection_Client#(TOKEN,TOKEN) doStores <- mkConnection_Client("funcp_doSpeculativeStores");
 
-    Reg#(STATE) state <- mkReg(STATE_REQ);
+    Reg#(MEM_STATE) state <- mkReg(MEM_STATE_REQ);
 
     //Local Controller
     Vector#(0, Port_Control) inports  = newVector();
@@ -29,49 +29,49 @@ module [HASIM_MODULE] mkMem ();
     //outports[1] = busQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
-    rule stall (state == STATE_REQ && !outQ.canSend);
+    rule stall (state == MEM_STATE_REQ && !outQ.canSend);
         local_ctrl.startModelCC();
         inQ.pass();
         outQ.pass();
         busQ.send(Invalid);
     endrule
 
-    rule bubble (state == STATE_REQ && outQ.canSend && !isValid(inQ.peek));
+    rule bubble (state == MEM_STATE_REQ && outQ.canSend && !isValid(inQ.peek));
         local_ctrl.startModelCC();
         let x <- inQ.receive();
         outQ.send(Invalid);
         busQ.send(Invalid);
     endrule
 
-    rule doit (state == STATE_REQ &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+    rule doit (state == MEM_STATE_REQ &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         local_ctrl.startModelCC();
         if (bundle.isLoad)
         begin
             doLoads.makeReq(tok);
-            state <= STATE_LOAD;
+            state <= MEM_STATE_LOAD;
         end
         else if (bundle.isStore)
         begin
             doStores.makeReq(tok);
-            state <= STATE_STORE;
+            state <= MEM_STATE_STORE;
         end
     endrule
 
-    rule load (state == STATE_LOAD);
+    rule load (state == MEM_STATE_LOAD);
         doLoads.deq();
         let x <- inQ.receive();
         outQ.send(x);
         busQ.send(Invalid);
-        state <= STATE_REQ;
+        state <= MEM_STATE_REQ;
     endrule
 
-    rule store (state == STATE_STORE);
+    rule store (state == MEM_STATE_STORE);
         doStores.deq();
         let x <- inQ.receive();
         busQ.send(Invalid);
         if (x matches tagged Valid { .tok, .bundle })
             outQ.send(x);
-        state <= STATE_REQ;
+        state <= MEM_STATE_REQ;
     endrule
 
 endmodule

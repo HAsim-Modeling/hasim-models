@@ -7,7 +7,7 @@ import module_local_controller::*;
 import PipelineTypes::*;
 import Vector::*;
 
-typedef enum { STATE_EXEC, STATE_WORK } STATE deriving (Bits, Eq);
+typedef enum { EXECUTE_STATE_EXEC, EXECUTE_STATE_WORK } EXECUTE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkExecute ();
 
@@ -20,7 +20,7 @@ module [HASIM_MODULE] mkExecute ();
 
     Connection_Client#(TOKEN, Tuple2#(TOKEN, ISA_EXECUTION_RESULT)) getResults <- mkConnection_Client("funcp_getResults");
 
-    Reg#(STATE) state <- mkReg(STATE_EXEC);
+    Reg#(EXECUTE_STATE) state <- mkReg(EXECUTE_STATE_EXEC);
 
     Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
 
@@ -37,7 +37,7 @@ module [HASIM_MODULE] mkExecute ();
 
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
 
-    rule flush (state == STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& !good_epoch(tok));
+    rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& !good_epoch(tok));
         local_ctrl.startModelCC();
         let x <- inQ.receive();
         if (outQ.canSend)
@@ -48,12 +48,12 @@ module [HASIM_MODULE] mkExecute ();
         busQ.send(Invalid);
     endrule
 
-    rule exec (state == STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
+    rule exec (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
         local_ctrl.startModelCC();
         if (outQ.canSend)
         begin
             getResults.makeReq(tok);
-            state <= STATE_WORK;
+            state <= EXECUTE_STATE_WORK;
         end
         else
         begin
@@ -64,7 +64,7 @@ module [HASIM_MODULE] mkExecute ();
         end
     endrule
 
-    rule bubble (state == STATE_EXEC &&& inQ.peek() == Invalid);
+    rule bubble (state == EXECUTE_STATE_EXEC &&& inQ.peek() == Invalid);
         local_ctrl.startModelCC();
         let x <- inQ.receive();
         if (outQ.canSend)
@@ -75,7 +75,7 @@ module [HASIM_MODULE] mkExecute ();
         busQ.send(Invalid);
     endrule
 
-    rule results (state == STATE_WORK);
+    rule results (state == EXECUTE_STATE_WORK);
         getResults.deq();
         match { .tok, .res } = getResults.getResp();
         let x <- inQ.receive();
@@ -109,7 +109,7 @@ module [HASIM_MODULE] mkExecute ();
             outQ.send(Valid(tuple2(tok, bundle)));
             rewindQ.send(Invalid);
             busQ.send(Invalid);
-            state <= STATE_EXEC;
+            state <= EXECUTE_STATE_EXEC;
         end
     endrule
 

@@ -7,7 +7,7 @@ import module_local_controller::*;
 import PipelineTypes::*;
 import Vector::*;
 
-typedef enum { STATE_REQ, STATE_RESULTS, STATE_STORE, STATE_SEND } STATE deriving (Bits, Eq);
+typedef enum { WB_STATE_REQ, WB_STATE_RESULTS, WB_STATE_STORE, WB_STATE_SEND } WB_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkWriteBack ();
 
@@ -18,7 +18,7 @@ module [HASIM_MODULE] mkWriteBack ();
     Connection_Client#(TOKEN,TOKEN) commitResults <- mkConnection_Client("funcp_commitResults");
     Connection_Client#(TOKEN,TOKEN) commitStores  <- mkConnection_Client("funcp_commitStores");
 
-    Reg#(STATE) state <- mkReg(STATE_REQ);
+    Reg#(WB_STATE) state <- mkReg(WB_STATE_REQ);
 
     //Local Controller
     Vector#(0, Port_Control) inports  = newVector();
@@ -27,35 +27,35 @@ module [HASIM_MODULE] mkWriteBack ();
     //outports[0] = busQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
-    rule bubble (state == STATE_REQ && !isValid(inQ.peek));
+    rule bubble (state == WB_STATE_REQ && !isValid(inQ.peek));
         local_ctrl.startModelCC();
         inQ.pass();
         busQ.send(Invalid);
     endrule
 
-    rule results (state == STATE_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+    rule results (state == WB_STATE_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         local_ctrl.startModelCC();
         commitResults.makeReq(tok);
-        state <= STATE_RESULTS;
+        state <= WB_STATE_RESULTS;
     endrule
 
-    rule stores (state == STATE_RESULTS &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+    rule stores (state == WB_STATE_RESULTS &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         commitResults.deq();
         if (bundle.isStore)
         begin
             commitStores.makeReq(tok);
-            state <= STATE_STORE;
+            state <= WB_STATE_STORE;
         end
         else
-            state <= STATE_SEND;
+            state <= WB_STATE_SEND;
     endrule
 
-    rule stores2 (state == STATE_STORE);
+    rule stores2 (state == WB_STATE_STORE);
         commitStores.deq();
-        state <= STATE_SEND;
+        state <= WB_STATE_SEND;
     endrule
 
-    rule done (state == STATE_SEND &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+    rule done (state == WB_STATE_SEND &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         let x <- inQ.receive();
         busQ.send(Valid(bundle.dests));
     endrule

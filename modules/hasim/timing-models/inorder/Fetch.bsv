@@ -8,7 +8,7 @@ import module_local_controller::*;
 
 import Vector::*;
 
-typedef enum { STATE_REWIND, STATE_REW_RESP, STATE_TOKEN, STATE_INST, STATE_SEND } STATE deriving (Bits, Eq);
+typedef enum { FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_INST, FETCH_STATE_SEND } FETCH_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch ();
 
@@ -26,7 +26,7 @@ module [HASIM_MODULE] mkFetch ();
 
     Connection_Client#(TOKEN,UNIT)                     rewindToToken  <- mkConnection_Client("funcp_rewindToToken");
 
-    Reg#(STATE) state <- mkReg(STATE_REWIND);
+    Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_REWIND);
 
     Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
 
@@ -37,7 +37,7 @@ module [HASIM_MODULE] mkFetch ();
     //outports[0] = outQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
-    rule rewind (state == STATE_REWIND);
+    rule rewind (state == FETCH_STATE_REWIND);
         local_ctrl.startModelCC();
         model_cycle.send(?);
         let x <- rewindQ.receive();
@@ -48,42 +48,42 @@ module [HASIM_MODULE] mkFetch ();
                 rewindToToken.makeReq(tok);
                 pc <= a;
                 epoch <= epoch + 1;
-                state <= STATE_REW_RESP;
+                state <= FETCH_STATE_REW_RESP;
             end
         end
         else
-            state <= STATE_TOKEN;
+            state <= FETCH_STATE_TOKEN;
     endrule
 
-    rule rewindResp (state == STATE_REW_RESP);
+    rule rewindResp (state == FETCH_STATE_REW_RESP);
         rewindToToken.deq();
-        state <= STATE_TOKEN;
+        state <= FETCH_STATE_TOKEN;
     endrule
 
-    rule token (state == STATE_TOKEN && outQ.canSend);
+    rule token (state == FETCH_STATE_TOKEN && outQ.canSend);
         newInFlight.makeReq(?);
-        state <= STATE_INST;
+        state <= FETCH_STATE_INST;
     endrule
 
-    rule pass (state == STATE_TOKEN);
+    rule pass (state == FETCH_STATE_TOKEN);
         outQ.pass();
-        state <= STATE_REWIND;
+        state <= FETCH_STATE_REWIND;
     endrule
 
-    rule inst (state == STATE_INST);
+    rule inst (state == FETCH_STATE_INST);
         newInFlight.deq();
         let tok = newInFlight.getResp();
         tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
         getInstruction.makeReq(tuple2(tok,pc));
         pc <= pc + 4;
-        state <= STATE_SEND;
+        state <= FETCH_STATE_SEND;
     endrule
 
-    rule done (state == STATE_SEND);
+    rule done (state == FETCH_STATE_SEND);
         getInstruction.deq();
         let inst = getInstruction.getResp();
         outQ.send(Valid(inst));
-        state <= STATE_REWIND;
+        state <= FETCH_STATE_REWIND;
     endrule
 
 endmodule

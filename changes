@@ -33,3 +33,22 @@ Directory modules/hasim/timing-models/inorder
 Five stage pipeline model using StallPorts.
 
 Probably doesn't work yet.
+
+----------
+nikhil      Date: Tue Jun 24 12:44:04 CDT 2008  CSN: CSN-hasim-models-3
+                  Tue Jun 24 17:44:04 UTC 2008
+
+
+Directory config/pm/hasim-models/5stage
+ 5stage_hybrid_exe.apm     Locally Modified            2 
+
+Directory modules/hasim/timing-models/inorder
+ 5stage.awb                Locally Modified            2 
+ Fetch.bsv                 Locally Modified            2 
+ WriteBack.bsv             Locally Modified            2 
+ Mem.bsv                   Locally Modified            2 
+ Execute.bsv               Locally Modified            2 
+ Decode.bsv                Locally Modified            2 
+
+Make hasim_cpu a synthesis boundary.
+Needed to change some enum names to avoid namespace collision.
