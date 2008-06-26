@@ -7,7 +7,7 @@
 %attributes hasim
 
 %public CPU.bsv
-%private PipelineTypes.bsv Fetch.bsv Decode.bsv Execute.bsv Mem.bsv WriteBack.bsv
+%private DebugFile.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Execute.bsv Mem.bsv WriteBack.bsv
 
 %param SYNTH_BOUNDARY mkCPU "Name of synthesis boundary"
 

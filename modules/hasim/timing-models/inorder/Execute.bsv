@@ -4,12 +4,15 @@ import hasim_modellib::*;
 import hasim_isa::*;
 import module_local_controller::*;
 
-import PipelineTypes::*;
+//import PipelineTypes::*;
+import FShow::*;
 import Vector::*;
 
 typedef enum { EXECUTE_STATE_EXEC, EXECUTE_STATE_WORK } EXECUTE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkExecute ();
+
+    DebugFile debug <- mkDebugFile("pipe_execute.out", "PIPE: EXECUTE:\t");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("dec2exe");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("exe2mem");
@@ -37,7 +40,8 @@ module [HASIM_MODULE] mkExecute ();
 
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
 
-    rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& !good_epoch(tok));
+    rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .bundle } &&& !good_epoch(tok));
+        debug <= fshow("FLUSH: ") + fshow(tok);
         local_ctrl.startModelCC();
         let x <- inQ.receive();
         if (outQ.canSend)
@@ -45,18 +49,20 @@ module [HASIM_MODULE] mkExecute ();
         else
             outQ.pass();
         rewindQ.send(Invalid);
-        busQ.send(Invalid);
+        busQ.send(Valid(bundle.dests));
     endrule
 
     rule exec (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
         local_ctrl.startModelCC();
         if (outQ.canSend)
         begin
+            debug <= fshow("EXEC: ") + fshow(tok);
             getResults.makeReq(tok);
             state <= EXECUTE_STATE_WORK;
         end
         else
         begin
+           debug <= fshow("STALL PROPAGATED");
            inQ.pass();
            outQ.pass();
            rewindQ.send(Invalid);
@@ -66,6 +72,7 @@ module [HASIM_MODULE] mkExecute ();
 
     rule bubble (state == EXECUTE_STATE_EXEC &&& inQ.peek() == Invalid);
         local_ctrl.startModelCC();
+        debug <= fshow("BUBBLE");
         let x <- inQ.receive();
         if (outQ.canSend)
             outQ.send(Invalid);
@@ -87,6 +94,7 @@ module [HASIM_MODULE] mkExecute ();
                 begin
                     epoch <= epoch + 1;
                     rewindQ.send(Valid(tuple2(tok, Valid(addr))));
+                    debug <= fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch);
                 end
               tagged RBranchNotTaken .addr:
                 begin
@@ -107,7 +115,6 @@ module [HASIM_MODULE] mkExecute ();
                 end
             endcase
             outQ.send(Valid(tuple2(tok, bundle)));
-            rewindQ.send(Invalid);
             busQ.send(Invalid);
             state <= EXECUTE_STATE_EXEC;
         end

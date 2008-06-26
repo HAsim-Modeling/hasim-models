@@ -4,12 +4,15 @@ import hasim_modellib::*;
 import hasim_isa::*;
 import module_local_controller::*;
 
-import PipelineTypes::*;
+//import PipelineTypes::*;
+import FShow::*;
 import Vector::*;
 
-typedef enum { DECODE_STATE_BUS, DECODE_STATE_INST, DECODE_STATE_DEP, DECODE_STATE_SEND } DECODE_STATE deriving (Bits, Eq);
+typedef enum { DECODE_STATE_BUS1, DECODE_STATE_BUS2, DECODE_STATE_BUS3, DECODE_STATE_INST, DECODE_STATE_DEP, DECODE_STATE_SEND } DECODE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkDecode ();
+
+    DebugFile debug <- mkDebugFile("pipe_decode.out", "PIPE: DECODE:\t");
 
     StallPort_Receive#(Tuple2#(TOKEN,ISA_INSTRUCTION)) inQ <- mkStallPort_Receive("fet2dec");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))            outQ <- mkStallPort_Send   ("dec2exe");
@@ -21,7 +24,7 @@ module [HASIM_MODULE] mkDecode ();
 
     Connection_Client#(TOKEN, Tuple2#(TOKEN, ISA_DEPENDENCY_INFO)) getDependencies <- mkConnection_Client("funcp_getDependencies");
 
-    Reg#(DECODE_STATE) state <- mkReg(DECODE_STATE_BUS);
+    Reg#(DECODE_STATE) state <- mkReg(DECODE_STATE_BUS1);
     Reg#(Maybe#(Tuple2#(TOKEN, ISA_DEPENDENCY_INFO))) memoDependencies <- mkReg(Invalid);
 
     //Local Controller
@@ -34,16 +37,18 @@ module [HASIM_MODULE] mkDecode ();
     //outports[0] = outQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
-    Vector#(FUNCP_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
-
-    Integer numIsaArchRegisters = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
+    Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
     Integer numFuncpPhyRegisters = valueof(FUNCP_PHYSICAL_REGS);
 
+    Vector#(FUNCP_PHYSICAL_REGS,Bool) prfValid_init = newVector();
+
     for (Integer i = 0; i < numIsaArchRegisters; i = i + 1)
-        prfValid[i] <- mkReg(True);
+        prfValid_init[i] = True;
 
     for (Integer i = numIsaArchRegisters; i < numFuncpPhyRegisters; i = i + 1)
-        prfValid[i] <- mkReg(False);
+        prfValid_init[i] = False;
+
+    Reg#(Vector#(FUNCP_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
 
     function Bool readyToGo(ISA_SRC_MAPPING srcmap);
         Bool rdy = True;
@@ -57,11 +62,25 @@ module [HASIM_MODULE] mkDecode ();
 
     function Action markPRFInvalid(ISA_DST_MAPPING dstmap);
       action
+        Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
             if (dstmap[i] matches tagged Valid { .ar, .pr })
-                prfValid[i] <= False;
+                prf_valid[pr] = False;
         end
+        prfValid <= prf_valid;
+      endaction
+    endfunction
+
+    function Action markPRFValid(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dst);
+      action
+        Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+        for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
+        begin
+            if (dst[i] matches tagged Valid .pr)
+                prf_valid[pr] = True;
+        end
+        prfValid <= prf_valid;
       endaction
     endfunction
 
@@ -80,33 +99,38 @@ module [HASIM_MODULE] mkDecode ();
                         dests: dests };
     endfunction
 
-    rule bus (state == DECODE_STATE_BUS);
+    rule bus1 (state == DECODE_STATE_BUS1);
         local_ctrl.startModelCC();
-        for (Integer i = 0; i < 3; i = i + 1)
-        begin
-            let mpregs <- busQ[i].receive();
-            if (mpregs matches tagged Valid .pregs)
-            begin
-                for (Integer j = 0; j < valueof(ISA_MAX_DSTS); j = j + 1)
-                begin
-                    if (pregs[j] matches tagged Valid .p)
-                        prfValid[p] <= True;
-                end
-            end
-        end
+        let mpregs <- busQ[0].receive();
+        if (mpregs matches tagged Valid .pregs)
+            markPRFValid(pregs);
+        state <= DECODE_STATE_BUS2;
+    endrule
+    rule bus2 (state == DECODE_STATE_BUS2);
+        let mpregs <- busQ[1].receive();
+        if (mpregs matches tagged Valid .pregs)
+            markPRFValid(pregs);
+        state <= DECODE_STATE_BUS3;
+    endrule
+    rule bus3 (state == DECODE_STATE_BUS3);
+        let mpregs <- busQ[2].receive();
+        if (mpregs matches tagged Valid .pregs)
+            markPRFValid(pregs);
         state <= DECODE_STATE_INST;
     endrule
 
     rule stall (state == DECODE_STATE_INST && !outQ.canSend);
+        debug <= fshow("STALL PROPAGATED");
         inQ.pass();
         outQ.pass();
-        state <= DECODE_STATE_BUS;
+        state <= DECODE_STATE_BUS1;
     endrule
 
     rule bubble (state == DECODE_STATE_INST && outQ.canSend && !isValid(inQ.peek));
+        debug <= fshow("BUBBLE");
         let x <- inQ.receive();
         outQ.send(Invalid);
-        state <= DECODE_STATE_BUS;
+        state <= DECODE_STATE_BUS1;
     endrule
 
     rule inst (state == DECODE_STATE_INST &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .* });
@@ -116,8 +140,10 @@ module [HASIM_MODULE] mkDecode ();
     endrule
 
     rule dep (state == DECODE_STATE_DEP);
-        if (!isValid(memoDependencies))
+        if (!isValid(memoDependencies)) begin
             memoDependencies <= Valid(getDependencies.getResp());
+            getDependencies.deq();
+        end
         state <= DECODE_STATE_SEND;
     endrule
 
@@ -128,15 +154,19 @@ module [HASIM_MODULE] mkDecode ();
             markPRFInvalid(dstmap);
             let mtup <- inQ.receive();
             if (mtup matches tagged Valid { .tok2, .inst })
+            begin
                 outQ.send(Valid(tuple2(tok,makeBundle(inst, dstmap))));
+                debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(inst);
+            end
             memoDependencies <= Invalid;
         end
         else
         begin
+            debug <= fshow("STALL ON DEPENDENCY: ") + fshow(tok);
             inQ.pass();
             outQ.send(Invalid);
         end
-        state <= DECODE_STATE_BUS;
+        state <= DECODE_STATE_BUS1;
     endrule
 
 endmodule

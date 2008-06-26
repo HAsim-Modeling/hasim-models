@@ -52,3 +52,22 @@ Directory modules/hasim/timing-models/inorder
 
 Make hasim_cpu a synthesis boundary.
 Needed to change some enum names to avoid namespace collision.
+
+----------
+nikhil      Date: Thu Jun 26 14:08:56 CDT 2008  CSN: CSN-hasim-models-4
+Thu Jun 26 19:08:56 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+CPU.bsv                   Locally Modified            3 
+5stage.awb                Locally Modified            3 
+Fetch.bsv                 Locally Modified            3 
+PipelineTypes.bsv         Locally Modified            3 
+WriteBack.bsv             Locally Modified            3 
+Mem.bsv                   Locally Modified            3 
+Execute.bsv               Locally Modified            3 
+Decode.bsv                Locally Modified            3 
+
+- Several bugfixes in the new fivestage model.
+- Passes hello and memory_tests_aligned, however the datapath debug output is
+  different from unpipelined(!!)

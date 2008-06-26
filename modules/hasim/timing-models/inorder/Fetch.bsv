@@ -6,11 +6,14 @@ import module_local_controller::*;
 
 `include "asim/provides/funcp_simulated_memory.bsh"
 
+import FShow::*;
 import Vector::*;
 
 typedef enum { FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_INST, FETCH_STATE_SEND } FETCH_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch ();
+
+    DebugFile debug <- mkDebugFile("pipe_fetch.out", "PIPE: FETCH:\t");
 
     Reg#(ISA_ADDRESS) pc <- mkReg(`PROGRAM_START_ADDR);
 
@@ -45,6 +48,7 @@ module [HASIM_MODULE] mkFetch ();
         begin
             if (ma matches tagged Valid .a)
             begin
+                debug <= fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a);
                 rewindToToken.makeReq(tok);
                 pc <= a;
                 epoch <= epoch + 1;
@@ -66,6 +70,7 @@ module [HASIM_MODULE] mkFetch ();
     endrule
 
     rule pass (state == FETCH_STATE_TOKEN);
+        debug <= fshow("PASS");
         outQ.pass();
         state <= FETCH_STATE_REWIND;
     endrule
@@ -75,6 +80,7 @@ module [HASIM_MODULE] mkFetch ();
         let tok = newInFlight.getResp();
         tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
         getInstruction.makeReq(tuple2(tok,pc));
+        debug <= fshow("FETCHINST: ") + fshow(tok) + $format(" ADDR:0x%h", pc);
         pc <= pc + 4;
         state <= FETCH_STATE_SEND;
     endrule
