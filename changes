@@ -71,3 +71,13 @@ Decode.bsv                Locally Modified            3
 - Several bugfixes in the new fivestage model.
 - Passes hello and memory_tests_aligned, however the datapath debug output is
   different from unpipelined(!!)
+
+----------
+nikhil      Date: Thu Jun 26 14:12:38 CDT 2008  CSN: CSN-hasim-models-5
+                  Thu Jun 26 19:12:38 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ DebugFile.bsv             Locally Added               0 
+
+DebugFile: module to aid debugging
