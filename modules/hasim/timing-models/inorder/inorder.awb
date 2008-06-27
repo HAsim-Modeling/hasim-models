@@ -1,7 +1,7 @@
 %AWB_START
 
-%name Hasim pipelined CPU
-%desc Hasim pipelined CPU
+%name Inorder CPU
+%desc Inorder CPU
 %provides hasim_cpu
 
 %attributes hasim

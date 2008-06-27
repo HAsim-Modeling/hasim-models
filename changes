@@ -81,3 +81,31 @@ Directory modules/hasim/timing-models/inorder
  DebugFile.bsv             Locally Added               0 
 
 DebugFile: module to aid debugging
+
+----------
+nikhil      Date: Fri Jun 27 18:40:33 CDT 2008  CSN: CSN-hasim-models-6
+                  Fri Jun 27 23:40:33 UTC 2008
+
+
+Directory config/pm/hasim-models
+ inorder/                  Locally Added               0 
+
+Directory config/pm/hasim-models/inorder
+ inorder_alpha_exe.apm     Locally Added               0 
+ inorder_alpha_htg.apm     Locally Added               0 
+ inorder_smips_exe.apm     Locally Added               0 
+ inorder_smips_htg.apm     Locally Added               0 
+
+Directory config/pm/hasim-models
+ 5stage/                   Locally Removed             5 
+
+Directory config/pm/hasim-models/5stage
+ 5stage_hybrid_exe.apm     Locally Removed             5 
+
+Directory modules/hasim/timing-models/inorder
+ 5stage.awb                Locally Removed             5 
+ inorder.awb               Locally Added               0 
+
+- changed the new pipeline model name to "inorder" instead of "5stage"
+- added apms for smips
+- added apms for HTG-v5-PCIe

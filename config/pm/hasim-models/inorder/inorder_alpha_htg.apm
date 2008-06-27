@@ -1,10 +1,10 @@
 
 [Global]
 SaveParameters=0
-Description=5-Stage Model Hybrid Simulation
-File=5stage_hybrid_exe
+Description=Inorder Alpha HTG-v5-PCIe
+File=inorder_alpha_htg
 Version=2.1
-Name=5-Stage Model Hybrid Simulation
+Name=Inorder Alpha HTG-v5-PCIe
 Type=HAsim
 Class=Asim::Model
 
@@ -14,7 +14,7 @@ hasim_chip=Uniprocessor chip
 hasim_isa=Alpha ISA Definition
 
 [Model]
-DefaultAttributes=hasim 5-stage hybrid simulation
+DefaultAttributes=hasim inorder alpha htg
 model=HAsim Hybrid Model Foundation
 
 [Hasim - Hardware (fpga) based system]
@@ -22,7 +22,7 @@ Packagehint=hasim
 File=modules/system/single_chip_system/hasim_system.awb
 
 [Uniprocessor chip/Requires]
-hasim_cpu=Hasim pipelined CPU
+hasim_cpu=Inorder CPU
 hasim_memory=magic memory
 
 [Uniprocessor chip]
@@ -34,7 +34,7 @@ File=modules/memory/magic_memory.awb
 Packagehint=hasim-mips
 
 [FPGA Environment]
-File=config/pm/hasim/submodels/fpgaenv/hasim-fpgaenv-hybrid-sim.apm
+File=config/pm/hasim/submodels/fpgaenv/hasim-fpgaenv-htg-v5-pcie.apm
 Packagehint=platforms
 
 [Hasim Standard Controller]
@@ -59,10 +59,13 @@ Packagehint=hasim-alpha
 File=config/pm/hasim/submodels/common/hasim_common.apm
 Packagehint=hasim
 
-[Hasim pipelined CPU]
-File=modules/hasim/timing-models/inorder/5stage.awb
-Packagehint=hasim-models
-
 [Alpha ISA Definition]
 File=modules/hasim/functional-partition/isa/definition/isa_definition_alpha.awb
 Packagehint=hasim-alpha
+
+[Inorder CPU]
+File=modules/hasim/timing-models/inorder/inorder.awb
+Packagehint=hasim-models
+
+[HAsim Hybrid Model Foundation/Params]
+MAKE_ALL_TARGET=bit
