@@ -109,3 +109,69 @@ Directory modules/hasim/timing-models/inorder
 - changed the new pipeline model name to "inorder" instead of "5stage"
 - added apms for smips
 - added apms for HTG-v5-PCIe
+
+----------
+
+----------
+abhattac    Date: Wed Jul  2 17:05:19 EDT 2008  CSN: CSN-hasim-models-7
+                  Wed Jul  2 21:05:19 UTC 2008
+
+
+Directory config/pm/hasim-models/inorder
+ inorder_alpha_exe.apm     Locally Modified            6 
+ inorder_alpha_htg.apm     Locally Modified            6 
+ inorder_smips_exe.apm     Locally Modified            6 
+ inorder_smips_htg.apm     Locally Modified            6 
+
+Directory config/pm/hasim-models
+ unpipelined-with-cache/   Locally Added               0 
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Added               0 
+
+Directory admin
+ mytags                    Locally Modified            6 
+
+Directory modules/hasim/timing-models/inorder
+ CPU.bsv                   Locally Modified            6 
+ Fetch.bsv                 Locally Modified            6 
+ inorder.awb               Locally Modified            6 
+
+Directory modules/hasim/timing-models
+ caches/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/caches
+ icache.awb                Locally Added               0 
+ ICache.bsv                Locally Added               0 
+ ICache.direct.bsv         Locally Added               0 
+
+Directory modules/hasim/timing-models
+ replacement-algorithms/   Locally Added               0 
+
+Directory modules/hasim/timing-models/replacement-algorithms
+ LRU.awb                   Locally Added               0 
+ LRU.bsv                   Locally Added               0 
+
+Directory modules/hasim/timing-models
+ unpipelined-with-cache/   Locally Added               0 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ unpipelined_cpu.dic       Locally Added               0 
+ unpipelined_cpu.awb       Locally Added               0 
+ UnpipelinedCPU.bsv        Locally Added               0 
+
+Directory modules/hasim/timing-models
+ memory/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/memory
+ memory.awb                Locally Added               0 
+ CacheMemory.bsv           Locally Added               0 
+
+Directory .
+ changes                   Locally Modified            6 
+
+Checked in Instruction Cache integration with Unpipelined
+Model. ICache is direct-mapped and blocking. CPU uses 0 latency APorts
+to communicate with Cache module. The Cache module uses 10 latency
+APorts to communicate with dummy memory module on a cache miss.The
+Also modified in-order pipeline model to integrate this ICache. 

@@ -1,10 +1,10 @@
 
 [Global]
 SaveParameters=0
-Description=Inorder Alpha HTG-v5-PCIe
-File=inorder_alpha_htg
+Description=Unpipelined Alpha with Cache 
+File=alpha_unpipelined_with_cache_exe
 Version=2.1
-Name=Inorder Alpha HTG-v5-PCIe
+Name=Simulation Unpipelined Alpha with Cache 
 Type=HAsim
 Class=Asim::Model
 
@@ -14,7 +14,7 @@ hasim_chip=Uniprocessor chip
 hasim_isa=Alpha ISA Definition
 
 [Model]
-DefaultAttributes=hasim inorder alpha htg
+DefaultAttributes=hasim unpipelined cache alpha simulation
 model=HAsim Hybrid Model Foundation
 
 [Hasim - Hardware (fpga) based system]
@@ -22,7 +22,7 @@ Packagehint=hasim
 File=modules/system/single_chip_system/hasim_system.awb
 
 [Uniprocessor chip/Requires]
-hasim_cpu=Inorder CPU
+hasim_cpu=Hasim Unpipelined CPU With Cache
 hasim_memory=magic memory
 
 [Uniprocessor chip]
@@ -34,7 +34,7 @@ File=modules/memory/magic_memory.awb
 Packagehint=hasim-mips
 
 [FPGA Environment]
-File=config/pm/hasim/submodels/fpgaenv/hasim-fpgaenv-htg-v5-pcie.apm
+File=config/pm/hasim/submodels/fpgaenv/hasim-fpgaenv-hybrid-sim.apm
 Packagehint=platforms
 
 [Hasim Standard Controller]
@@ -63,23 +63,24 @@ Packagehint=hasim
 File=modules/hasim/functional-partition/isa/definition/isa_definition_alpha.awb
 Packagehint=hasim-alpha
 
-[Inorder CPU]
-File=modules/hasim/timing-models/inorder/inorder.awb
-Packagehint=hasim-models
-
-[HAsim Hybrid Model Foundation/Params]
-MAKE_ALL_TARGET=bit
-
 [Instruction Cache hierarchy/Requires]
 hasim_cache_memory=Cache hierarchy
 
-[Inorder CPU/Requires]
-hasim_icache=Instruction Cache hierarchy
+[Hasim Unpipelined CPU With Cache]
+File=modules/hasim/timing-models/unpipelined-with-cache/unpipelined_cpu.awb
+Packagehint=hasim-models
 
 [Cache hierarchy]
 File=modules/hasim/timing-models/memory/memory.awb
 Packagehint=hasim-models
 
+[Hasim Unpipelined CPU With Cache/Requires]
+hasim_icache=Instruction Cache hierarchy
+
 [Instruction Cache hierarchy]
 File=modules/hasim/timing-models/caches/icache.awb
 Packagehint=hasim-models
+
+[Instruction Cache hierarchy/Params]
+ICACHE_IDX_BITS=5
+ICACHE_LINE_BITS=8

@@ -1,0 +1,20 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name LRU
+# %desc LRU
+# %provides hasim_cache_replacement_algorithm
+#
+# %attributes hasim cache LRU algorithm
+#
+# %public LRU.bsv 
+#
+# %param SYNTH_BOUNDARY mkCacheMemory "Name of synthesis boundary"
+# %AWB_END
+# */

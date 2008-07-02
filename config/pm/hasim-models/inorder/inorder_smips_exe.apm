@@ -66,3 +66,17 @@ Packagehint=hasim-mips
 [Inorder CPU]
 File=modules/hasim/timing-models/inorder/inorder.awb
 Packagehint=hasim-models
+
+[Instruction Cache hierarchy/Requires]
+hasim_cache_memory=Cache hierarchy
+
+[Cache hierarchy]
+File=modules/hasim/timing-models/memory/memory.awb
+Packagehint=hasim-models
+
+[Instruction Cache hierarchy]
+File=modules/hasim/timing-models/caches/icache.awb
+Packagehint=hasim-models
+
+[Inorder CPU/Requires]
+hasim_icache=Instruction Cache hierarchy

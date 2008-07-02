@@ -2,6 +2,7 @@
 
 %name Inorder CPU
 %desc Inorder CPU
+%requires hasim_icache
 %provides hasim_cpu
 
 %attributes hasim
