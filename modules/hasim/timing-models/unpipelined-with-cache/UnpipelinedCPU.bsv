@@ -15,13 +15,14 @@
 import Vector::*;
 
 //HASim library imports
-import hasim_common::*;
-import soft_connections::*;
-import hasim_modellib::*;
-import module_local_controller::*;
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/soft_connections.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/hasim_controller.bsh"
+`include "asim/provides/module_local_controller.bsh"
 
 //Model-specific imports
-import hasim_isa::*;
+`include "asim/provides/hasim_isa.bsh"
 
 `include "asim/dict/EVENTS_CPU.bsh"
 `include "asim/dict/STATS_CPU.bsh"
@@ -81,6 +82,10 @@ module [HASim_Module] mkCPU
   Connection_Send#(Bool)
   //...
   link_model_cycle <- mkConnection_Send("model_cycle");
+
+  Connection_Send#(MODEL_NUM_COMMITS)
+  //...
+  link_model_commit <- mkConnection_Send("model_commits");
 
   Connection_Client#(Bit#(1), TOKEN)
   //...
@@ -479,6 +484,7 @@ module [HASim_Module] mkCPU
               baseTick <= baseTick + 1;
 	      debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, baseTick));
 	      event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
+              link_model_commit.send(1);
               stat_com.incr();
             end
 	    madeReq <= False;
@@ -512,6 +518,7 @@ module [HASim_Module] mkCPU
 	    
 	    debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, baseTick));
 	    event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
+            link_model_commit.send(1);
             stat_com.incr();
 	    
 	    stage <= TOK;

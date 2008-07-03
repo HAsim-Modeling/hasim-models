@@ -175,3 +175,15 @@ Model. ICache is direct-mapped and blocking. CPU uses 0 latency APorts
 to communicate with Cache module. The Cache module uses 10 latency
 APorts to communicate with dummy memory module on a cache miss.The
 Also modified in-order pipeline model to integrate this ICache. 
+----------
+mcadler     Date: Thu Jul  3 16:27:02 EDT 2008  CSN: CSN-hasim-models-8
+                  Thu Jul  3 20:27:02 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ WriteBack.bsv             Locally Modified            7 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ UnpipelinedCPU.bsv        Locally Modified            7 
+
+Add a commit message to the controller so heartbeat can calculate IPC.

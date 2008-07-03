@@ -3,6 +3,7 @@ import soft_connections::*;
 import hasim_modellib::*;
 import hasim_isa::*;
 import module_local_controller::*;
+`include "asim/provides/hasim_controller.bsh"
 
 import FShow::*;
 import Vector::*;
@@ -29,6 +30,9 @@ module [HASIM_MODULE] mkWriteBack ();
     //outports[0] = busQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
+    // Number of commits (to go along with heartbeat)
+    Connection_Send#(MODEL_NUM_COMMITS) linkModelCommit <- mkConnection_Send("model_commits");
+
     rule bubble (state == WB_STATE_REQ && !isValid(inQ.peek));
         debug <= $format("BUBBLE");
         local_ctrl.startModelCC();
@@ -38,6 +42,7 @@ module [HASIM_MODULE] mkWriteBack ();
 
     rule results (state == WB_STATE_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         local_ctrl.startModelCC();
+        linkModelCommit.send(1);
         commitResults.makeReq(tok);
         state <= WB_STATE_RESULTS;
     endrule
