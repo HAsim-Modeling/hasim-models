@@ -6,4 +6,5 @@ Lock=asim-hasim-models
 Description=Description of hasim-models
 Name=hasim-models
 Tag=HEAD
-CSN=CSN-hasim-models-8
+CSN=CSN-hasim-models-9
+Dependencies=hasim/HEAD

@@ -187,3 +187,13 @@ Directory modules/hasim/timing-models/unpipelined-with-cache
  UnpipelinedCPU.bsv        Locally Modified            7 
 
 Add a commit message to the controller so heartbeat can calculate IPC.
+
+----------
+mcadler     Date: Thu Jul  3 16:32:16 EDT 2008  CSN: CSN-hasim-models-9
+                  Thu Jul  3 20:32:16 UTC 2008
+
+
+Directory admin/packages
+ hasim-models              Locally Modified            8 
+
+Depend in hasim
