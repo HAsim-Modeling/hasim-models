@@ -12,7 +12,7 @@ typedef enum { DECODE_STATE_BUS1, DECODE_STATE_BUS2, DECODE_STATE_BUS3, DECODE_S
 
 module [HASIM_MODULE] mkDecode ();
 
-    DebugFile debug <- mkDebugFile("pipe_decode.out", "PIPE: DECODE:\t");
+    DebugFile debug <- mkDebugFile("pipe_decode.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,ISA_INSTRUCTION)) inQ <- mkStallPort_Receive("fet2dec");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))            outQ <- mkStallPort_Send   ("dec2exe");
@@ -28,13 +28,13 @@ module [HASIM_MODULE] mkDecode ();
     Reg#(Maybe#(Tuple2#(TOKEN, ISA_DEPENDENCY_INFO))) memoDependencies <- mkReg(Invalid);
 
     //Local Controller
-    Vector#(0, Port_Control) inports  = newVector();
-    Vector#(0, Port_Control) outports = newVector();
-    //inports[0]  = inQ.ctrl;
-    //inports[1]  = busQ[0];
-    //inports[2]  = busQ[1];
-    //inports[3]  = busQ[2];
-    //outports[0] = outQ.ctrl;
+    Vector#(4, Port_Control) inports  = newVector();
+    Vector#(1, Port_Control) outports = newVector();
+    inports[0]  = inQ.ctrl;
+    inports[1]  = busQ[0].ctrl;
+    inports[2]  = busQ[1].ctrl;
+    inports[3]  = busQ[2].ctrl;
+    outports[0] = outQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
     Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
@@ -101,6 +101,7 @@ module [HASIM_MODULE] mkDecode ();
 
     rule bus1 (state == DECODE_STATE_BUS1);
         local_ctrl.startModelCC();
+        debug.startModelCC();
         let mpregs <- busQ[0].receive();
         if (mpregs matches tagged Valid .pregs)
             markPRFValid(pregs);

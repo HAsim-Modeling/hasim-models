@@ -12,7 +12,7 @@ typedef enum { WB_STATE_REQ, WB_STATE_RESULTS, WB_STATE_STORE, WB_STATE_SEND } W
 
 module [HASIM_MODULE] mkWriteBack ();
 
-    DebugFile debug <- mkDebugFile("pipe_writeback.out", "PIPE: WB:\t");
+    DebugFile debug <- mkDebugFile("pipe_writeback.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("mem2wb");
 
@@ -24,10 +24,10 @@ module [HASIM_MODULE] mkWriteBack ();
     Reg#(WB_STATE) state <- mkReg(WB_STATE_REQ);
 
     //Local Controller
-    Vector#(0, Port_Control) inports  = newVector();
-    Vector#(0, Port_Control) outports = newVector();
-    //inports[0]  = inQ.ctrl;
-    //outports[0] = busQ.ctrl;
+    Vector#(1, Port_Control) inports  = newVector();
+    Vector#(1, Port_Control) outports = newVector();
+    inports[0]  = inQ.ctrl;
+    outports[0] = busQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
     // Number of commits (to go along with heartbeat)
@@ -36,12 +36,14 @@ module [HASIM_MODULE] mkWriteBack ();
     rule bubble (state == WB_STATE_REQ && !isValid(inQ.peek));
         debug <= $format("BUBBLE");
         local_ctrl.startModelCC();
+        debug.startModelCC();
         inQ.pass();
         busQ.send(Invalid);
     endrule
 
     rule results (state == WB_STATE_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         local_ctrl.startModelCC();
+        debug.startModelCC();
         linkModelCommit.send(1);
         commitResults.makeReq(tok);
         state <= WB_STATE_RESULTS;

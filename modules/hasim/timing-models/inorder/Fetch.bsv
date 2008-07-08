@@ -13,11 +13,11 @@ import module_local_controller::*;
 import FShow::*;
 import Vector::*;
 
-typedef enum { FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_ICACHE_REQ, FETCH_STATE_INST, FETCH_STATE_SEND } FETCH_STATE deriving (Bits, Eq);
+typedef enum { FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_ICACHE_REQ, FETCH_STATE_INST, FETCH_STATE_SEND, FETCH_STATE_PASS } FETCH_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch ();
 
-    DebugFile debug <- mkDebugFile("pipe_fetch.out", "PIPE: FETCH:\t");
+    DebugFile debug <- mkDebugFile("pipe_fetch.out");
 
     Reg#(ISA_ADDRESS) pc <- mkReg(`PROGRAM_START_ADDR);
 
@@ -35,36 +35,29 @@ module [HASIM_MODULE] mkFetch ();
 
     Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_REWIND);
 
-   Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
-   
-   // ABHISHEK add
-   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache");
-   
-   Port_Receive#(Tuple2#(TOKEN, CacheOutput)) port_from_icache <- mkPort_Receive("icache_to_cpu", 0);
-   
-   Reg#(Bool) waitForICache <- mkReg(False);
-   // ABHISHEK end
+    Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
+
+    // ABHISHEK add
+    Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache");
+
+    Port_Receive#(Tuple2#(TOKEN, CacheOutput)) port_from_icache <- mkPort_Receive("icache_to_cpu", 0);
+
+    Reg#(Bool) waitForICache <- mkReg(False);
+    // ABHISHEK end
 
     //Local Controller
-   /*
-    Vector#(0, Port_Control) inports  = newVector();
-    Vector#(0, Port_Control) outports = newVector();
-    */
-    //inports[0]  = inQ.ctrl;
-    //outports[0] = outQ.ctrl;
-   
-   // ABHISHEK add
-   Vector#(0, Port_Control) inports = newVector();
-   Vector#(0, Port_Control) outports  = newVector();
-   inports[0] = port_from_icache.ctrl;
-   outports[0] = port_to_icache.ctrl;
-   // ABHISHEK end 
-   
-   
+    Vector#(2, Port_Control) inports  = newVector();
+    Vector#(2, Port_Control) outports = newVector();
+    inports[0]  = rewindQ.ctrl;
+    inports[1]  = port_from_icache.ctrl;
+    outports[0] = outQ.ctrl;
+    outports[1] = port_to_icache.ctrl;
+
     LocalController local_ctrl <- mkLocalController(inports, outports);
    
     rule rewind (state == FETCH_STATE_REWIND);
         local_ctrl.startModelCC();
+        debug.startModelCC();
         model_cycle.send(?);
         let x <- rewindQ.receive();
         if (x matches tagged Valid { .tok, .ma })
@@ -101,15 +94,18 @@ module [HASIM_MODULE] mkFetch ();
 	  end
     endrule
 
-    rule pass (state == FETCH_STATE_TOKEN);
-        debug <= fshow("PASS");
+    rule pass (state == FETCH_STATE_TOKEN && !outQ.canSend);
         outQ.pass();
-       state <= FETCH_STATE_REWIND;
-       
-       port_to_icache.send(tagged Invalid);
-       let icache_resp <- port_from_icache.receive();       
+        port_to_icache.send(tagged Invalid);
+        state <= FETCH_STATE_PASS;
     endrule
-   
+    rule pass2 (state == FETCH_STATE_PASS);
+        debug <= fshow("PASS");
+        state <= FETCH_STATE_REWIND;
+        let icache_resp <- port_from_icache.receive();
+        // assert icache_resp == Invalid.
+    endrule
+
    rule icachefetch (state == FETCH_STATE_ICACHE_REQ);
       newInFlight.deq();
       let tok = newInFlight.getResp();
@@ -126,9 +122,10 @@ module [HASIM_MODULE] mkFetch ();
       case (icache_ret) matches
 	 tagged Invalid:  // miss is still begin serviced
 	    begin
+               debug <= fshow("STALL ON ICACHE MISS");
 	       waitForICache <= True;
 	       //port_to_icache.send(tagged Invalid);
-	       $display ("Invalid");
+	       //$display ("Invalid");
 	    end
 	 
 	 tagged Valid {.icachetok, .icachemsg}:
@@ -138,20 +135,22 @@ module [HASIM_MODULE] mkFetch ();
 		     begin
 			waitForICache <= False;
 			getInstruction.makeReq(tuple2(icachetok,pc));
-			debug <= fshow("FETCHINST: ") + fshow(icachetok) + $format(" ADDR:0x%h", pc);
+			debug <= fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", pc);
 			pc <= pc + 4;
-			$display ("Hit");
+			//$display ("Hit");
 		     end
 		  
 		  tagged Miss_servicing:
 		     begin
+                        debug <= fshow("MISS: STALL");
 			waitForICache <= True;
 			//port_to_icache.send(tagged Invalid);
-			$display ("Miss servicing");
+			//$display ("Miss servicing");
 		     end
 		  
 		  tagged Miss_retry:
 		     begin
+                        debug <= fshow("MISS: RETRY");
 			waitForICache <= True;
 			// not currently implemented
 		     end 
@@ -160,9 +159,9 @@ module [HASIM_MODULE] mkFetch ();
 		     begin
 			waitForICache <= False;
 			getInstruction.makeReq(tuple2(icachetok,pc));
-			debug <= fshow("FETCHINST: ") + fshow(icachetok) + $format(" ADDR:0x%h", pc);
+			debug <= fshow("MISS: ") + fshow(icachetok) + $format(" ADDR:0x%h", pc);
 			pc <= pc + 4;
-			$display ("Miss response");
+			//$display ("Miss response");
 		     end
 	       endcase
 	    end

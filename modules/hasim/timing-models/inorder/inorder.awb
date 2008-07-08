@@ -5,7 +5,7 @@
 %requires hasim_icache
 %provides hasim_cpu
 
-%attributes hasim
+%attributes hasim inorder cpu
 
 %public CPU.bsv
 %private DebugFile.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Execute.bsv Mem.bsv WriteBack.bsv

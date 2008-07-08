@@ -12,7 +12,7 @@ typedef enum { EXECUTE_STATE_EXEC, EXECUTE_STATE_WORK } EXECUTE_STATE deriving (
 
 module [HASIM_MODULE] mkExecute ();
 
-    DebugFile debug <- mkDebugFile("pipe_execute.out", "PIPE: EXECUTE:\t");
+    DebugFile debug <- mkDebugFile("pipe_execute.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("dec2exe");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("exe2mem");
@@ -28,12 +28,12 @@ module [HASIM_MODULE] mkExecute ();
     Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
 
     //Local Controller
-    Vector#(0, Port_Control) inports  = newVector();
-    Vector#(0, Port_Control) outports = newVector();
-    //inports[0]  = inQ.ctrl;
-    //outports[0] = outQ.ctrl;
-    //outports[1] = rewindQ.ctrl;
-    //outports[2] = busQ.ctrl;
+    Vector#(1, Port_Control) inports  = newVector();
+    Vector#(3, Port_Control) outports = newVector();
+    inports[0]  = inQ.ctrl;
+    outports[0] = outQ.ctrl;
+    outports[1] = rewindQ.ctrl;
+    outports[2] = busQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
     Vector#(FUNCP_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
@@ -43,6 +43,7 @@ module [HASIM_MODULE] mkExecute ();
     rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .bundle } &&& !good_epoch(tok));
         debug <= fshow("FLUSH: ") + fshow(tok);
         local_ctrl.startModelCC();
+        debug.startModelCC();
         let x <- inQ.receive();
         if (outQ.canSend)
             outQ.send(Invalid);
@@ -54,6 +55,7 @@ module [HASIM_MODULE] mkExecute ();
 
     rule exec (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
         local_ctrl.startModelCC();
+        debug.startModelCC();
         if (outQ.canSend)
         begin
             debug <= fshow("EXEC: ") + fshow(tok);
@@ -72,6 +74,7 @@ module [HASIM_MODULE] mkExecute ();
 
     rule bubble (state == EXECUTE_STATE_EXEC &&& inQ.peek() == Invalid);
         local_ctrl.startModelCC();
+        debug.startModelCC();
         debug <= fshow("BUBBLE");
         let x <- inQ.receive();
         if (outQ.canSend)
