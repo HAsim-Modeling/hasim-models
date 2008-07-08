@@ -239,3 +239,29 @@ Directory config/pm/hasim-models/inorder
  inorder_smips_htg.apm     Locally Removed             9 
 
 moved apms for inorder from hasim-models repository to the hasim-{alpha,smips} repos.
+
+----------
+mvijayar    Date: Tue Jul  8 16:58:13 EDT 2008  CSN: CSN-hasim-models-12
+                  Tue Jul  8 20:58:13 UTC 2008
+
+
+Directory config/pm/hasim-models
+ out-of-order/             Locally Added               0 
+
+Directory config/pm/hasim-models/out-of-order
+ out-of-order.apm          Locally Added               0 
+
+Directory modules/hasim/timing-models
+ out-of-order/             Locally Added               0 
+
+Directory modules/hasim/timing-models/out-of-order
+ DebugFile.bsv             Locally Added               0 
+ CPU.bsv                   Locally Added               0 
+ Fetch.bsv                 Locally Added               0 
+ PipelineTypes.bsv         Locally Added               0 
+ WriteBack.bsv             Locally Added               0 
+ Mem.bsv                   Locally Added               0 
+ out-of-order.awb          Locally Added               0 
+ Execute.bsv               Locally Added               0 
+ Decode.bsv                Locally Added               0 
+

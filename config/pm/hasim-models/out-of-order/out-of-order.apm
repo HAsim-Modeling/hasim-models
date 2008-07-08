@@ -1,0 +1,68 @@
+
+[Hasim Standard Controller]
+File=config/pm/hasim/submodels/controller/hybrid_standard_controller.apm
+Packagehint=hasim
+
+[HAsim Hybrid Model Foundation]
+File=modules/model/hasim_model.awb
+Packagehint=hasim
+
+[HAsim Hybrid Model Foundation/Requires]
+hasim_common=New Hasim Common Library
+hasim_controller=Hasim Standard Controller
+fpgaenv=FPGA Environment
+hasim_system=Hasim - Hardware (fpga) based system
+
+[Global]
+Type=HAsim
+Version=2.1
+File=out-of-order
+SaveParameters=0
+Class=Asim::Model
+Description=Out of order processor
+Name=Out of order processor
+
+[New Hasim Common Library]
+File=config/pm/hasim/submodels/common/hasim_common.apm
+Packagehint=hasim
+
+[Model]
+DefaultAttributes=hasim
+model=HAsim Hybrid Model Foundation
+
+[FPGA Environment]
+File=config/pm/hasim/submodels/fpgaenv/hasim-fpgaenv-hybrid-sim.apm
+Packagehint=platforms
+
+[Functional Partition Version 3]
+File=config/pm/hasim-alpha/submodels/funcp/alpha_funcp_v3.apm
+Packagehint=hasim-alpha
+
+[Hasim - Hardware (fpga) based system/Requires]
+hasim_isa=Alpha ISA Definition
+hasim_funcp=Functional Partition Version 3
+hasim_chip=Uniprocessor chip
+
+[Hasim - Hardware (fpga) based system]
+File=modules/system/single_chip_system/hasim_system.awb
+Packagehint=hasim
+
+[Alpha ISA Definition]
+File=modules/hasim/functional-partition/isa/definition/isa_definition_alpha.awb
+Packagehint=hasim-alpha
+
+[Uniprocessor chip]
+File=modules/chip/mips/uniprocessor/uniprocessor.awb
+Packagehint=hasim-mips
+
+[Uniprocessor chip/Requires]
+hasim_memory=magic memory
+hasim_cpu=Hasim superscalar out-of-order CPU
+
+[magic memory]
+File=modules/memory/magic_memory.awb
+Packagehint=hasim-mips
+
+[Hasim superscalar out-of-order CPU]
+File=modules/hasim/timing-models/out-of-order/out-of-order.awb
+Packagehint=hasim-models
