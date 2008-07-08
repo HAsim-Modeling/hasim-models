@@ -223,3 +223,19 @@ Directory modules/hasim/timing-models/inorder
   accessed atomically in one rule. This deadlocks when both a-ports
   are 0-delay (which they are right now.)
 - replaced $display's in Fetch by the DebugFile method calls.
+
+----------
+nikhil      Date: Tue Jul  8 14:42:14 CDT 2008  CSN: CSN-hasim-models-11
+                  Tue Jul  8 19:42:14 UTC 2008
+
+
+Directory config/pm/hasim-models
+ inorder/                  Locally Removed             9 
+
+Directory config/pm/hasim-models/inorder
+ inorder_alpha_exe.apm     Locally Removed             9 
+ inorder_alpha_htg.apm     Locally Removed             9 
+ inorder_smips_exe.apm     Locally Removed             9 
+ inorder_smips_htg.apm     Locally Removed             9 
+
+moved apms for inorder from hasim-models repository to the hasim-{alpha,smips} repos.
