@@ -307,3 +307,14 @@ to each miss type.
 Added module for a set-associative cache. Currently operates on a
 simple round-robin replacement algorithm.
 Modified AWB files to set cache parameters through AWB.
+----------
+nikhil      Date: Wed Jul  9 16:11:06 CDT 2008  CSN: CSN-hasim-models-14
+                  Wed Jul  9 21:11:06 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ Fetch.bsv                 Locally Modified           13 
+
+- changed Fetch to adhere to modification in cache interface.
+- fixed bug in handling rewind during an icache miss.
+- inorder_alpha_exe now passes memory_tests_aligned.

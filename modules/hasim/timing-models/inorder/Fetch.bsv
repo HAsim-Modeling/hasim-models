@@ -40,16 +40,18 @@ module [HASIM_MODULE] mkFetch ();
     // ABHISHEK add
     Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache");
 
-    Port_Receive#(Tuple2#(TOKEN, CacheOutput)) port_from_icache <- mkPort_Receive("icache_to_cpu", 0);
+    Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_icache_immediate <- mkPort_Receive("icache_to_cpu_immediate", 0);
+    Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed))   port_from_icache_delayed   <- mkPort_Receive("icache_to_cpu_delayed", 0);
 
     Reg#(Bool) waitForICache <- mkReg(False);
     // ABHISHEK end
 
     //Local Controller
-    Vector#(2, Port_Control) inports  = newVector();
+    Vector#(3, Port_Control) inports  = newVector();
     Vector#(2, Port_Control) outports = newVector();
     inports[0]  = rewindQ.ctrl;
-    inports[1]  = port_from_icache.ctrl;
+    inports[1]  = port_from_icache_immediate.ctrl;
+    inports[2]  = port_from_icache_delayed.ctrl;
     outports[0] = outQ.ctrl;
     outports[1] = port_to_icache.ctrl;
 
@@ -102,7 +104,8 @@ module [HASIM_MODULE] mkFetch ();
     rule pass2 (state == FETCH_STATE_PASS);
         debug <= fshow("PASS");
         state <= FETCH_STATE_REWIND;
-        let icache_resp <- port_from_icache.receive();
+        let icache_resp_imm <- port_from_icache_immediate.receive();
+        let icache_resp_del <- port_from_icache_delayed.receive();
         // assert icache_resp == Invalid.
     endrule
 
@@ -111,66 +114,58 @@ module [HASIM_MODULE] mkFetch ();
       let tok = newInFlight.getResp();
       tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
       port_to_icache.send(tagged Valid tuple2(tok, tagged Inst_mem_ref pc));
+      pc <= pc + 4;
       state <= FETCH_STATE_INST;
    endrule
    
    rule inst (state == FETCH_STATE_INST);
-      //newInFlight.deq();
-      //let tok = newInFlight.getResp();
-      //tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
-      let icache_ret <- port_from_icache.receive();   
-      case (icache_ret) matches
-	 tagged Invalid:  // miss is still begin serviced
-	    begin
-               debug <= fshow("STALL ON ICACHE MISS");
-	       waitForICache <= True;
-	       //port_to_icache.send(tagged Invalid);
-	       //$display ("Invalid");
-	    end
-	 
-	 tagged Valid {.icachetok, .icachemsg}:
-	    begin
-	       case (icachemsg) matches
-		  tagged Hit:
-		     begin
-			waitForICache <= False;
-			getInstruction.makeReq(tuple2(icachetok,pc));
-			debug <= fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", pc);
-			pc <= pc + 4;
-			//$display ("Hit");
-		     end
-		  
-		  tagged Miss_servicing:
-		     begin
-                        debug <= fshow("MISS: STALL");
-			waitForICache <= True;
-			//port_to_icache.send(tagged Invalid);
-			//$display ("Miss servicing");
-		     end
-		  
-		  tagged Miss_retry:
-		     begin
-                        debug <= fshow("MISS: RETRY");
-			waitForICache <= True;
-			// not currently implemented
-		     end 
-		  
-		  tagged Miss_response:
-		     begin
-			waitForICache <= False;
-			getInstruction.makeReq(tuple2(icachetok,pc));
-			debug <= fshow("MISS: ") + fshow(icachetok) + $format(" ADDR:0x%h", pc);
-			pc <= pc + 4;
-			//$display ("Miss response");
-		     end
-	       endcase
-	    end
-      endcase      
-      /*
-      getInstruction.makeReq(tuple2(tok,pc));
-      debug <= fshow("FETCHINST: ") + fshow(tok) + $format(" ADDR:0x%h", pc);
-      pc <= pc + 4;
-       */
+      let icache_ret_imm <- port_from_icache_immediate.receive();   
+      let icache_ret_del <- port_from_icache_delayed.receive();   
+      case (icache_ret_del) matches
+        tagged Invalid:
+          case (icache_ret_imm) matches
+            tagged Invalid:  // miss is still begin serviced
+              begin
+                  debug <= fshow("MISS: STALL");
+                  waitForICache <= True;
+              end
+
+            tagged Valid {.icachetok, .icachemsg}:
+              begin
+                  case (icachemsg) matches
+                    tagged Hit .reqpc:
+                      begin
+                          waitForICache <= False;
+                          getInstruction.makeReq(tuple2(icachetok,reqpc));
+                          debug <= fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
+                      end
+
+                    tagged Miss_servicing .reqpc:
+                      begin
+                          debug <= fshow("MISS: STALL");
+                          waitForICache <= True;
+                      end
+
+                    tagged Miss_retry .reqpc:
+                      begin
+                          debug <= fshow("MISS: RETRY");
+                          waitForICache <= True;
+                          // not currently implemented
+                      end 
+
+                  endcase
+              end
+          endcase
+        tagged Valid { .icachetok, .icachemsg }:
+          case (icachemsg) matches
+            tagged Miss_response .reqpc:
+              begin
+                  waitForICache <= False;
+                  getInstruction.makeReq(tuple2(icachetok,reqpc));
+                  debug <= fshow("MISS: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
+              end
+          endcase
+      endcase
       state <= FETCH_STATE_SEND;
    endrule
    
