@@ -146,16 +146,19 @@ module [HASim_Module] mkCPU
   // Ports communicating with ICache
    Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache"); // port to the instruction cache
   
-   Port_Receive#(Tuple2#(TOKEN, CacheOutput)) port_from_icache <- mkPort_Receive("icache_to_cpu", 0); // port from icache       
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_icache_imm <- mkPort_Receive("icache_to_cpu_immediate", 0); // port from icache
+   
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_icache_del <- mkPort_Receive("icache_to_cpu_delayed", 0); // port from icache with miss response
 
    // state for communication with ICache
    Reg#(Bool) waitForICache <- mkReg(True);
    Reg#(TOKEN) icache_tok <- mkRegU();
    
    /********* Communication with local controller for icache ports ******/
-   Vector#(1, Port_Control) inports  = newVector();
+   Vector#(2, Port_Control) inports  = newVector();
    Vector#(1, Port_Control) outports = newVector();
-   inports[0]  = port_from_icache.ctrl;
+   inports[0]  = port_from_icache_imm.ctrl;
+   inports[1]  = port_from_icache_del.ctrl;
    outports[0] = port_to_icache.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports);     
   
@@ -268,36 +271,45 @@ module [HASim_Module] mkCPU
 	 if (waitForICache)
 	    begin
 	       // Check if the instruction cache has returned anything //
-	       let icache_ret <- port_from_icache.receive();
-	       case (icache_ret) matches
-		  tagged Invalid: // go to an intermediate stall state
+	       let icache_ret_imm <- port_from_icache_imm.receive();
+	       let icache_ret_del <- port_from_icache_del.receive();
+	       
+	       case(icache_ret_del) matches
+		  tagged Invalid:  // there is no miss response from icache
+		     // check if there is an immediate response from icache (eg. hit)
+		     case(icache_ret_imm) matches	            
+			tagged Invalid: // go to an intermediate stall state
+			   begin
+			      waitForICache <= True;
+			      baseTick <= baseTick + 1;      // stalling so increment model cycle				     
+			      port_to_icache.send(tagged Invalid);  // this is a NoMessage
+			   end
+			tagged Valid {.icachetok, .icachemsg}:   // message received from ICache
+			   begin
+			      case(icachemsg) matches
+				 tagged Hit .servicedpc:   // ICache hit
+				    begin
+				       waitForICache <= False;
+				    end
+				 tagged Miss_servicing .servicedpc: // ICache miss being serviced by memory
+				    begin 
+				       baseTick <= baseTick + 1;
+				       port_to_icache.send(tagged Invalid);  // this is a NoMessage
+				    end
+				 tagged Miss_retry .servicedpc:   // ICache miss, retry because of lack of buffer space
+				    begin
+				       /* Currently not implemented */
+				    end
+
+			      endcase
+			   end
+		     endcase
+		  tagged Valid .icachemissresp:
 		     begin
-			waitForICache <= True;
-			port_to_icache.send(tagged Invalid);  // this is a NoMessage
-		        baseTick <= baseTick + 1;      // stalling so increment model cycle
+			waitForICache <= False;
+			//port_to_icache.send(tagged Invalid);
 		     end
-		  tagged Valid {.icachetok, .icachemsg}:   // message received from ICache
-		     begin
-			case(icachemsg) matches
-			   tagged Hit:   // ICache hit
-			      begin
-				 waitForICache <= False;
-			      end
-			   tagged Miss_servicing: // ICache miss being serviced by memory
-			      begin 
-				 port_to_icache.send(tagged Invalid);  // this is a NoMessage
-				 baseTick <= baseTick + 1;
-			      end
-			   tagged Miss_retry:   // ICache miss, retry because of lack of buffer space
-			      begin
-				 /* Currently not implemented */
-			      end
-			   tagged Miss_response:  // ICache miss has been serviced
-			      begin
-				 waitForICache <= False;
-			      end
-			endcase
-		     end
+		  
 	       endcase  
 	    end 	 
 	 

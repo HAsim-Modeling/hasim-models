@@ -7,14 +7,14 @@
 #/*
 # %AWB_START
 #
-# %name Instruction Cache hierarchy
-# %desc Instruction Cache hierarchy
+# %name Direct mapped instruction cache
+# %desc Direct mapped instruction cache
 # %requires hasim_cache_memory 
 # %provides hasim_icache
 #
 # %attributes hasim caches
 #
-# %public ICache.bsv 
+# %public ICacheDirectMapped.bsv 
 # %param ICACHE_LINE_BITS	5  "Number of block offset bits"
 # %param ICACHE_IDX_BITS	8  "Number of index bits"
 # %param ICACHE_ASSOC		4  "Cache associativity"

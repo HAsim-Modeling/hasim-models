@@ -26,17 +26,16 @@ typedef union tagged {
 CacheInput deriving (Eq, Bits);
 
 typedef union tagged{
-   void Hit;
-   void Miss_servicing;
-   void Miss_retry;
-   void Miss_response;
+   ISA_ADDRESS Hit;
+   ISA_ADDRESS Miss_servicing;
+   ISA_ADDRESS Miss_retry;
    } 
-CacheOutput deriving (Eq, Bits);
+CacheOutputImmediate deriving (Eq, Bits);
 
-/* Cache parameters -- insert in AWB file */
-//`define ICACHE_LINE_BITS 5   // 32 bytes in cache line
-//`define ICACHE_IDX_BITS 8    // Number of index bits
-//`define ICACHE_ASSOC 4       // Cache associativity
+typedef union tagged{
+   ISA_ADDRESS Miss_response;
+   }
+CacheOutputDelayed deriving (Eq, Bits);
 
 typedef Bit#(TSub#(`FUNCP_ISA_ADDR_SIZE, TAdd#(`ICACHE_LINE_BITS, `ICACHE_IDX_BITS))) ICACHE_TAG;
 typedef Bit#(`ICACHE_LINE_BITS) ICACHE_LINE_OFFSET;
@@ -48,11 +47,7 @@ module [HASim_Module] mkICache();
    let cachememory <- mkCacheMemory();
    
    // BRAM for the cache tag store
-   BRAM#(`ICACHE_IDX_BITS, Maybe#(ICACHE_TAG)) icache_tag_store <- mkBramInitialized(tagged Invalid);
-   
-   // Module for replacement
-   //let LRUmodule <- mkLRU();   
-     
+   BRAM#(`ICACHE_IDX_BITS, Maybe#(ICACHE_TAG)) icache_tag_store <- mkBramInitialized(tagged Invalid);     
    // register to hold cache tag/index
    Reg#(ICACHE_TAG) req_icache_tag<- mkReg(0);
    Reg#(ICACHE_INDEX) req_icache_index <- mkReg(0);
@@ -68,18 +63,20 @@ module [HASim_Module] mkICache();
    
    /* outgoing ports */
    // outgoing port to the CPU with 0 latency
-   Port_Send#(Tuple2#(TOKEN, CacheOutput)) port_to_cpu <- mkPort_Send("icache_to_cpu");
-   
+   Port_Send#(Tuple2#(TOKEN, CacheOutputImmediate)) port_to_cpu_imm <- mkPort_Send("icache_to_cpu_immediate");
+   Port_Send#(Tuple2#(TOKEN, CacheOutputDelayed)) port_to_cpu_del <- mkPort_Send("icache_to_cpu_delayed");
+    
    // outgoing port to memory with 10 latency
    Port_Send#(Tuple2#(TOKEN, MemInput)) port_to_memory <- mkPort_Send("icache_to_memory");
    
    // communication with local controller 
    Vector#(2, Port_Control) inports  = newVector();
-   Vector#(2, Port_Control) outports = newVector();
+   Vector#(3, Port_Control) outports = newVector();
    inports[0]  = port_from_cpu.ctrl;
    inports[1] = port_from_memory.ctrl;
-   outports[0] = port_to_cpu.ctrl;
-   outports[1] = port_to_memory.ctrl;
+   outports[0] = port_to_cpu_imm.ctrl;
+   outports[1] = port_to_cpu_del.ctrl;
+   outports[2] = port_to_memory.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports); 
   
    
@@ -98,7 +95,8 @@ module [HASim_Module] mkICache();
 	       tagged Invalid:
 		  begin
 		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu.send(tagged Invalid);
+		     port_to_cpu_imm.send(tagged Invalid);
+		     port_to_cpu_del.send(tagged Invalid);
 		  end
 	       // if message accepted from CPU
 	       tagged Valid {.tok_from_cpu, .addr_from_cpu}:
@@ -124,9 +122,15 @@ module [HASim_Module] mkICache();
 	 
 	 // if main memory is supplying data
 	 tagged Valid {.tok_from_memory, .inst_from_memory}:
-	    begin
-	       port_to_memory.send(tagged Invalid);
-	       port_to_cpu.send(tagged Valid tuple2(tok_from_memory, tagged Miss_response));
+	    begin 
+	       case(inst_from_memory) matches
+		  tagged ValueRet .servicedpc:
+		     begin
+			port_to_memory.send(tagged Invalid);
+			port_to_cpu_imm.send(tagged Invalid);
+			port_to_cpu_del.send(tagged Valid tuple2(tok_from_memory, tagged Miss_response servicedpc));
+		     end
+	       endcase
 	    end
       endcase
    endrule
@@ -138,7 +142,8 @@ module [HASim_Module] mkICache();
 	 tagged Invalid:	 // cache miss       
    	    begin			
 	       port_to_memory.send(tagged Valid tuple2(req_tok, tagged Mem_fetch req_addr));
-	       port_to_cpu.send(tagged Valid tuple2(req_tok, tagged Miss_servicing));  // currently all misses are serviced			  
+	       port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_servicing req_addr));  // currently all misses are serviced
+	       port_to_cpu_del.send(tagged Invalid);
 	       //$display("Cache miss tag: %x, index: %d", req_icache_tag, req_icache_index);
 	       icache_tag_store.write(req_icache_index, tagged Valid req_icache_tag);
 	    end
@@ -147,13 +152,15 @@ module [HASim_Module] mkICache();
 	       if (tag_stored == req_icache_tag)  // cache hit
 		  begin
 		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu.send(tagged Valid tuple2(req_tok, tagged Hit));
+		     port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Hit req_addr));
 		     //$display("Cache hit tag: %x, index: %d", req_icache_tag, req_icache_index);
+		     port_to_cpu_del.send(tagged Invalid);
 		  end
 	       else // cache miss
 		  begin
 		     port_to_memory.send(tagged Valid tuple2(req_tok, tagged Mem_fetch req_addr));
-		     port_to_cpu.send(tagged Valid tuple2(req_tok, tagged Miss_servicing));			  
+		     port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_servicing req_addr));			  
+		     port_to_cpu_del.send(tagged Invalid);
 		     //$display("Cache miss tag: %x, index: %d", req_icache_tag, req_icache_index);    
 		     icache_tag_store.write(req_icache_index, tagged Valid req_icache_tag);
 		  end

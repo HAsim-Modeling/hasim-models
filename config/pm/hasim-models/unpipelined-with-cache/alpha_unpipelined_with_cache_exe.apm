@@ -63,9 +63,6 @@ Packagehint=hasim
 File=modules/hasim/functional-partition/isa/definition/isa_definition_alpha.awb
 Packagehint=hasim-alpha
 
-[Instruction Cache hierarchy/Requires]
-hasim_cache_memory=Cache hierarchy
-
 [Hasim Unpipelined CPU With Cache]
 File=modules/hasim/timing-models/unpipelined-with-cache/unpipelined_cpu.awb
 Packagehint=hasim-models
@@ -75,12 +72,13 @@ File=modules/hasim/timing-models/memory/memory.awb
 Packagehint=hasim-models
 
 [Hasim Unpipelined CPU With Cache/Requires]
-hasim_icache=Instruction Cache hierarchy
+hasim_icache=Direct mapped instruction cache
 
-[Instruction Cache hierarchy]
-File=modules/hasim/timing-models/caches/icache.awb
+
+
+[Direct mapped instruction cache]
+File=modules/hasim/timing-models/caches/direct-mapped-icache/direct_mapped_icache.awb
 Packagehint=hasim-models
 
-[Instruction Cache hierarchy/Params]
-ICACHE_IDX_BITS=5
-ICACHE_LINE_BITS=8
+[Direct mapped instruction cache/Requires]
+hasim_cache_memory=Cache hierarchy

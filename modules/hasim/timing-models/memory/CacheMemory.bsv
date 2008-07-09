@@ -12,7 +12,7 @@ typedef union tagged {
 MemInput deriving (Eq, Bits);
 
 typedef union tagged {
-   void ValueRet;
+   ISA_ADDRESS ValueRet;
 		      }
 MemOutput deriving (Eq, Bits);
 
@@ -40,10 +40,13 @@ module [HASim_Module] mkCacheMemory();
 	    end
 	 tagged Valid {.req_tok, .req_address}:
 	    begin
-	       port_to_icache.send(tagged Valid tuple2(req_tok, tagged ValueRet));
-	    end
-	 
+	       case(req_address) matches
+		  tagged Mem_fetch .req_pc:
+		     begin
+			port_to_icache.send(tagged Valid tuple2(req_tok, tagged ValueRet req_pc));
+		     end
+	       endcase		  
+	    end	 
       endcase
-   endrule
-   
+   endrule   
 endmodule

@@ -265,3 +265,45 @@ Directory modules/hasim/timing-models/out-of-order
  Execute.bsv               Locally Added               0 
  Decode.bsv                Locally Added               0 
 
+
+----------
+abhattac    Date: Wed Jul  9 15:57:45 EDT 2008  CSN: CSN-hasim-models-13
+                  Wed Jul  9 19:57:45 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           12 
+
+Directory modules/hasim/timing-models/caches
+ icache.awb                Locally Removed            12 
+ ICache.bsv                Locally Removed            12 
+ direct-mapped-icache/     Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ direct_mapped_icache.awb  Locally Added               0 
+ ICacheDirectMapped.bsv    Locally Added               0 
+
+Directory modules/hasim/timing-models/caches
+ set-associative-icache/   Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ set_associative_icache.awb Locally Added               0 
+ ICacheSetAssoc.bsv        Locally Added               0 
+
+Directory modules/hasim/timing-models/caches
+ ICache.direct.bsv         Locally Removed            12 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ UnpipelinedCPU.bsv        Locally Modified           12 
+
+Directory modules/hasim/timing-models/memory
+ CacheMemory.bsv           Locally Modified           12 
+
+Modified cache interface by splitting response from cache to CPU into
+two APorts. One APort is used to indicate an immediate response and
+the other one is used to provide data that has been serviced on a
+cache miss. Cache response also provides the ISA_ADDRESS corresponding
+to each miss type.
+Added module for a set-associative cache. Currently operates on a
+simple round-robin replacement algorithm.
+Modified AWB files to set cache parameters through AWB.
