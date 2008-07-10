@@ -7,6 +7,8 @@ import module_local_controller::*;
 import FShow::*;
 import Vector::*;
 
+`include "asim/dict/EVENTS_MEMORY.bsh"
+
 typedef enum { MEM_STATE_REQ, MEM_STATE_LOAD, MEM_STATE_STORE, MEM_STATE_DONE } MEM_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkMem ();
@@ -31,6 +33,9 @@ module [HASIM_MODULE] mkMem ();
     outports[1] = busQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
+    //Events
+    EventRecorder event_mem <- mkEventRecorder(`EVENTS_MEMORY_INSTRUCTION_MEM);
+
     rule stall (state == MEM_STATE_REQ && !outQ.canSend);
         local_ctrl.startModelCC();
         debug.startModelCC();
@@ -38,6 +43,7 @@ module [HASIM_MODULE] mkMem ();
         inQ.pass();
         outQ.pass();
         busQ.send(Invalid);
+        event_mem.recordEvent(Invalid);
     endrule
 
     rule bubble (state == MEM_STATE_REQ && outQ.canSend && !isValid(inQ.peek));
@@ -47,6 +53,7 @@ module [HASIM_MODULE] mkMem ();
         let x <- inQ.receive();
         outQ.send(Invalid);
         busQ.send(Invalid);
+        event_mem.recordEvent(Invalid);
     endrule
 
     rule doit (state == MEM_STATE_REQ &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .bundle });
@@ -77,10 +84,11 @@ module [HASIM_MODULE] mkMem ();
         state <= MEM_STATE_DONE;
     endrule
 
-    rule done (state == MEM_STATE_DONE);
+    rule done (state == MEM_STATE_DONE &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         let x <- inQ.receive();
         outQ.send(x);
         busQ.send(Invalid);
+        event_mem.recordEvent(Valid(zeroExtend(tok.index)));
         state <= MEM_STATE_REQ;
     endrule
 

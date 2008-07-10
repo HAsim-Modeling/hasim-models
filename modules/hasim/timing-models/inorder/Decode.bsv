@@ -8,6 +8,8 @@ import module_local_controller::*;
 import FShow::*;
 import Vector::*;
 
+`include "asim/dict/EVENTS_DECODE.bsh"
+
 typedef enum { DECODE_STATE_BUS1, DECODE_STATE_BUS2, DECODE_STATE_BUS3, DECODE_STATE_INST, DECODE_STATE_DEP, DECODE_STATE_SEND } DECODE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkDecode ();
@@ -36,6 +38,9 @@ module [HASIM_MODULE] mkDecode ();
     inports[3]  = busQ[2].ctrl;
     outports[0] = outQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
+
+    //Events
+    EventRecorder event_dec <- mkEventRecorder(`EVENTS_DECODE_INSTRUCTION_DECODE);
 
     Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
     Integer numFuncpPhyRegisters = valueof(FUNCP_PHYSICAL_REGS);
@@ -124,6 +129,7 @@ module [HASIM_MODULE] mkDecode ();
         debug <= fshow("STALL PROPAGATED");
         inQ.pass();
         outQ.pass();
+        event_dec.recordEvent(Invalid);
         state <= DECODE_STATE_BUS1;
     endrule
 
@@ -131,6 +137,7 @@ module [HASIM_MODULE] mkDecode ();
         debug <= fshow("BUBBLE");
         let x <- inQ.receive();
         outQ.send(Invalid);
+        event_dec.recordEvent(Invalid);
         state <= DECODE_STATE_BUS1;
     endrule
 
@@ -157,6 +164,7 @@ module [HASIM_MODULE] mkDecode ();
             if (mtup matches tagged Valid { .tok2, .inst })
             begin
                 outQ.send(Valid(tuple2(tok,makeBundle(inst, dstmap))));
+                event_dec.recordEvent(Valid(zeroExtend(tok.index)));
                 debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(inst);
             end
             memoDependencies <= Invalid;
@@ -166,6 +174,7 @@ module [HASIM_MODULE] mkDecode ();
             debug <= fshow("STALL ON DEPENDENCY: ") + fshow(tok);
             inQ.pass();
             outQ.send(Invalid);
+            event_dec.recordEvent(Invalid);
         end
         state <= DECODE_STATE_BUS1;
     endrule

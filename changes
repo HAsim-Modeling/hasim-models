@@ -339,3 +339,23 @@ Directory modules/hasim/timing-models/caches/direct-mapped-icache
 
 Use virtual address size for now, since the model doesn't yet have a way
 to ask about address translation.
+
+----------
+nikhil      Date: Thu Jul 10 15:36:02 CDT 2008  CSN: CSN-hasim-models-17
+                  Thu Jul 10 20:36:02 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ execute.dic               Locally Added               0 
+ decode.dic                Locally Added               0 
+ Fetch.bsv                 Locally Modified           16 
+ WriteBack.bsv             Locally Modified           16 
+ Mem.bsv                   Locally Modified           16 
+ fetch.dic                 Locally Added               0 
+ writeback.dic             Locally Added               0 
+ inorder.awb               Locally Modified           16 
+ Execute.bsv               Locally Modified           16 
+ Decode.bsv                Locally Modified           16 
+ mem.dic                   Locally Added               0 
+
+added events & stats to the inorder model

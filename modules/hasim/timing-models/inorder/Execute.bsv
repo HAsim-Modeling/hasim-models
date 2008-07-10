@@ -8,6 +8,9 @@ import module_local_controller::*;
 import FShow::*;
 import Vector::*;
 
+`include "asim/dict/EVENTS_EXECUTE.bsh"
+`include "asim/dict/STATS_EXECUTE.bsh"
+
 typedef enum { EXECUTE_STATE_EXEC, EXECUTE_STATE_WORK } EXECUTE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkExecute ();
@@ -36,6 +39,11 @@ module [HASIM_MODULE] mkExecute ();
     outports[2] = busQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
+    //Events
+    EventRecorder event_exe <- mkEventRecorder(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
+    //Stats
+    Stat stat_mpred <- mkStatCounter(`STATS_EXECUTE_BPRED_MISPREDS);
+
     Vector#(FUNCP_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
 
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
@@ -51,6 +59,7 @@ module [HASIM_MODULE] mkExecute ();
             outQ.pass();
         rewindQ.send(Invalid);
         busQ.send(Valid(bundle.dests));
+        event_exe.recordEvent(Invalid);
     endrule
 
     rule exec (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
@@ -69,6 +78,7 @@ module [HASIM_MODULE] mkExecute ();
            outQ.pass();
            rewindQ.send(Invalid);
            busQ.send(Invalid);
+           event_exe.recordEvent(Invalid);
         end
     endrule
 
@@ -83,6 +93,7 @@ module [HASIM_MODULE] mkExecute ();
             outQ.pass();
         rewindQ.send(Invalid);
         busQ.send(Invalid);
+        event_exe.recordEvent(Invalid);
     endrule
 
     rule results (state == EXECUTE_STATE_WORK);
@@ -98,6 +109,7 @@ module [HASIM_MODULE] mkExecute ();
                     epoch <= epoch + 1;
                     rewindQ.send(Valid(tuple2(tok, Valid(addr))));
                     debug <= fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch);
+                    stat_mpred.incr();
                 end
               tagged RBranchNotTaken .addr:
                 begin
@@ -119,6 +131,7 @@ module [HASIM_MODULE] mkExecute ();
             endcase
             outQ.send(Valid(tuple2(tok, bundle)));
             busQ.send(Invalid);
+            event_exe.recordEvent(Valid(zeroExtend(tok.index)));
             state <= EXECUTE_STATE_EXEC;
         end
     endrule

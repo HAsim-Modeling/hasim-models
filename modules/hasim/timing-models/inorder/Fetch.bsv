@@ -5,10 +5,9 @@ import hasim_isa::*;
 import module_local_controller::*;
 
 `include "asim/provides/funcp_simulated_memory.bsh"
-
-// ABHISHEK add 
 `include "asim/provides/hasim_icache.bsh"
-// ABHISHEK end 
+`include "asim/dict/EVENTS_FETCH.bsh"
+`include "asim/dict/STATS_FETCH.bsh"
 
 import FShow::*;
 import Vector::*;
@@ -56,10 +55,19 @@ module [HASIM_MODULE] mkFetch ();
     outports[1] = port_to_icache.ctrl;
 
     LocalController local_ctrl <- mkLocalController(inports, outports);
-   
+
+    //Events
+    EventRecorder event_fet <- mkEventRecorder(`EVENTS_FETCH_INSTRUCTION_FET);
+
+    //Stats
+    Stat stat_cycles   <- mkStatCounter(`STATS_FETCH_TOTAL_CYCLES);
+    Stat stat_fet      <- mkStatCounter(`STATS_FETCH_INSTS_FETCHED);
+    Stat stat_imisses  <- mkStatCounter(`STATS_FETCH_ICACHE_MISSES);
+
     rule rewind (state == FETCH_STATE_REWIND);
         local_ctrl.startModelCC();
         debug.startModelCC();
+        stat_cycles.incr();
         model_cycle.send(?);
         let x <- rewindQ.receive();
         if (x matches tagged Valid { .tok, .ma })
@@ -98,6 +106,7 @@ module [HASIM_MODULE] mkFetch ();
 
     rule pass (state == FETCH_STATE_TOKEN && !outQ.canSend);
         outQ.pass();
+        event_fet.recordEvent(Invalid);
         port_to_icache.send(tagged Invalid);
         state <= FETCH_STATE_PASS;
     endrule
@@ -138,11 +147,13 @@ module [HASIM_MODULE] mkFetch ();
                           waitForICache <= False;
                           getInstruction.makeReq(tuple2(icachetok,reqpc));
                           debug <= fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
+                          stat_fet.incr();
                       end
 
                     tagged Miss_servicing .reqpc:
                       begin
                           debug <= fshow("MISS: STALL");
+                          stat_imisses.incr();
                           waitForICache <= True;
                       end
 
@@ -162,7 +173,8 @@ module [HASIM_MODULE] mkFetch ();
               begin
                   waitForICache <= False;
                   getInstruction.makeReq(tuple2(icachetok,reqpc));
-                  debug <= fshow("MISS: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
+                  debug <= fshow("MISS: RESP: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
+                  stat_fet.incr();
               end
           endcase
       endcase
@@ -173,13 +185,15 @@ module [HASIM_MODULE] mkFetch ();
       if (waitForICache)
 	 begin
 	    outQ.send(tagged Invalid);
+            event_fet.recordEvent(Invalid);
 	    state <= FETCH_STATE_REWIND;
 	 end
       else
 	 begin
             getInstruction.deq();
-	    let inst = getInstruction.getResp();
-	    outQ.send(Valid(inst));
+            match { .tok, .inst } = getInstruction.getResp();
+	    outQ.send(Valid(tuple2(tok,inst)));
+            event_fet.recordEvent(Valid(zeroExtend(tok.index)));
 	    state <= FETCH_STATE_REWIND;
 	 end
     endrule
