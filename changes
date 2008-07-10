@@ -328,3 +328,14 @@ Directory modules/hasim/timing-models/caches/set-associative-icache
  ICacheSetAssoc.bsv        Locally Modified           13 
 
 minor: removed an erroneously commented line in ICacheSetAssoc.bsv
+
+----------
+mcadler     Date: Thu Jul 10 15:58:42 EDT 2008  CSN: CSN-hasim-models-16
+                  Thu Jul 10 19:58:42 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ ICacheDirectMapped.bsv    Locally Modified           15 
+
+Use virtual address size for now, since the model doesn't yet have a way
+to ask about address translation.

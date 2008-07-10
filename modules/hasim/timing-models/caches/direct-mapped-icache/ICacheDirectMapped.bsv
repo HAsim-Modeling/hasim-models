@@ -37,7 +37,7 @@ typedef union tagged{
    }
 CacheOutputDelayed deriving (Eq, Bits);
 
-typedef Bit#(TSub#(`FUNCP_ISA_ADDR_SIZE, TAdd#(`ICACHE_LINE_BITS, `ICACHE_IDX_BITS))) ICACHE_TAG;
+typedef Bit#(TSub#(`FUNCP_ISA_V_ADDR_SIZE, TAdd#(`ICACHE_LINE_BITS, `ICACHE_IDX_BITS))) ICACHE_TAG;
 typedef Bit#(`ICACHE_LINE_BITS) ICACHE_LINE_OFFSET;
 typedef Bit#(`ICACHE_IDX_BITS) ICACHE_INDEX;
 
