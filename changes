@@ -318,3 +318,13 @@ Directory modules/hasim/timing-models/inorder
 - changed Fetch to adhere to modification in cache interface.
 - fixed bug in handling rewind during an icache miss.
 - inorder_alpha_exe now passes memory_tests_aligned.
+
+----------
+nikhil      Date: Wed Jul  9 19:51:56 CDT 2008  CSN: CSN-hasim-models-15
+                  Thu Jul 10 00:51:56 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ ICacheSetAssoc.bsv        Locally Modified           13 
+
+minor: removed an erroneously commented line in ICacheSetAssoc.bsv

@@ -177,7 +177,7 @@ module [HASIM_MODULE] mkICache();
 	       end
 	    else
 	       begin
-		  //replace <= replace + 1;
+		  replace <= replace + 1;
 	       end
 	    
 	    tag_from_bram[replace] = tagged Valid req_icache_tag;
