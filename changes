@@ -359,3 +359,41 @@ Directory modules/hasim/timing-models/inorder
  mem.dic                   Locally Added               0 
 
 added events & stats to the inorder model
+
+----------
+abhattac    Date: Sat Jul 12 00:47:46 EDT 2008  CSN: CSN-hasim-models-18
+                  Sat Jul 12 04:47:46 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           17 
+
+Directory modules/hasim/timing-models/caches
+ cache-types/              Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ icache_types.awb          Locally Added               0 
+ ICacheTypes.bsv           Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ direct_mapped_icache.awb  Locally Modified           17 
+ ICacheDirectMapped.bsv    Locally Modified           17 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ set_associative_icache.awb Locally Modified           17 
+ ICacheSetAssoc.bsv        Locally Modified           17 
+
+Directory modules/hasim/timing-models/replacement-algorithms
+ LRU.awb                   Locally Modified           17 
+ LRU.bsv                   Locally Modified           17 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ UnpipelinedCPU.bsv        Locally Modified           17 
+
+Added an ICacheTypes.bsv file holding to include cache configuration
+parameters in multiple modules of the ICache. Created a mkReplacement
+module to account for replacement policies for the set-associative
+ICache. Currently implemented LRU as a possible replacement
+policy. LRU has been tested with the Unpipelined CPU model and passes
+the memory tests. Also modified Unpipelined CPU to yield correct IPC
+in the stats dump. 

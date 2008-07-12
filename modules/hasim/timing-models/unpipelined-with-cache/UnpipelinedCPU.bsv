@@ -281,7 +281,8 @@ module [HASim_Module] mkCPU
 			tagged Invalid: // go to an intermediate stall state
 			   begin
 			      waitForICache <= True;
-			      baseTick <= baseTick + 1;      // stalling so increment model cycle				     
+			      baseTick <= baseTick + 1;      // stalling so increment model cycle
+			      link_model_cycle.send(?);    				       				     
 			      port_to_icache.send(tagged Invalid);  // this is a NoMessage
 			   end
 			tagged Valid {.icachetok, .icachemsg}:   // message received from ICache
@@ -294,6 +295,7 @@ module [HASim_Module] mkCPU
 				 tagged Miss_servicing .servicedpc: // ICache miss being serviced by memory
 				    begin 
 				       baseTick <= baseTick + 1;
+				       link_model_cycle.send(?);
 				       port_to_icache.send(tagged Invalid);  // this is a NoMessage
 				    end
 				 tagged Miss_retry .servicedpc:   // ICache miss, retry because of lack of buffer space

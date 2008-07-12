@@ -72,13 +72,23 @@ File=modules/hasim/timing-models/memory/memory.awb
 Packagehint=hasim-models
 
 [Hasim Unpipelined CPU With Cache/Requires]
-hasim_icache=Direct mapped instruction cache
+hasim_icache=Set-associative instruction cache
 
 
 
-[Direct mapped instruction cache]
-File=modules/hasim/timing-models/caches/direct-mapped-icache/direct_mapped_icache.awb
+[ICache Types]
+File=modules/hasim/timing-models/caches/cache-types/icache_types.awb
 Packagehint=hasim-models
 
-[Direct mapped instruction cache/Requires]
+[Set-associative instruction cache]
+File=modules/hasim/timing-models/caches/set-associative-icache/set_associative_icache.awb
+Packagehint=hasim-models
+
+[LRU]
+File=modules/hasim/timing-models/replacement-algorithms/LRU.awb
+Packagehint=hasim-models
+
+[Set-associative instruction cache/Requires]
+hasim_icache_types=ICache Types
+hasim_cache_replacement_algorithm=LRU
 hasim_cache_memory=Cache hierarchy

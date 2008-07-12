@@ -15,6 +15,6 @@
 #
 # %public LRU.bsv 
 #
-# %param SYNTH_BOUNDARY mkCacheMemory "Name of synthesis boundary"
+#
 # %AWB_END
 # */

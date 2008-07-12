@@ -8,8 +8,9 @@ import hasim_isa::*;
 import hasim_cache_memory::*;
 import fpga_components::*;
 
-`include "asim/provides/funcp_base_types.bsh"
+`include "asim/provides/hasim_icache_types.bsh"
 `include "asim/provides/hasim_cache_memory.bsh"
+
 
 typedef union tagged {
 		      ISA_ADDRESS Inst_mem_ref;              // Instruction fetch from ICache
@@ -36,11 +37,12 @@ typedef union tagged{
    ISA_ADDRESS Miss_response;
    }
 CacheOutputDelayed deriving (Eq, Bits);
-
+/*
 typedef Bit#(TSub#(`FUNCP_ISA_V_ADDR_SIZE, TAdd#(`ICACHE_LINE_BITS, `ICACHE_IDX_BITS))) ICACHE_TAG;
 typedef Bit#(`ICACHE_LINE_BITS) ICACHE_LINE_OFFSET;
 typedef Bit#(`ICACHE_IDX_BITS) ICACHE_INDEX;
-
+*/
+ 
 module [HASim_Module] mkICache();
    
    // initialize cache memory

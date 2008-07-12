@@ -8,10 +8,11 @@ import hasim_isa::*;
 import hasim_cache_memory::*;
 import fpga_components::*;
 
-`include "asim/provides/funcp_base_types.bsh"
 `include "asim/provides/hasim_cache_memory.bsh"
+`include "asim/provides/hasim_icache_types.bsh"
+`include "asim/provides/hasim_cache_replacement_algorithm.bsh"
 
-typedef enum {HandleReq, TagCompare} State deriving (Eq, Bits);
+typedef enum {HandleReq, TagCompare, HandleResp} State deriving (Eq, Bits);
 
 typedef union tagged {
 		      ISA_ADDRESS Inst_mem_ref;              // Instruction fetch from ICache
@@ -39,18 +40,15 @@ typedef union tagged{
    }
 CacheOutputDelayed deriving (Eq, Bits);
 
-typedef Bit#(TSub#(`FUNCP_ISA_ADDR_SIZE, TAdd#(`ICACHE_LINE_BITS, `ICACHE_IDX_BITS))) ICACHE_TAG;
-typedef Bit#(`ICACHE_LINE_BITS) ICACHE_LINE_OFFSET;
-typedef Bit#(`ICACHE_IDX_BITS) ICACHE_INDEX;
 
 module [HASIM_MODULE] mkICache();
    
-   // initialize cache memory
+   // instantiate cache memory
    let cachememory <- mkCacheMemory();
    
    // tag store BRAM
    // produce a BRAM containing vectors holding all the tags of each way
-   BRAM#(`ICACHE_IDX_BITS, Vector#(`ICACHE_ASSOC, Maybe#(ICACHE_TAG))) icache_tag_store <- mkBramInitialized(Vector::replicate(tagged Invalid));
+   BRAM#(`ICACHE_IDX_BITS, Vector#(`ICACHE_ASSOC, Maybe#(ICACHE_LINE))) icache_tag_store <- mkBramInitialized(Vector::replicate(tagged Invalid));
 
    // register to hold state
    Reg#(State) state <- mkReg(HandleReq);
@@ -61,6 +59,9 @@ module [HASIM_MODULE] mkICache();
    Reg#(ICACHE_INDEX) req_icache_index <- mkReg(0);
    Reg#(TOKEN) req_tok <- mkRegU();
    Reg#(ISA_ADDRESS) req_addr <- mkReg(0);
+   
+   // instatiate replacement algorithm
+   let replacementmodule <- mkReplacementAlgorithm();
    
    // incoming port from CPU (latency 0)
    Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu <- mkPort_Receive("cpu_to_icache", 0);
@@ -75,14 +76,22 @@ module [HASIM_MODULE] mkICache();
    // outgoing port to memory (latency 10)
    Port_Send#(Tuple2#(TOKEN, MemInput)) port_to_memory <- mkPort_Send("icache_to_memory");
    
+   // incoming port from replacement algorithm (latency 0)
+   Port_Receive#(Tuple2#(TOKEN, ReplacementAlgorithmOutput)) port_from_replacement_alg <- mkPort_Receive("replacement_algorithm_to_icache_core", 0);
+   
+   // outgoing port to replacement algorithm (latency 0)
+   Port_Send#(Tuple2#(TOKEN, ReplacementAlgorithmInput)) port_to_replacement_alg <- mkPort_Send("icache_core_to_replacement_algorithm");
+   
    // communication with local controller
-   Vector#(2, Port_Control) inports  = newVector();
-   Vector#(3, Port_Control) outports = newVector();
+   Vector#(3, Port_Control) inports  = newVector();
+   Vector#(4, Port_Control) outports = newVector();
    inports[0]  = port_from_cpu.ctrl;
    inports[1] = port_from_memory.ctrl;
+   inports[2] = port_from_replacement_alg.ctrl;
    outports[0] = port_to_cpu_imm.ctrl;
    outports[1] = port_to_cpu_del.ctrl;
    outports[2] = port_to_memory.ctrl;
+   outports[3] = port_to_replacement_alg.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports); 
    
    // rules
@@ -145,13 +154,15 @@ module [HASIM_MODULE] mkICache();
    rule checktag (state == TagCompare);
       let tag_from_bram <- icache_tag_store.readResp();
       Bool hit = False;
+      ICACHE_WAY hit_way = 0;
 
       // check if anything in the set is valid
-      for (Integer w = 0; w < `ICACHE_ASSOC; w = w + 1)
+      for (Integer w = 0; w <`ICACHE_ASSOC; w = w + 1)
 	 begin
-	    if (tag_from_bram[w] matches tagged Valid .ret_icache_tag &&& ret_icache_tag == req_icache_tag)
+	    if (tag_from_bram[w] matches tagged Valid {.ret_icache_lru_bits, .ret_icache_tag} &&& ret_icache_tag == req_icache_tag)
 	       begin
 		  hit = True;
+		  hit_way = fromInteger(w);
 		  //$display("Cache hit tag: %x, index: %d, way: %d", req_icache_tag, req_icache_index, w);
 	       end
 	 end
@@ -163,27 +174,62 @@ module [HASIM_MODULE] mkICache();
 	    port_to_memory.send(tagged Invalid);
 	    port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Hit req_addr));
 	    port_to_cpu_del.send(tagged Invalid);
+	    port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: True, accessed_set: tag_from_bram, accessed_way: hit_way}));
+	    state <= HandleResp;
 	 end
-      else
+       else
 	 begin 
 	    port_to_memory.send(tagged Valid tuple2(req_tok, tagged Mem_fetch req_addr));
 	    port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_servicing req_addr));			  
 	    port_to_cpu_del.send(tagged Invalid);
-	    //$display("Cache miss tag: %x, index: %d, victim way: %d, victim tag: %x", req_icache_tag, req_icache_index, replace, fromMaybe(24, tag_from_bram[replace]));
+	    //$display("Cache miss tag: %x, index: %d", req_icache_tag, req_icache_index);
 	    
-	    if (replace == `ICACHE_ASSOC)
-	       begin
-		  replace <= 0;
-	       end
-	    else
-	       begin
-		  replace <= replace + 1;
-	       end
-	    
-	    tag_from_bram[replace] = tagged Valid req_icache_tag;
-	    icache_tag_store.write(req_icache_index, tag_from_bram);	   
+	    port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: False, accessed_set: tag_from_bram, accessed_way: ?}));
+	    state <= HandleResp;
 	 end
-      state <= HandleReq;
+   endrule
+   
+   
+   rule handleresp (state == HandleResp);
+      let replacement_resp <- port_from_replacement_alg.receive();
+      case(replacement_resp) matches
+	 tagged Invalid:
+	    begin
+	       // currently unimplemented
+	    end
+	 tagged Valid {.resp_tok, .replace_out}:
+	    begin
+	       let updated_set = replace_out.updated_set;
+	       let updated_way = replace_out.replaced_way;
+	       case (updated_set[updated_way]) matches
+		  tagged Valid {.lru_bits, .tag}:
+		     begin
+			updated_set[updated_way] = tagged Valid tuple2(lru_bits, req_icache_tag);		     	
+			//$display ("Updated cache way: %d new tag: %x victim tag: %x", updated_way, req_icache_tag, tag);
+		     end
+	       endcase     
+	       
+	       /* debugging */
+	       /*
+ 	       for (Integer w = 0; w < `ICACHE_ASSOC; w = w + 1)
+		  begin
+		     if (updated_set[w] matches tagged Valid {.lru, .tag})
+			begin
+			   $display ("Way: %d, LRU: %d, Tag: %x", w, lru, tag);
+			end
+		     else
+			begin
+			   $display("Way: %d, Invalid", w);
+			end
+		  end
+	       $display(" ");
+		*/
+	       /* debugging end */		       
+			       
+	       icache_tag_store.write(req_icache_index, updated_set);
+	    end
+      endcase
+      state <= HandleReq;   
    endrule
 endmodule
    
