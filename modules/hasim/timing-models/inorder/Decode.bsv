@@ -16,8 +16,8 @@ module [HASIM_MODULE] mkDecode ();
 
     DebugFile debug <- mkDebugFile("pipe_decode.out");
 
-    StallPort_Receive#(Tuple2#(TOKEN,ISA_INSTRUCTION)) inQ <- mkStallPort_Receive("fet2dec");
-    StallPort_Send#(Tuple2#(TOKEN,BUNDLE))            outQ <- mkStallPort_Send   ("dec2exe");
+    StallPort_Receive#(Tuple2#(TOKEN,FETCH_BUNDLE)) inQ <- mkStallPort_Receive("fet2dec");
+    StallPort_Send#(Tuple2#(TOKEN,BUNDLE))          outQ <- mkStallPort_Send   ("dec2exe");
 
     Vector#(3,Port_Receive#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)))) busQ = newVector();
     busQ[0] <- mkPort_Receive("exe_bus", 1);
@@ -89,7 +89,7 @@ module [HASIM_MODULE] mkDecode ();
       endaction
     endfunction
 
-    function BUNDLE makeBundle(ISA_INSTRUCTION inst, ISA_DST_MAPPING dstmap);
+    function BUNDLE makeBundle(FETCH_BUNDLE fbndl, ISA_DST_MAPPING dstmap);
         Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dests = newVector();
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
@@ -98,9 +98,11 @@ module [HASIM_MODULE] mkDecode ();
             else
                 dests[i] = Invalid;
         end
-        return BUNDLE { isLoad:  isaIsLoad(inst),
-                        isStore: isaIsStore(inst),
+        return BUNDLE { isLoad:  isaIsLoad(fbndl.inst),
+                        isStore: isaIsStore(fbndl.inst),
                         isTerminate: Invalid,
+                        pc: fbndl.pc,
+                        branchAttr: fbndl.branchAttr,
                         dests: dests };
     endfunction
 
@@ -161,11 +163,11 @@ module [HASIM_MODULE] mkDecode ();
         begin
             markPRFInvalid(dstmap);
             let mtup <- inQ.receive();
-            if (mtup matches tagged Valid { .tok2, .inst })
+            if (mtup matches tagged Valid { .tok2, .fetchbundle })
             begin
-                outQ.send(Valid(tuple2(tok,makeBundle(inst, dstmap))));
+                outQ.send(Valid(tuple2(tok,makeBundle(fetchbundle, dstmap))));
                 event_dec.recordEvent(Valid(zeroExtend(tok.index)));
-                debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(inst);
+                debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" BR-ATTR:") + fshow(fetchbundle.branchAttr);
             end
             memoDependencies <= Invalid;
         end

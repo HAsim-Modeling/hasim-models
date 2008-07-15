@@ -10,18 +10,26 @@ import module_local_controller::*;
 `include "asim/dict/STATS_FETCH.bsh"
 
 import FShow::*;
+import FIFO::*;
 import Vector::*;
 
-typedef enum { FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_ICACHE_REQ, FETCH_STATE_INST, FETCH_STATE_SEND, FETCH_STATE_PASS } FETCH_STATE deriving (Bits, Eq);
+typedef enum { FETCH_STATE_NEXTPC, FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_ICACHE_REQ, FETCH_STATE_INST, FETCH_STATE_SEND, FETCH_STATE_PASS } FETCH_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch ();
 
     DebugFile debug <- mkDebugFile("pipe_fetch.out");
 
-    Reg#(ISA_ADDRESS) pc <- mkReg(`PROGRAM_START_ADDR);
+    Reg#(ISA_ADDRESS)          pc <- mkReg(`PROGRAM_START_ADDR);
+    Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
+    FIFO#(BRANCH_ATTR)  pred_fifo <- mkFIFO1;
+    FIFO#(ISA_ADDRESS)    pc_fifo <- mkFIFO1;
 
-    StallPort_Send#(Tuple2#(TOKEN,ISA_INSTRUCTION))   outQ    <- mkStallPort_Send("fet2dec");
-    Port_Receive#(Tuple2#(TOKEN,Maybe#(ISA_ADDRESS))) rewindQ <- mkPort_Receive  ("rewind", 1);
+    StallPort_Send#(Tuple2#(TOKEN,FETCH_BUNDLE))   outQ <- mkStallPort_Send("fet2dec");
+    Port_Receive#(Tuple2#(TOKEN,ISA_ADDRESS))      rewindQ <- mkPort_Receive  ("rewind", 1);
+
+    Port_Send#(ISA_ADDRESS)    bpQ     <- mkPort_Send("bp_req");
+    Port_Receive#(ISA_ADDRESS) nextpcQ <- mkPort_Receive("bp_reply_pc", 1);
+    Port_Receive#(BRANCH_ATTR) predQ   <- mkPort_Receive("bp_reply_pred", 0);
 
     Connection_Send#(Bool) model_cycle <- mkConnection_Send("model_cycle");
 
@@ -32,9 +40,7 @@ module [HASIM_MODULE] mkFetch ();
 
     Connection_Client#(TOKEN,UNIT)                     rewindToToken  <- mkConnection_Client("funcp_rewindToToken");
 
-    Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_REWIND);
-
-    Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
+    Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_NEXTPC);
 
     // ABHISHEK add
     Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache");
@@ -46,13 +52,16 @@ module [HASIM_MODULE] mkFetch ();
     // ABHISHEK end
 
     //Local Controller
-    Vector#(3, Port_Control) inports  = newVector();
-    Vector#(2, Port_Control) outports = newVector();
+    Vector#(5, Port_Control) inports  = newVector();
+    Vector#(3, Port_Control) outports = newVector();
     inports[0]  = rewindQ.ctrl;
     inports[1]  = port_from_icache_immediate.ctrl;
     inports[2]  = port_from_icache_delayed.ctrl;
+    inports[3]  = nextpcQ.ctrl;
+    inports[4]  = predQ.ctrl;
     outports[0] = outQ.ctrl;
     outports[1] = port_to_icache.ctrl;
+    outports[2] = bpQ.ctrl;
 
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
@@ -64,22 +73,26 @@ module [HASIM_MODULE] mkFetch ();
     Stat stat_fet      <- mkStatCounter(`STATS_FETCH_INSTS_FETCHED);
     Stat stat_imisses  <- mkStatCounter(`STATS_FETCH_ICACHE_MISSES);
 
-    rule rewind (state == FETCH_STATE_REWIND);
+    rule nextpc (state == FETCH_STATE_NEXTPC);
         local_ctrl.startModelCC();
         debug.startModelCC();
         stat_cycles.incr();
         model_cycle.send(?);
+        let x <- nextpcQ.receive();
+        if (x matches tagged Valid .a)
+            pc <= a;
+        state <= FETCH_STATE_REWIND;
+    endrule
+
+    rule rewind (state == FETCH_STATE_REWIND);
         let x <- rewindQ.receive();
-        if (x matches tagged Valid { .tok, .ma })
+        if (x matches tagged Valid { .tok, .a })
         begin
-            if (ma matches tagged Valid .a)
-            begin
-                debug <= fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a);
-                rewindToToken.makeReq(tok);
-                pc <= a;
-                epoch <= epoch + 1;
-                state <= FETCH_STATE_REW_RESP;
-            end
+            debug <= fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a);
+            rewindToToken.makeReq(tok);
+            pc <= a;
+            epoch <= epoch + 1;
+            state <= FETCH_STATE_REW_RESP;
         end
         else
             state <= FETCH_STATE_TOKEN;
@@ -90,32 +103,33 @@ module [HASIM_MODULE] mkFetch ();
         state <= FETCH_STATE_TOKEN;
     endrule
 
-   rule token (state == FETCH_STATE_TOKEN && outQ.canSend);
-      if(waitForICache)
-	 begin
-	    state <= FETCH_STATE_INST;
-	    port_to_icache.send(tagged Invalid);
-	 end
-      else
-	  begin  
-             newInFlight.makeReq(?);
-             //state <= FETCH_STATE_INST;
-	     state <= FETCH_STATE_ICACHE_REQ;
-	  end
+    rule token (state == FETCH_STATE_TOKEN && outQ.canSend);
+        if (waitForICache)
+        begin
+            state <= FETCH_STATE_INST;
+            port_to_icache.send(tagged Invalid);
+            bpQ.send(Invalid);
+        end
+        else
+        begin
+            newInFlight.makeReq(?);
+            state <= FETCH_STATE_ICACHE_REQ;
+	end
     endrule
 
     rule pass (state == FETCH_STATE_TOKEN && !outQ.canSend);
         outQ.pass();
         event_fet.recordEvent(Invalid);
         port_to_icache.send(tagged Invalid);
+        bpQ.send(Invalid);
         state <= FETCH_STATE_PASS;
     endrule
     rule pass2 (state == FETCH_STATE_PASS);
         debug <= fshow("PASS");
-        state <= FETCH_STATE_REWIND;
         let icache_resp_imm <- port_from_icache_immediate.receive();
         let icache_resp_del <- port_from_icache_delayed.receive();
         // assert icache_resp == Invalid.
+        state <= FETCH_STATE_NEXTPC;
     endrule
 
    rule icachefetch (state == FETCH_STATE_ICACHE_REQ);
@@ -123,13 +137,13 @@ module [HASIM_MODULE] mkFetch ();
       let tok = newInFlight.getResp();
       tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
       port_to_icache.send(tagged Valid tuple2(tok, tagged Inst_mem_ref pc));
-      pc <= pc + 4;
+      bpQ.send(Valid(pc));
       state <= FETCH_STATE_INST;
    endrule
-   
+
    rule inst (state == FETCH_STATE_INST);
-      let icache_ret_imm <- port_from_icache_immediate.receive();   
-      let icache_ret_del <- port_from_icache_delayed.receive();   
+      let icache_ret_imm <- port_from_icache_immediate.receive();
+      let icache_ret_del <- port_from_icache_delayed.receive();
       case (icache_ret_del) matches
         tagged Invalid:
           case (icache_ret_imm) matches
@@ -146,6 +160,7 @@ module [HASIM_MODULE] mkFetch ();
                       begin
                           waitForICache <= False;
                           getInstruction.makeReq(tuple2(icachetok,reqpc));
+                          pc_fifo.enq(reqpc);
                           debug <= fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
                           stat_fet.incr();
                       end
@@ -162,7 +177,7 @@ module [HASIM_MODULE] mkFetch ();
                           debug <= fshow("MISS: RETRY");
                           waitForICache <= True;
                           // not currently implemented
-                      end 
+                      end
 
                   endcase
               end
@@ -173,6 +188,7 @@ module [HASIM_MODULE] mkFetch ();
               begin
                   waitForICache <= False;
                   getInstruction.makeReq(tuple2(icachetok,reqpc));
+                  pc_fifo.enq(reqpc);
                   debug <= fshow("MISS: RESP: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
                   stat_fet.incr();
               end
@@ -180,22 +196,31 @@ module [HASIM_MODULE] mkFetch ();
       endcase
       state <= FETCH_STATE_SEND;
    endrule
-   
+
    rule done (state == FETCH_STATE_SEND);
       if (waitForICache)
 	 begin
 	    outQ.send(tagged Invalid);
             event_fet.recordEvent(Invalid);
-	    state <= FETCH_STATE_REWIND;
+	    state <= FETCH_STATE_NEXTPC;
 	 end
       else
 	 begin
             getInstruction.deq();
             match { .tok, .inst } = getInstruction.getResp();
-	    outQ.send(Valid(tuple2(tok,inst)));
+            let bundle = FETCH_BUNDLE { pc: pc_fifo.first(), inst: inst, branchAttr: pred_fifo.first() };
+	    outQ.send(Valid(tuple2(tok,bundle)));
+            pc_fifo.deq();
+            pred_fifo.deq();
             event_fet.recordEvent(Valid(zeroExtend(tok.index)));
-	    state <= FETCH_STATE_REWIND;
+	    state <= FETCH_STATE_NEXTPC;
 	 end
+    endrule
+
+    rule get_pred; // any state
+        let x <- predQ.receive();
+        if (x matches tagged Valid .pred)
+            pred_fifo.enq(pred);
     endrule
 
 endmodule

@@ -20,7 +20,8 @@ module [HASIM_MODULE] mkExecute ();
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("dec2exe");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("exe2mem");
 
-    Port_Send#(Tuple2#(TOKEN, Maybe#(ISA_ADDRESS))) rewindQ <- mkPort_Send("rewind");
+    Port_Send#(Tuple2#(TOKEN, ISA_ADDRESS))      rewindQ <- mkPort_Send("rewind");
+    Port_Send#(Tuple2#(ISA_ADDRESS,BRANCH_ATTR)) bptrainQ <- mkPort_Send("bp_train");
 
     Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("exe_bus");
 
@@ -32,11 +33,12 @@ module [HASIM_MODULE] mkExecute ();
 
     //Local Controller
     Vector#(1, Port_Control) inports  = newVector();
-    Vector#(3, Port_Control) outports = newVector();
+    Vector#(4, Port_Control) outports = newVector();
     inports[0]  = inQ.ctrl;
     outports[0] = outQ.ctrl;
     outports[1] = rewindQ.ctrl;
     outports[2] = busQ.ctrl;
+    outports[3] = bptrainQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
     //Events
@@ -58,6 +60,7 @@ module [HASIM_MODULE] mkExecute ();
         else
             outQ.pass();
         rewindQ.send(Invalid);
+        bptrainQ.send(Invalid);
         busQ.send(Valid(bundle.dests));
         event_exe.recordEvent(Invalid);
     endrule
@@ -77,6 +80,7 @@ module [HASIM_MODULE] mkExecute ();
            inQ.pass();
            outQ.pass();
            rewindQ.send(Invalid);
+           bptrainQ.send(Invalid);
            busQ.send(Invalid);
            event_exe.recordEvent(Invalid);
         end
@@ -92,6 +96,7 @@ module [HASIM_MODULE] mkExecute ();
         else
             outQ.pass();
         rewindQ.send(Invalid);
+        bptrainQ.send(Invalid);
         busQ.send(Invalid);
         event_exe.recordEvent(Invalid);
     endrule
@@ -103,30 +108,73 @@ module [HASIM_MODULE] mkExecute ();
         if (x matches tagged Valid { .tok2, .bndl })
         begin
             let bundle = bndl;
+            let pc = bundle.pc;
             case (res) matches
               tagged RBranchTaken .addr:
                 begin
-                    epoch <= epoch + 1;
-                    rewindQ.send(Valid(tuple2(tok, Valid(addr))));
+                    if (bundle.branchAttr matches tagged BranchTaken .tgt &&& tgt == addr)
+                    begin
+                        rewindQ.send(Invalid);
+                        bptrainQ.send(Invalid);
+                    end
+                    else
+                    begin
+                        stat_mpred.incr();
+                        epoch <= epoch + 1;
+                        rewindQ.send(Valid(tuple2(tok,addr)));
+                        bptrainQ.send(Valid(tuple2(pc,BranchTaken(addr))));
+                    end
                     debug <= fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch);
-                    stat_mpred.incr();
                 end
               tagged RBranchNotTaken .addr:
                 begin
-                    rewindQ.send(Invalid);
+                    case (bundle.branchAttr) matches
+                        tagged BranchNotTaken .tgt:
+                            begin
+                                rewindQ.send(Invalid);
+                                bptrainQ.send(Invalid);
+                            end
+                        tagged BranchTaken .tgt:
+                            begin
+                                stat_mpred.incr();
+                                epoch <= epoch + 1;
+                                rewindQ.send(Valid(tuple2(tok,addr)));
+                                bptrainQ.send(Invalid);
+                            end
+                        tagged NotBranch:
+                            begin
+                                rewindQ.send(Invalid);
+                                bptrainQ.send(Invalid); // XXX
+                            end
+                    endcase
+                    debug <= fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr);
                 end
               tagged REffectiveAddr .ea:
                 begin
                     rewindQ.send(Invalid);
+                    bptrainQ.send(Invalid);
                 end
               tagged RNop:
                 begin
-                    rewindQ.send(Invalid);
+                    if (bundle.branchAttr matches tagged NotBranch)
+                    begin
+                        rewindQ.send(Invalid);
+                        bptrainQ.send(Invalid);
+                    end
+                    else
+                    begin
+                        debug <= fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok);
+                        stat_mpred.incr();
+                        epoch <= epoch + 1; // XXX
+                        rewindQ.send(Valid(tuple2(tok,pc+4)));
+                        bptrainQ.send(Valid(tuple2(pc,NotBranch)));
+                    end
                 end
               tagged RTerminate .pf:
                 begin
                     rewindQ.send(Invalid);
                     bundle.isTerminate = Valid(pf);
+                    bptrainQ.send(Invalid);
                 end
             endcase
             outQ.send(Valid(tuple2(tok, bundle)));

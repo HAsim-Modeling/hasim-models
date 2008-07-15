@@ -6,7 +6,9 @@ module [HASIM_MODULE] mkCPU ();
     let decode  <- mkDecode();
     let execute <- mkExecute();
     let mem     <- mkMem();
-   let wb      <- mkWriteBack();
-   let icache <- mkICache();
+    let wb      <- mkWriteBack();
+
+    let bp <- mkBranchPredictor();
+    let icache <- mkICache();
 endmodule
 
