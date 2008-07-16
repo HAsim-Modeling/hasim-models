@@ -424,3 +424,15 @@ Directory modules/hasim/timing-models/inorder
 bugfix in DebugFile. Since synthesis tool cannot perform fopen, the
 file descriptor remains uninitialized, and rules cannot fire, causing
 the synthesis tool to filter them out.
+
+----------
+mcadler     Date: Wed Jul 16 18:31:49 EDT 2008  CSN: CSN-hasim-models-21
+                  Wed Jul 16 22:31:49 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ Execute.bsv               Locally Modified           20 
+
+funcp_getResults now returns a struct with enough information to deal with
+redirecting of taken and not-taken branches.  In addition to taken branch
+targets it also includes the address and size of the current instruction.

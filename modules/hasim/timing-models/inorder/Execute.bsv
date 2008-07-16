@@ -4,6 +4,8 @@ import hasim_modellib::*;
 import hasim_isa::*;
 import module_local_controller::*;
 
+`include "asim/provides/funcp_interface.bsh"
+
 //import PipelineTypes::*;
 import FShow::*;
 import Vector::*;
@@ -25,7 +27,7 @@ module [HASIM_MODULE] mkExecute ();
 
     Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("exe_bus");
 
-    Connection_Client#(TOKEN, Tuple2#(TOKEN, ISA_EXECUTION_RESULT)) getResults <- mkConnection_Client("funcp_getResults");
+    Connection_Client#(TOKEN, FUNCP_GET_RESULTS_MSG) getResults <- mkConnection_Client("funcp_getResults");
 
     Reg#(EXECUTE_STATE) state <- mkReg(EXECUTE_STATE_EXEC);
 
@@ -103,7 +105,11 @@ module [HASIM_MODULE] mkExecute ();
 
     rule results (state == EXECUTE_STATE_WORK);
         getResults.deq();
-        match { .tok, .res } = getResults.getResp();
+
+        let fp_exe = getResults.getResp();
+        let tok = fp_exe.token;
+        let res = fp_exe.result;
+
         let x <- inQ.receive();
         if (x matches tagged Valid { .tok2, .bndl })
         begin
