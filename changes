@@ -412,3 +412,15 @@ Directory modules/hasim/timing-models/inorder
  Decode.bsv                Locally Modified           18 
 
 added a simple branch predictor to the inorder model.
+
+----------
+nikhil      Date: Tue Jul 15 23:52:03 CDT 2008  CSN: CSN-hasim-models-20
+                  Wed Jul 16 04:52:03 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ DebugFile.bsv             Locally Modified           18 
+
+bugfix in DebugFile. Since synthesis tool cannot perform fopen, the
+file descriptor remains uninitialized, and rules cannot fire, causing
+the synthesis tool to filter them out.
