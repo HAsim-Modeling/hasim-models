@@ -29,6 +29,7 @@ import Vector::*;
 
 `include "asim/provides/funcp_simulated_memory.bsh"
 `include "asim/provides/hasim_icache.bsh"
+`include "asim/provides/hasim_dcache.bsh"
 
 //************************* Simple Timing Partition ***********************//
 //                                                                         //
@@ -44,23 +45,24 @@ import Vector::*;
 
 typedef enum 
 { 
- TOK, FET, DEC, EXE, LOA, STO, LCO, GCO 
+ TOK, FET, ICACHE, ICACHE_STALL, DEC, EXE, LOA, STO, DCACHE, DCACHE_STALL, LCO, GCO 
  } 
 Stage deriving (Eq, Bits);
 
 module [HASim_Module] mkCPU
-     //interface:
-                 ();
-
-  Reg#(File) debug_log <- mkReg(InvalidFile);
-  
-  //********* State Elements *********//
-  
-  //Have we made a req to FP and are waiting for a response?
-  Reg#(Bool) madeReq <- mkReg(False);
+   //interface:
+   ();
+   
+   Reg#(File) debug_log <- mkReg(InvalidFile);
+   
+   //********* State Elements *********//
+   
+   //Have we made a req to FP and are waiting for a response?
+   Reg#(Bool) madeReq <- mkReg(False);
   
   //The current stage
-  Reg#(Stage) stage <- mkReg(TOK);
+   Reg#(Stage) stage <- mkReg(TOK);
+   Reg#(Stage) req_stage <- mkRegU();
   
   //Current TOKEN (response from TOK stage)
   Reg#(TOKEN) cur_tok <- mkRegU();
@@ -143,23 +145,47 @@ module [HASim_Module] mkCPU
    // Create ICache
    let inst_cache <- mkICache();
    
-  // Ports communicating with ICache
+   // Ports communicating with ICache
    Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache"); // port to the instruction cache
   
    Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_icache_imm <- mkPort_Receive("icache_to_cpu_immediate", 0); // port from icache
    
    Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_icache_del <- mkPort_Receive("icache_to_cpu_delayed", 0); // port from icache with miss response
-
+  
+   
+   // Create DCache
+   let data_cache <- mkDCache();
+   
+   // Ports communicating with DCache
+   
+   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_dcache <- mkPort_Send("cpu_to_dcache"); // port to the data cache
+   
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_dcache_imm <- mkPort_Receive("dcache_to_cpu_immediate", 0); //immediate response port from dcache
+   
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_dcache_del <- mkPort_Receive("dcache_to_cpu_delayed", 0); // delayed response port from dcache
+    
+     
    // state for communication with ICache
    Reg#(Bool) waitForICache <- mkReg(True);
    Reg#(TOKEN) icache_tok <- mkRegU();
    
+   // state for communication with DCache
+   Reg#(Bool) waitForDCache <- mkReg(True);
+   Reg#(TOKEN) dcache_tok <- mkRegU();
+   
+   // register to control port states
+   Reg#(Bool) stall <- mkReg(False);
+   
+   
    /********* Communication with local controller for icache ports ******/
-   Vector#(2, Port_Control) inports  = newVector();
-   Vector#(1, Port_Control) outports = newVector();
+   Vector#(4, Port_Control) inports  = newVector();
+   Vector#(2, Port_Control) outports = newVector();
    inports[0]  = port_from_icache_imm.ctrl;
    inports[1]  = port_from_icache_del.ctrl;
+   inports[2] = port_from_dcache_imm.ctrl;
+   inports[3] = port_from_dcache_del.ctrl;
    outports[0] = port_to_icache.ctrl;
+   outports[1] = port_to_dcache.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports);     
   
   //********* Rules *********//
@@ -188,7 +214,9 @@ module [HASim_Module] mkCPU
   
   rule process (local_ctrl.running());
      debug_rule("process");
-         
+        
+     Bool iCacheRead = False;
+ 
     case (stage)
       TOK:
        begin
@@ -254,102 +282,114 @@ module [HASim_Module] mkCPU
             cur_inst <= inst;
 	    if (tok.index != cur_tok.index) $display ("FET ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
 	    
-	    stage <= DEC;
+	     stage <= ICACHE;
 	     madeReq <= False;
 	     
 	     // Make a request to the instruction cache
 	     // Standard memory reference for now (no prefetches etc.)
 	     port_to_icache.send(tagged Valid tuple2(cur_tok, tagged Inst_mem_ref pc));
-	     waitForICache <= True;	   
+	     iCacheRead = True;
+//	     waitForICache <= True;	   
 	     
 	  end
-      end
-      DEC:
-      begin
-         debug_case("stage", "DEC");
-	 /* Loop in this state until ICache responds with data */
-	 if (waitForICache)
-	    begin
-	       // Check if the instruction cache has returned anything //
-	       let icache_ret_imm <- port_from_icache_imm.receive();
-	       let icache_ret_del <- port_from_icache_del.receive();
-	       
-	       case(icache_ret_del) matches
-		  tagged Invalid:  // there is no miss response from icache
-		     // check if there is an immediate response from icache (eg. hit)
-		     case(icache_ret_imm) matches	            
-			tagged Invalid: // go to an intermediate stall state
-			   begin
-			      waitForICache <= True;
-			      baseTick <= baseTick + 1;      // stalling so increment model cycle
-			      link_model_cycle.send(?);    				       				     
-			      port_to_icache.send(tagged Invalid);  // this is a NoMessage
-			   end
-			tagged Valid {.icachetok, .icachemsg}:   // message received from ICache
-			   begin
-			      case(icachemsg) matches
-				 tagged Hit .servicedpc:   // ICache hit
-				    begin
-				       waitForICache <= False;
-				    end
-				 tagged Miss_servicing .servicedpc: // ICache miss being serviced by memory
-				    begin 
-				       baseTick <= baseTick + 1;
-				       link_model_cycle.send(?);
-				       port_to_icache.send(tagged Invalid);  // this is a NoMessage
-				    end
-				 tagged Miss_retry .servicedpc:   // ICache miss, retry because of lack of buffer space
-				    begin
-				       /* Currently not implemented */
-				    end
-
-			      endcase
-			   end
-		     endcase
-		  tagged Valid .icachemissresp:
-		     begin
-			waitForICache <= False;
-			//port_to_icache.send(tagged Invalid);
-		     end
-		  
-	       endcase  
-	    end 	 
-	 
-	 else 
-	    begin		       
-               if (!madeReq)
-		  begin
-		     debug_then("!madeReq");
-		     
-		     //Decode current inst
-		     debug(2, $fdisplay(debug_log, "[%d] Decoding TOKEN %0d.", hostCC, cur_tok.index));
-		     link_to_dec.makeReq(cur_tok);
-		     
-		     madeReq <= True;
-		  end
-	       else
-		  begin
-		     debug_else("!madeReq");
-		     
- 		     //Get the response
-		     match {.tok, .deps} = link_to_dec.getResp();
-		     link_to_dec.deq();
-		     
-		     debug(2, $fdisplay(debug_log, "[%d] DEC Responded with TOKEN %0d.", hostCC, tok.index));
-		     
-		     if (tok.index != cur_tok.index) $display ("DEC ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-		     
-		     stage <= EXE;
-		     madeReq <= False;
-		  end
-	    end 
-      end
+       end
        
-
-
-      EXE:
+       ICACHE:
        begin
+	  debug_case("stage", "ICACHE");
+	  
+	  // capture icache messages
+	  let icache_ret_imm <- port_from_icache_imm.receive();
+	  let icache_ret_del <- port_from_icache_del.receive();
+	  
+	  case (icache_ret_del) matches
+	     // if there is no delayed response 
+	     tagged Invalid:
+		begin
+		   case (icache_ret_imm) matches
+		      // if there is message from icache
+		      tagged Invalid:
+			 begin
+			    port_to_dcache.send(tagged Invalid);
+			    stage <= ICACHE_STALL;
+			 end
+		      // if there is an immediate message from icache
+		      tagged  Valid {.icachetok, .icachemsg}:
+			 begin
+			    case (icachemsg) matches
+			       tagged Hit .icacheaddr:
+				  begin 
+			             stage <= DEC;
+				  end
+			       tagged Miss_servicing .icacheaddr:
+				  begin
+				     port_to_dcache.send(tagged Invalid);
+				     stage <= ICACHE_STALL;
+				  end
+			       tagged Miss_retry .icacheaddr:
+				  begin
+				     port_to_dcache.send(tagged Invalid);
+				     stage <= ICACHE_STALL;
+				  end
+			    endcase
+			 end
+		   endcase
+		end
+	     tagged Valid .icachedelresp:
+		begin
+		   stage <= DEC;		
+		end
+	  endcase
+       end 
 
+       ICACHE_STALL:
+       begin
+	  let msg_from_dcache_imm <- port_from_dcache_imm.receive();
+	  let msg_from_dcache_del <- port_from_dcache_del.receive();
+	  port_to_icache.send(tagged Invalid);
+	  iCacheRead = True;
+	  baseTick <= baseTick + 1;
+	  link_model_cycle.send(?);
+	  stage <= ICACHE;
+       end
+       
+       
+       DEC:
+       begin
+          debug_case("stage", "DEC");
+	  
+          if (!madeReq)
+	     begin
+		debug_then("!madeReq");
+		
+		//Decode current inst
+		debug(2, $fdisplay(debug_log, "[%d] Decoding TOKEN %0d.", hostCC, cur_tok.index));
+		link_to_dec.makeReq(cur_tok);
+		
+		madeReq <= True;
+	     end
+	  else
+	     begin
+		debug_else("!madeReq");
+		
+ 		//Get the response
+		match {.tok, .deps} = link_to_dec.getResp();
+		link_to_dec.deq();
+		
+		debug(2, $fdisplay(debug_log, "[%d] DEC Responded with TOKEN %0d.", hostCC, tok.index));
+		
+		if (tok.index != cur_tok.index) $display ("DEC ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
+		
+		stage <= EXE;
+		madeReq <= False;
+	     end
+       end 
+       
+       EXE:
+       begin
+	  
+	  ISA_ADDRESS effMemAddr = 0;
+	   
         debug_case("stage", "EXE");
         if (!madeReq)
 	  begin
@@ -387,82 +427,175 @@ module [HASim_Module] mkCPU
 	        debug(2, $fdisplay(debug_log, "Terminating Execution"));
                 local_ctrl.endProgram(pf);
 	      end
+	       tagged REffectiveAddr .ea:
+		  begin
+		     debug(2, $fdisplay(debug_log, "Load/Store"));
+		     effMemAddr = ea;
+		  end
               default:
 	      begin
 	   	pc <= pc + 4;
 	      end
 	    endcase
 	    
-            if (isaIsLoad(cur_inst))
-  	      stage <= LOA;
-            else if (isaIsStore(cur_inst))
-              stage <= STO;
+             if (isaIsLoad(cur_inst))
+		begin
+  		   //stage <= LOA;
+		   
+		   stage <= DCACHE;
+		   req_stage <= LOA;
+		   // make read request to data cache
+		   port_to_dcache.send(tagged Valid tuple2(tok, tagged Data_read_mem_ref tuple2(pc, effMemAddr)));
+		   waitForDCache <= True;
+		   $display("Model PC: %x, Load Instruction", baseTick, pc);
+		    
+		end
+             else if (isaIsStore(cur_inst))
+		begin
+		  // stage <= STO;
+		   
+		   stage <= DCACHE;
+		   req_stage <= STO;
+		   // make write request to data cache
+		   port_to_dcache.send(tagged Valid tuple2(tok, tagged Data_write_mem_ref tuple2(pc, effMemAddr)));
+		   $display("Model cycle: %d, Store Instruction", baseTick);
+		   waitForDCache <= True;
+		    
+		end
             else
               stage <= LCO;
 
 	    madeReq <= False;
 	  end
-      end
+       end
+       
+       DCACHE:
+       begin
+	  // read output ports from data cache
+	  let dcache_ret_imm <- port_from_dcache_imm.receive();
+	  let dcache_ret_del <- port_from_dcache_del.receive();
+	  
+	  case (dcache_ret_del) matches
+	     tagged Invalid:
+		begin
+		   case (dcache_ret_imm) matches
+		      tagged Invalid:
+			 begin
+			    if (!iCacheRead) 
+			       port_to_icache.send(tagged Invalid);
+			    stage <= DCACHE_STALL;
+			    $display ("Model cycle %d, stall", baseTick);
+			 end
+		      tagged Valid {.dcachetok, .dcachemsg}:
+			 begin
+			    case (dcachemsg) matches
+			       tagged Hit .ref_addr:
+				  begin
+				     stage <= req_stage;
+				     $display ("Model cycle %d, hit address %x", baseTick, ref_addr);
+				  end
+			       tagged Miss_servicing .ref_addr:
+				  begin
+				     if (!iCacheRead)
+					port_to_icache.send(tagged Invalid);
+				     stage <= DCACHE_STALL;
+				     $display ("Model cycle %d, miss address %x", baseTick, ref_addr);
+				  end
+			       tagged Hit_servicing .ref_addr:
+				  begin
+				     if (!iCacheRead)
+					port_to_icache.send(tagged Invalid);
+				     stage <= DCACHE_STALL;
+				     $display ("Model cycle %d, hit service address %x", baseTick, ref_addr);
+				  end
+			       tagged Miss_retry .ref_addr:
+				  begin
+				     // currently not implemented
+				  end
+			    endcase
+			 end
+		   endcase      
+		end
+	     tagged Valid .dcachemsg:
+		begin
+		   stage <= req_stage;
+		end
+	  endcase
+       end
+       
+       DCACHE_STALL:
+       begin
+	  let msg_icache_imm <- port_from_icache_imm.receive();
+	  let msg_icache_del <- port_from_icache_del.receive();
+	  port_to_dcache.send(tagged Invalid);
+	  iCacheRead = False;
+	  baseTick <= baseTick + 1;
+	  link_model_cycle.send(?);
+	  stage <= DCACHE;
+       end
+    
+	      
       LOA:
        begin
-	  
-        debug_case("stage", "LOA");
-        if (!madeReq)
-	  begin
-	    debug_then("!madeReq");
-	    
-	    //Request load
-	    debug(2, $fdisplay(debug_log, "[%d] Load for TOKEN %0d", hostCC, cur_tok.index));
-            link_to_load.makeReq(cur_tok);
-            madeReq <= True;
-          end
-	else
-	  begin
-	    debug_else("!madeReq");
-	    
- 	    //Get the response
-	    let tok = link_to_load.getResp();
-	    link_to_load.deq();
 
-	    debug(2, $fdisplay(debug_log, "[%d] Load ops responded with TOKEN %0d.", hostCC, tok.index));
-	    
-	    if (tok.index != cur_tok.index) $display ("LOA ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-	    
-	    stage <= LCO;
-	    madeReq <= False;
-	  end
-      end
-      STO:
+	  debug_case("stage", "LOA");
+	  if (!madeReq)
+	     begin
+		debug_then("!madeReq");
+		
+		//Request load
+		debug(2, $fdisplay(debug_log, "[%d] Load for TOKEN %0d", hostCC, cur_tok.index));
+		link_to_load.makeReq(cur_tok);
+		madeReq <= True;
+		
+	     end
+	  else
+	     begin
+		debug_else("!madeReq");
+		
+ 		//Get the response
+		let tok = link_to_load.getResp();
+		link_to_load.deq();
+		
+		debug(2, $fdisplay(debug_log, "[%d] Load ops responded with TOKEN %0d.", hostCC, tok.index));
+		
+		if (tok.index != cur_tok.index) $display ("LOA ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
+		
+		stage <= LCO;
+		madeReq <= False;
+	     end
+       end
+       
+       STO:
        begin
-
-	  
-        debug_case("stage", "STO");
-        if (!madeReq)
-	  begin
-	    debug_then("!madeReq");
-	    
-	    //Request store
-	    debug(2, $fdisplay(debug_log, "[%d] Store for TOKEN %0d", hostCC, cur_tok.index));
-            link_to_store.makeReq(cur_tok);
-            madeReq <= True;
-
-          end
-	else
-	  begin
-	    debug_else("!madeReq");
-	    
- 	    //Get the response
-	    let tok = link_to_store.getResp();
-	    link_to_store.deq();
-
-	    debug(2, $fdisplay(debug_log, "[%d] Store ops responded with TOKEN %0d.", hostCC, tok.index));
-	    
-	    if (tok.index != cur_tok.index) $display ("STO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-	    
-	    stage <= LCO;
-	    madeReq <= False;
-	  end
-      end
+	  debug_case("stage", "STO");
+	  if (!madeReq)
+	     begin
+		debug_then("!madeReq");
+		
+		//Request store
+		debug(2, $fdisplay(debug_log, "[%d] Store for TOKEN %0d", hostCC, cur_tok.index));
+		link_to_store.makeReq(cur_tok);
+		madeReq <= True;
+		
+	     end
+	  else
+	     begin
+		debug_else("!madeReq");
+		
+ 		//Get the response
+		let tok = link_to_store.getResp();
+		link_to_store.deq();
+		
+		debug(2, $fdisplay(debug_log, "[%d] Store ops responded with TOKEN %0d.", hostCC, tok.index));
+		
+		if (tok.index != cur_tok.index) $display ("STO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
+		
+		stage <= LCO;
+		madeReq <= False;
+	     end
+       end
+       
       LCO:
        begin
 

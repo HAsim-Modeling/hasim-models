@@ -7,13 +7,13 @@
 #/*
 # %AWB_START
 #
-# %name Cache hierarchy
-# %desc Cache hierarchy
-# %provides hasim_cache_memory
+# %name Dummy ICache Memory
+# %desc Dummy ICache Memory
+# %provides hasim_icache_memory
 #
-# %attributes hasim cache memory
+# %attributes hasim icache memory
 #
-# %public CacheMemory.bsv 
+# %public ICacheMemory.bsv 
 #
 #
 # %AWB_END

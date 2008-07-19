@@ -7,14 +7,14 @@
 #/*
 # %AWB_START
 #
-# %name Direct mapped instruction cache
-# %desc Direct mapped instruction cache
-# %requires hasim_icache_types hasim_icache_memory 
-# %provides hasim_icache
+# %name Direct mapped write through data cache
+# %desc Direct mapped write through data cache
+# %requires hasim_dcache_types hasim_dcache_memory  
+# %provides hasim_dcache 
 #
 # %attributes hasim caches
 #
-# %public ICacheDirectMapped.bsv 
+# %public DCacheDirectMappedWriteThrough.bsv 
 #
 # %AWB_END
 # */

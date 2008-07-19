@@ -16,7 +16,7 @@ typedef union tagged {
 		      }
 MemOutput deriving (Eq, Bits);
 
-module [HASim_Module] mkCacheMemory();
+module [HASim_Module] mkICacheMemory();
    // incoming ports
    Port_Receive#(Tuple2#(TOKEN, MemInput)) port_from_icache <- mkPort_Receive("icache_to_memory", 10);
    

@@ -9,7 +9,7 @@
 #
 # %name Hasim Unpipelined CPU With Cache
 # %desc Hasim Unpipelined CPU With Cache
-# %requires hasim_icache
+# %requires hasim_icache hasim_dcache
 # %provides hasim_cpu
 #
 # %attributes unpipelined cpu

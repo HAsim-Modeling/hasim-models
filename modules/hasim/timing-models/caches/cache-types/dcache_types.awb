@@ -1,0 +1,22 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name DCache Types
+# %desc DCache Types 
+# %provides hasim_dcache_types
+#
+# %attributes hasim caches
+#
+# %public DCacheTypes.bsv
+# %param DCACHE_LINE_BITS	5  "Number of block offset bits"
+# %param DCACHE_IDX_BITS	8  "Number of index bits"
+# %param DCACHE_ASSOC		4  "Cache associativity (unused for direct mapped case)"
+#
+# %AWB_END
+# */

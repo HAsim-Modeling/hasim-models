@@ -9,7 +9,7 @@
 #
 # %name Set-associative instruction cache
 # %desc Set-associative instruction cache
-# %requires hasim_icache_types hasim_cache_memory hasim_cache_replacement_algorithm 
+# %requires hasim_icache_types hasim_icache_memory hasim_cache_replacement_algorithm 
 # %provides hasim_icache
 #
 # %attributes hasim caches

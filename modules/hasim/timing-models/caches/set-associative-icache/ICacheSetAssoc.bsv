@@ -5,38 +5,43 @@ import hasim_modellib::*;
 import module_local_controller::*;
 
 import hasim_isa::*;
-import hasim_cache_memory::*;
+import hasim_icache_memory::*;
 import fpga_components::*;
 
-`include "asim/provides/hasim_cache_memory.bsh"
+`include "asim/provides/hasim_icache_memory.bsh"
 `include "asim/provides/hasim_icache_types.bsh"
 `include "asim/provides/hasim_cache_replacement_algorithm.bsh"
 
-typedef enum {HandleReq, TagCompare, HandleResp} State deriving (Eq, Bits);
+typedef enum {HandleReq, HandleReq2, HandleTag, HandleRead, HandleStall1, HandleStall2} State deriving (Eq, Bits);
+
+typedef ISA_ADDRESS INST_ADDRESS;
+typedef ISA_ADDRESS DATA_ADDRESS;
 
 typedef union tagged {
-		      ISA_ADDRESS Inst_mem_ref;              // Instruction fetch from ICache
-		      ISA_ADDRESS Inst_prefetch_ref;         // Instruction prefetch from ICache
-		      ISA_ADDRESS Data_read_mem_ref;         // Data read from DCache
-		      ISA_ADDRESS Data_write_mem_ref;        // Data write to DCache
-		      ISA_ADDRESS Data_read_prefetch_ref;    // Data read prefetch
-		      ISA_ADDRESS Invalidate_line;           // Message to invalidate specific cache line
-		      Bool Invalidate_all;                   // Message to entire cache
-		      ISA_ADDRESS Flush_line;                // Flush specific cache line            
-		      Bool Flush_all;                        // Flush entire cache
-		      Bool Kill_all;                         // Kill all current operations of the cache      
-		      } 
+		 INST_ADDRESS Inst_mem_ref;              // Instruction fetch from ICache
+		 INST_ADDRESS Inst_prefetch_ref;         // Instruction prefetch from ICache
+		 Tuple2#(INST_ADDRESS, DATA_ADDRESS) Data_read_mem_ref;         // Data read from DCache
+		 Tuple2#(INST_ADDRESS, DATA_ADDRESS)  Data_write_mem_ref;        // Data write to DCache
+		 Tuple2#(INST_ADDRESS, DATA_ADDRESS) Data_read_prefetch_ref;    // Data read prefetch
+		 ISA_ADDRESS Invalidate_line;           // Message to invalidate specific cache line
+		 Bool Invalidate_all;                   // Message to entire cache
+		 ISA_ADDRESS Flush_line;                // Flush specific cache line            
+		 Bool Flush_all;                        // Flush entire cache
+		 Bool Kill_all;                         // Kill all current operations of the cache      
+		 } 
 CacheInput deriving (Eq, Bits);
 
 typedef union tagged{
-   ISA_ADDRESS Hit;
-   ISA_ADDRESS Miss_servicing;
-   ISA_ADDRESS Miss_retry;
+   INST_ADDRESS Hit;
+   INST_ADDRESS Hit_servicing;
+   INST_ADDRESS Miss_servicing;
+   INST_ADDRESS Miss_retry;
    } 
 CacheOutputImmediate deriving (Eq, Bits);
 
 typedef union tagged{
-   ISA_ADDRESS Miss_response;
+   INST_ADDRESS Miss_response;
+   INST_ADDRESS Hit_response;
    }
 CacheOutputDelayed deriving (Eq, Bits);
 
@@ -44,7 +49,7 @@ CacheOutputDelayed deriving (Eq, Bits);
 module [HASIM_MODULE] mkICache();
    
    // instantiate cache memory
-   let cachememory <- mkCacheMemory();
+   let cachememory <- mkICacheMemory();
    
    // tag store BRAM
    // produce a BRAM containing vectors holding all the tags of each way
@@ -94,148 +99,239 @@ module [HASIM_MODULE] mkICache();
    outports[3] = port_to_replacement_alg.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports); 
    
+   Reg#(Bool) noRequest <- mkReg(False);
+   Reg#(Bool) hit  <- mkReg(False);      
+   Reg#(ICACHE_WAY) hit_way <- mkReg(0);
+   Reg#(Bool) missretry <- mkReg(False);
+   Reg#(Bool) memret <- mkReg(False);
+   Reg#(TOKEN) resp_tok <- mkRegU();
+   Reg#(ISA_ADDRESS) resp_addr <- mkReg(0);
+   
    // rules
-   rule readreq (state == HandleReq);
-      
-      // read request from cpu
+   rule handlereq (state == HandleReq);
+      // read request from CPU
       let req_from_cpu <- port_from_cpu.receive();
       
       // read response from memory
-      let resp_from_memory <- port_from_memory.receive();
+      let resp_from_mem <- port_from_memory.receive();
       
-      // blocking cache implementation
-      case (resp_from_memory) matches
-	 // if main memory is not supplying data
+      // check request type
+      case (req_from_cpu) matches
+	 // no request
 	 tagged Invalid:
-	    case(req_from_cpu) matches
-	       // NoMessage so CPU is not sending a request
-	       tagged Invalid:
+	    begin
+	       port_to_replacement_alg.send(tagged Invalid);
+	       state <= HandleReq2;	     
+	    end
+	 
+	 // request
+	 tagged Valid {.tok_from_cpu, .msg_from_cpu}:
+	    begin
+	       // check request type
+	       case (msg_from_cpu) matches
+		  // standard read request
+		  tagged Inst_mem_ref .addr:
+		     begin
+			Tuple3#(ICACHE_TAG, ICACHE_INDEX, ICACHE_LINE_OFFSET) address_tup = unpack(addr);
+			match {.tag, .idx, .line_offset} = address_tup;
+			req_icache_tag <= tag;
+			req_icache_index <= idx;
+			req_tok <= tok_from_cpu;
+			req_addr <= addr;
+			// make the read request from BRAM tag store
+			icache_tag_store.readReq(idx);
+			state <= HandleTag;
+		     end
+		  // no current implementation of other request types
+	       endcase
+	    end
+      endcase
+   endrule
+   
+   rule handlereq2 (state == HandleReq2);
+      port_to_memory.send(tagged Invalid);
+      port_to_cpu_imm.send(tagged Invalid);
+      port_to_cpu_del.send(tagged Invalid);
+      let resp_from_rep <- port_from_replacement_alg.receive();
+      state <= HandleReq;   
+   endrule
+      
+   rule handletag (state == HandleTag);
+      
+      Bool hit_rec = False;
+      ICACHE_WAY hit_way_rec = 0;
+     
+      begin
+	 // get response from BRAM
+	 let tag_from_bram <- icache_tag_store.readResp();
+	 
+	 // check if anything in the set is valid
+	 for (Integer w = 0; w <`ICACHE_ASSOC; w = w + 1)
+	    begin
+	       if (tag_from_bram[w] matches tagged Valid {.ret_icache_lru_bits, .ret_icache_tag} &&& ret_icache_tag == req_icache_tag)
+		  begin
+		     hit_rec = True;
+		     hit_way_rec = fromInteger(w);
+		  end
+	    end
+	    
+	 hit <= hit_rec;
+	 hit_way <= hit_way_rec;
+	 
+	 // react to hit or miss
+	 if (hit_rec)
+	    begin
+	       port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: True, accessed_set: tag_from_bram, accessed_way: hit_way_rec}));
+	       state <= HandleRead;	
+	    end
+	 else
+	    begin
+	       port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: False, accessed_set: tag_from_bram, accessed_way: ?}));
+	       state <= HandleRead;
+	    end
+      end
+     
+   endrule
+   
+   
+   rule handleread (state == HandleRead);
+      
+      // get response from replacement algorithm 
+      let replacement_resp <- port_from_replacement_alg.receive();
+      
+      // check replacement algorithm response
+      case (replacement_resp) matches
+	 tagged Valid {.resp_tok, .replace_out}:
+	    begin
+	       let updated_set = replace_out.updated_set;
+	       let updated_way = replace_out.replaced_way;
+	       
+	       // update set
+	       case (updated_set[updated_way]) matches
+		  tagged Valid {.lru_bits, .tag}:
+		     begin
+			updated_set[updated_way] = tagged Valid tuple2(lru_bits, req_icache_tag);
+		     end
+	       endcase
+	       
+	       // write updated set into BRAM
+	       icache_tag_store.write(req_icache_index, updated_set);
+	       
+	       // send messages to cpu and memory
+	       if (hit)
 		  begin
 		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu_imm.send(tagged Invalid);
+		     port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Hit req_addr));
 		     port_to_cpu_del.send(tagged Invalid);
+		     state <= HandleReq;
 		  end
-	       // CPU is making a request
-	       tagged Valid {.tok_from_cpu, .req_from_fetch}:
+	       else
 		  begin
-		     case (req_from_fetch) matches
-			// CPU is making standard memory reference
-			tagged Inst_mem_ref .addr_from_cpu:
-			   begin
-			      Tuple3#(ICACHE_TAG, ICACHE_INDEX, ICACHE_LINE_OFFSET) address_tup = unpack(addr_from_cpu);
-			      match {.tag, .idx, .line_offset} = address_tup;
-			      req_icache_tag <= tag;
-			      req_icache_index <= idx;
-			      req_tok <= tok_from_cpu;
-			      req_addr <= addr_from_cpu;
-			      icache_tag_store.readReq(idx);
-			      state <= TagCompare;
-			   end
-			// No current implementation of other request types
-		     endcase
+		     port_to_memory.send(tagged Valid tuple2(req_tok, tagged Mem_fetch req_addr));
+		     port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_servicing req_addr));
+		     port_to_cpu_del.send(tagged Invalid); 
+		     state <= HandleStall1;
 		  end
-	    endcase
-	 
-	 // if main memory is supplying data
-	 tagged Valid {.tok_from_memory, .inst_from_memory}:
+	    end
+      endcase
+   endrule
+   
+      
+   rule handlestall1 (state == HandleStall1);
+      
+      // receive CPU request
+      let req_from_cpu <- port_from_cpu.receive();
+      
+      // receive memory response
+      let resp_from_mem <- port_from_memory.receive();
+      
+      // check if memory has returned value
+      case (resp_from_mem) matches
+	 // not yet responded with data
+	 tagged Invalid:
 	    begin
-	       case (inst_from_memory) matches
-		  tagged ValueRet .servicedpc:
+	       // check CPU request type
+	       case (req_from_cpu) matches
+		  // no request
+		  tagged Invalid:
 		     begin
-			port_to_memory.send(tagged Invalid);	       
-			port_to_cpu_imm.send(tagged Invalid);
-			port_to_cpu_del.send(tagged Valid tuple2(tok_from_memory, tagged Miss_response servicedpc));
+			//port_to_memory.send(tagged Invalid);
+			//port_to_cpu_imm.send(tagged Invalid);
+			//port_to_cpu_del.send(tagged Invalid);
+			port_to_replacement_alg.send(tagged Invalid);
+			state <= HandleStall2;
+			missretry <= False;
+			memret <= False;
+		     end
+		  // CPU is making a request
+		  tagged Valid {.tok_from_cpu, .msg_from_cpu}:
+		     begin
+			case (msg_from_cpu) matches
+			   tagged Inst_mem_ref .addr_from_cpu:
+			      begin
+				 // port_to_memory.send(tagged Invalid);
+				 // port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_retry addr_from_cpu));
+				 // port_to_cpu_del.send(tagged Invalid);
+				 port_to_replacement_alg.send(tagged Invalid);
+				 state <= HandleStall2;
+				 missretry <= True;
+				 memret <= False;
+			      end
+			endcase
+		     end
+	       endcase
+	    end
+	 // memory responds with data
+	 tagged Valid {.tok_from_mem, .msg_from_mem}:
+	    begin
+	       case (msg_from_mem) matches
+		  tagged ValueRet .resp_pc:
+		     begin
+			//port_to_memory.send(tagged Invalid);
+			//port_to_cpu_imm.send(tagged Invalid);
+			//port_to_cpu_del.send(tagged Valid tuple2(tok_from_mem, tagged Miss_response resp_pc));
+			resp_tok <= tok_from_mem;
+			resp_addr <= resp_pc;
+			port_to_replacement_alg.send(tagged Invalid);
+			state <= HandleStall2;
+			missretry <= False;
+			memret <= True;
 		     end
 	       endcase
 	    end
       endcase
    endrule
    
-   rule checktag (state == TagCompare);
-      let tag_from_bram <- icache_tag_store.readResp();
-      Bool hit = False;
-      ICACHE_WAY hit_way = 0;
-
-      // check if anything in the set is valid
-      for (Integer w = 0; w <`ICACHE_ASSOC; w = w + 1)
+   rule handlestall2 (state == HandleStall2);
+      if (!memret)
 	 begin
-	    if (tag_from_bram[w] matches tagged Valid {.ret_icache_lru_bits, .ret_icache_tag} &&& ret_icache_tag == req_icache_tag)
+	    if (missretry)
 	       begin
-		  hit = True;
-		  hit_way = fromInteger(w);
-		  //$display("Cache hit tag: %x, index: %d, way: %d", req_icache_tag, req_icache_index, w);
+		  port_to_memory.send(tagged Invalid);
+		  port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_retry req_addr));
+		  port_to_cpu_del.send(tagged Invalid);  
+		  let msg_from_rep <- port_from_replacement_alg.receive();
 	       end
+	    else
+	       begin
+		  port_to_memory.send(tagged Invalid);
+		  port_to_cpu_imm.send(tagged Invalid);
+		  port_to_cpu_del.send(tagged Invalid);
+		  let msg_from_rep <- port_from_replacement_alg.receive();
+	       end
+	    state <= HandleStall1;
 	 end
-      
-      // react to hit or miss
-      
-      if (hit) 
-	 begin 
+      else
+	 begin
+	    let msg_from_rep <- port_from_replacement_alg.receive();
 	    port_to_memory.send(tagged Invalid);
-	    port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Hit req_addr));
-	    port_to_cpu_del.send(tagged Invalid);
-	    port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: True, accessed_set: tag_from_bram, accessed_way: hit_way}));
-	    state <= HandleResp;
+	    port_to_cpu_imm.send(tagged Invalid);
+	    port_to_cpu_del.send(tagged Valid tuple2(resp_tok, tagged Miss_response resp_addr));	    
+	    state <= HandleReq;
 	 end
-       else
-	 begin 
-	    port_to_memory.send(tagged Valid tuple2(req_tok, tagged Mem_fetch req_addr));
-	    port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_servicing req_addr));			  
-	    port_to_cpu_del.send(tagged Invalid);
-	    //$display("Cache miss tag: %x, index: %d", req_icache_tag, req_icache_index);
-	    
-	    port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: False, accessed_set: tag_from_bram, accessed_way: ?}));
-	    state <= HandleResp;
-	 end
-   endrule
-   
-   
-   rule handleresp (state == HandleResp);
-      let replacement_resp <- port_from_replacement_alg.receive();
-      case(replacement_resp) matches
-	 tagged Invalid:
-	    begin
-	       // currently unimplemented
-	    end
-	 tagged Valid {.resp_tok, .replace_out}:
-	    begin
-	       let updated_set = replace_out.updated_set;
-	       let updated_way = replace_out.replaced_way;
-	       case (updated_set[updated_way]) matches
-		  tagged Valid {.lru_bits, .tag}:
-		     begin
-			updated_set[updated_way] = tagged Valid tuple2(lru_bits, req_icache_tag);		     	
-			//$display ("Updated cache way: %d new tag: %x victim tag: %x", updated_way, req_icache_tag, tag);
-		     end
-	       endcase     
-	       
-	       /* debugging */
-	       /*
- 	       for (Integer w = 0; w < `ICACHE_ASSOC; w = w + 1)
-		  begin
-		     if (updated_set[w] matches tagged Valid {.lru, .tag})
-			begin
-			   $display ("Way: %d, LRU: %d, Tag: %x", w, lru, tag);
-			end
-		     else
-			begin
-			   $display("Way: %d, Invalid", w);
-			end
-		  end
-	       $display(" ");
-		*/
-	       /* debugging end */		       
-			       
-	       icache_tag_store.write(req_icache_index, updated_set);
-	    end
-      endcase
-      state <= HandleReq;   
    endrule
 endmodule
-   
-   
-	    
-	    
-	    
-      
+
+ 
+	       
       

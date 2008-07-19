@@ -436,3 +436,66 @@ Directory modules/hasim/timing-models/inorder
 funcp_getResults now returns a struct with enough information to deal with
 redirecting of taken and not-taken branches.  In addition to taken branch
 targets it also includes the address and size of the current instruction.
+
+----------
+abhattac    Date: Sat Jul 19 16:41:40 EDT 2008  CSN: CSN-hasim-models-22
+                  Sat Jul 19 20:41:40 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           21 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ dcache_types.awb          Locally Added               0 
+ DCacheTypes.bsv           Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ direct_mapped_icache.awb  Locally Modified           21 
+ ICacheDirectMapped.bsv    Locally Modified           21 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ set_associative_icache.awb Locally Modified           21 
+ ICacheSetAssoc.bsv        Locally Modified           21 
+
+Directory modules/hasim/timing-models/caches
+ write-through-dcache/     Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache
+ direct-mapped-write-through-dcache/ Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache/direct-mapped-write-through-dcache
+ DCacheDirectMappedWriteThrough.bsv.bk Locally Added               0 
+ direct_mapped_write_through_dcache.awb Locally Added               0 
+ DCacheDirectMappedWriteThrough.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache
+ direct-mapped-writeback-dcache/ Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache/direct-mapped-writeback-dcache
+ direct_mapped_writeback_dcache.awb Locally Added               0 
+ DCacheDirectMappedWriteback.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ unpipelined_cpu.awb       Locally Modified           21 
+ UnpipelinedCPU.bsv        Locally Modified           21 
+
+Directory modules/hasim/timing-models/memory
+ memory.awb                Locally Removed            21 
+ CacheMemory.bsv           Locally Removed            21 
+ dcachememory.awb          Locally Added               0 
+ DCacheMemory.bsv          Locally Added               0 
+ icachememory.awb          Locally Added               0 
+ ICacheMemory.bsv          Locally Added               0 
+
+Added separate dummy memory modules for ICache and DCache. Modified
+direct-mapped and set-associative ICache to service requests from the
+CPU despite processing a previous miss in the background. Added a
+write-through direct mapped data cache that currently takes one input
+port. A future modification will be the separation of speculative
+input ports and commit input ports.
+Modified unpipeline module to deal with new ICache in conjunction with
+DCache.
+Created a separate DCache types file to gather paramerization of the
+DCache infrastructure.
+Modified cache interface to take both the PC and the address
+referenced for reads and writes to the data cache.

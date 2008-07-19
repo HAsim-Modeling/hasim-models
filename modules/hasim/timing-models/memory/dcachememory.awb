@@ -1,0 +1,20 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Dummy memory for DCache
+# %desc Dummy memory for DCache
+# %provides hasim_dcache_memory
+#
+# %attributes hasim dcache memory
+#
+# %public DCacheMemory.bsv 
+#
+#
+# %AWB_END
+# */
