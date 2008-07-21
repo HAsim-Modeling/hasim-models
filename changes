@@ -499,3 +499,117 @@ Created a separate DCache types file to gather paramerization of the
 DCache infrastructure.
 Modified cache interface to take both the PC and the address
 referenced for reads and writes to the data cache.
+----------
+mcadler     Date: Mon Jul 21 16:40:11 EDT 2008  CSN: CSN-hasim-models-23
+                  Mon Jul 21 20:40:11 UTC 2008
+
+
+Directory config/pm/hasim-models
+ 5stage/                   Locally Added               0 
+
+Directory config/pm/hasim-models/5stage
+ 5stage-simple.apm         Locally Added               0 
+
+Directory modules/hasim/timing-models
+ structures/               Locally Added               0 
+
+Directory modules/hasim/timing-models/structures
+ branch/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch
+ target_buffer/            Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer
+ oneEntry/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/oneEntry
+ TargetBuffer.awb          Locally Added               0 
+ TargetBuffer.bsv          Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer
+ multiEntry/               Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multiEntry
+ TargetBuffer.awb          Locally Added               0 
+ TargetBuffer.bsv          Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch
+ stack/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/stack
+ 1entry/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/stack/1entry
+ BranchStack.awb           Locally Added               0 
+ BranchStack.bsv           Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/stack
+ infinite/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/stack/infinite
+ BranchStack.awb           Locally Added               0 
+ BranchStack.bsv           Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch
+ predictor/                Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ 2bit/                     Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ BranchPred.awb            Locally Added               0 
+ BranchPred.bsv            Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ taken/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/taken
+ BranchPred.awb            Locally Added               0 
+ BranchPred.bsv            Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ notTaken/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/notTaken
+ BranchPred.awb            Locally Added               0 
+ BranchPred.bsv            Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ globHistory/              Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/globHistory
+ BranchPred.awb            Locally Added               0 
+ BranchPred.bsv            Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ simple/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/simple
+ BranchPred.awb            Locally Added               0 
+ BranchPred.bsv            Locally Added               0 
+
+Directory modules/hasim/timing-models
+ cpu/                      Locally Added               0 
+
+Directory modules/hasim/timing-models/cpu
+ 5-stage/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/cpu/5-stage
+ execute.dic               Locally Added               0 
+ CPU.bsv                   Locally Added               0 
+ decode.dic                Locally Added               0 
+ 5stage-interfaces.awb     Locally Added               0 
+ Fetch.bsv                 Locally Added               0 
+ 5stage-interfaces.bsv     Locally Added               0 
+ Writeback.bsv             Locally Added               0 
+ 5stage-cpu.awb            Locally Added               0 
+ fetch.dic                 Locally Added               0 
+ Mem.bsv                   Locally Added               0 
+ writeback.dic             Locally Added               0 
+ Execute.bsv               Locally Added               0 
+ Decode.bsv                Locally Added               0 
+ mem.dic                   Locally Added               0 
+
+Move 5 stage model from hasim-mips here.  Also moved branch predictors
+and a few other structures.  5 stage model is now a single awb file since
+it is supposed to be a simple example.
