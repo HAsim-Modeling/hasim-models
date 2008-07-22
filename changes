@@ -613,3 +613,31 @@ Directory modules/hasim/timing-models/cpu/5-stage
 Move 5 stage model from hasim-mips here.  Also moved branch predictors
 and a few other structures.  5 stage model is now a single awb file since
 it is supposed to be a simple example.
+
+----------
+mvijayar    Date: Tue Jul 22 15:09:35 EDT 2008  CSN: CSN-hasim-models-24
+                  Tue Jul 22 19:09:35 UTC 2008
+
+
+Directory config/pm/hasim-models
+ out-of-order/             Locally Removed            23 
+
+Directory config/pm/hasim-models/out-of-order
+ out-of-order.apm          Locally Removed            23 
+
+Directory modules/hasim/timing-models/out-of-order
+ DebugFile.bsv             Locally Modified           23 
+ CPU.bsv                   Locally Modified           23 
+ Commit.bsv                Locally Added               0 
+ Fetch.bsv                 Locally Modified           23 
+ BandwidthPort.bsv         Locally Added               0 
+ PipelineTypes.bsv         Locally Modified           23 
+ Mem.bsv                   Locally Modified           23 
+ out-of-order.awb          Locally Modified           23 
+ Alu.bsv                   Locally Added               0 
+ GetResults.bsv            Locally Added               0 
+ Rob.bsv                   Locally Added               0 
+ Decode.bsv                Locally Modified           23 
+
+The out of order model. Documentation to follow
+

@@ -1,97 +1,88 @@
 import hasim_common::*;
-import soft_connections::*;
 import hasim_modellib::*;
 import hasim_isa::*;
-import module_local_controller::*;
 
-`include "asim/provides/funcp_simulated_memory.bsh"
+`include "PipelineTypes.bsv"
+`include "DebugFile.bsv"
 
-import FShow::*;
-import Vector::*;
+`include "funcp_simulated_memory.bsh"
 
-typedef enum { FETCH_STATE_REWIND, FETCH_STATE_REWIND_RESP, FETCH_STATE_TOKEN, FETCH_STATE_INST, FETCH_STATE_SEND } FETCH_STATE deriving (Bits, Eq);
+typedef enum { FETCH_STATE_REWIND_REQ, FETCH_STATE_REWIND_RESP, FETCH_STATE_TOKEN_REQ, FETCH_STATE_INST_REQ, FETCH_STATE_INST_RESP } FETCH_STATE deriving (Bits, Eq);
 
-module [HASIM_MODULE] mkFetch ();
+module [HASIM_MODULE] mkFetch();
+    DebugFile                                                                               debug <- mkDebugFile("Fetch.out");
 
-    DebugFile debug <- mkDebugFile("pipe_fetch.out");
+    PORT_BANDWIDTH_CREDIT_SEND#(FETCH_BUNDLE, `FETCH_NUM, `FETCH_CREDITS)               fetchPort <- mkPortBandwidthCreditSend("fetch");
 
-    Reg#(ISA_ADDRESS) pc <- mkReg(`PROGRAM_START_ADDR);
+    PORT_RECEIVE#(REWIND_BUNDLE)                                                      resteerPort <- mkPortReceive("resteer");
 
-    StallPort_Send#(Tuple2#(TOKEN, ISA_INSTRUCTION)) outQ <- mkStallPort_Send("fet2dec");
-    Port_Receive#(Tuple2#(TOKEN, ISA_ADDRESS)) rewindQ <- mkPort_Receive  ("rewind", 1);
+    Connection_Client#(UNIT,TOKEN)                                                    newInFlight <- mkConnection_Client("funcp_newInFlight");
+    Connection_Client#(Tuple2#(TOKEN,ISA_ADDRESS), Tuple2#(TOKEN,ISA_INSTRUCTION)) getInstruction <- mkConnection_Client("funcp_getInstruction");
+    Connection_Client#(TOKEN,UNIT)                                                  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
-    Connection_Send#(Bool) model_cycle <- mkConnection_Send("model_cycle");
+    Reg#(ISA_ADDRESS)                                                                          pc <- mkReg(`PROGRAM_START_ADDR);
+    Reg#(FETCH_STATE)                                                                       state <- mkReg(FETCH_STATE_REWIND_REQ);
+    Reg#(ROB_INDEX)                                                                      epochRob <- mkRegU();
+    Reg#(Bool)                                                                       afterResteer <- mkReg(False);
+    Reg#(TOKEN_TIMEP_EPOCH)                                                                 epoch <- mkReg(0);
 
-    Connection_Client#(UNIT, TOKEN)                        newInFlight <- mkConnection_Client("funcp_newInFlight");
-
-    Connection_Client#(Tuple2#(TOKEN, ISA_ADDRESS),
-                       Tuple2#(TOKEN, ISA_INSTRUCTION)) getInstruction <- mkConnection_Client("funcp_getInstruction");
-
-    Connection_Client#(TOKEN, UNIT)                      rewindToToken <- mkConnection_Client("funcp_rewindToToken");
-
-    Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_REWIND);
-
-    Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
-
-    //Local Controller
-    Vector#(0, Port_Control) inports  = newVector();
-    Vector#(0, Port_Control) outports = newVector();
-    //inports[0]  = inQ.ctrl;
-    //outports[0] = outQ.ctrl;
-    LocalController local_ctrl <- mkLocalController(inports, outports);
-
-    rule rewind (state == FETCH_STATE_REWIND);
-        local_ctrl.startModelCC();
-        model_cycle.send(?);
-        let rewind <- rewindQ.receive();
-        case (rewind) matches
-            tagged Valid .addr:
-            begin
-                debug <= fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a);
-                rewindToToken.makeReq(tok);
-                pc <= addr;
-                state <= FETCH_STATE_REWIND_RESP;
-            end
-            tagged Invalid:
-                state <= FETCH_STATE_TOKEN;
-        endcase
+    Reg#(Bit#(32))                                                                         fpgaCC <- mkReg(0);
+    rule inc(True);
+        fpgaCC <= fpgaCC + 1;
     endrule
 
-    rule rewindResp (state == FETCH_STATE_REWIND_RESP);
+    rule rewindReq(state == FETCH_STATE_REWIND_REQ);
+        let bundle <- resteerPort.pop();
+        debug <= $format("rewindReq %d", fpgaCC) + fshow(bundle);
+        if(bundle.mispredict)
+        begin
+            pc <= bundle.addr;
+            epochRob <= bundle.robIndex;
+            afterResteer <= True;
+            rewindToToken.makeReq(bundle.token);
+            state <= FETCH_STATE_REWIND_RESP;
+        end
+        else
+            state <= FETCH_STATE_TOKEN_REQ;
+    endrule
+
+    rule rewindResp(state == FETCH_STATE_REWIND_RESP);
+        debug <= $format("rewindResp %d", fpgaCC);
         rewindToToken.deq();
         epoch <= epoch + 1;
-        state <= FETCH_STATE_TOKEN;
+        state <= FETCH_STATE_TOKEN_REQ;
     endrule
 
-    rule getTokenOrPass(state == FETCH_STATE_TOKEN);
-        if(outQ.canSend())
+    rule tokenReq(state == FETCH_STATE_TOKEN_REQ);
+        if(fetchPort.canSend())
         begin
-            newInFligh.makeReq(?);
-            state <= FETCH_STATE_INST;
+            newInFlight.makeReq(?);
+            state <= FETCH_STATE_INST_REQ;
         end
         else
         begin
-            debug <= fshow("PASS");
-            outQ.pass();
-            state <= FETCH_STATE_REWIND;
+            debug.endModelCC();
+            state <= FETCH_STATE_REWIND_REQ;
+            fetchPort.done();
         end
     endrule
 
-    rule inst (state == FETCH_STATE_INST);
+    rule instReq(state == FETCH_STATE_INST_REQ);
+        let token = newInFlight.getResp();
+        token.timep_info.epoch = epoch;
         newInFlight.deq();
-        let tok = newInFlight.getResp();
-        tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
-        getInstruction.makeReq(tuple2(tok,pc));
-        debug <= fshow("FETCHINST: ") + fshow(tok) + $format(" ADDR:0x%h", pc);
-        pc <= pc + 4;
-        state <= FETCH_STATE_SEND;
+        getInstruction.makeReq(tuple2(token, pc));
+        state <= FETCH_STATE_INST_RESP;
     endrule
 
-    rule done (state == FETCH_STATE_SEND);
+    rule instResp(state == FETCH_STATE_INST_RESP);
+        match {.token, .inst} = getInstruction.getResp();
         getInstruction.deq();
-        let inst = getInstruction.getResp();
-        outQ.send(Valid(inst));
-        state <= FETCH_STATE_REWIND;
+        let bundle = FETCH_BUNDLE{token: token, inst: inst, pc: pc, prediction: False, epochRob: epochRob, afterResteer: afterResteer};
+        debug <= $format("instResp ") + fshow(bundle);
+        fetchPort.enq(bundle);
+        pc <= pc + 4;
+        afterResteer <= False;
+        state <= FETCH_STATE_TOKEN_REQ;
     endrule
-
 endmodule
