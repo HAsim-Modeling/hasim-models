@@ -718,3 +718,24 @@ Directory .
 
 Reorganization of data cache files. Unpipelined model with cache
 changed to include data cache.
+----------
+abhattac    Date: Fri Jul 25 16:57:46 EDT 2008  CSN: CSN-hasim-models-26
+                  Fri Jul 25 20:57:46 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache
+ direct-mapped-writethrough-dcache/ Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ direct_mapped_write_through_dcache.awb Locally Added               0 
+ DCacheDirectMappedWriteThrough.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches
+ direct-mapped-dcache/     Locally Added               0 
+
+Added direct-mapped, write-through data cache code. Data cache has two
+ports (one of which handles loads and the other commits
+stores). During stall times, miss retry signals and invalids are sent
+back to the pipeline as appropriate. It is assumed that a separate
+store buffer module will be created to take care of the effects of
+speculative stores and will deal with corresponding aliasing issues.
