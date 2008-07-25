@@ -739,3 +739,12 @@ stores). During stall times, miss retry signals and invalids are sent
 back to the pipeline as appropriate. It is assumed that a separate
 store buffer module will be created to take care of the effects of
 speculative stores and will deal with corresponding aliasing issues.
+----------
+abhattac    Date: Fri Jul 25 17:21:34 EDT 2008  CSN: CSN-hasim-models-27
+                  Fri Jul 25 21:21:34 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           25 
+
+Modified .apm file to include data cache module.

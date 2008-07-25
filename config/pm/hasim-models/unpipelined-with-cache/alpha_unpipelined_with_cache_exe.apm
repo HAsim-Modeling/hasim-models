@@ -55,7 +55,6 @@ Packagehint=hasim
 File=config/pm/hasim-alpha/submodels/funcp/alpha_funcp_v3.apm
 Packagehint=hasim-alpha
 
-
 [Alpha ISA Definition]
 File=modules/hasim/functional-partition/isa/definition/isa_definition_alpha.awb
 Packagehint=hasim-alpha
@@ -85,7 +84,7 @@ File=modules/hasim/timing-models/memory/dcachememory.awb
 Packagehint=hasim-models
 
 [Direct mapped write through data cache]
-File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-write-through-dcache/direct_mapped_write_through_dcache.awb
+File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache/direct_mapped_write_through_dcache.awb
 Packagehint=hasim-models
 
 [Direct mapped write through data cache/Requires]
