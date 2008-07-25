@@ -42,7 +42,7 @@ File=config/pm/hasim/submodels/controller/hybrid_standard_controller.apm
 Packagehint=hasim
 
 [HAsim Hybrid Model Foundation/Requires]
-hasim_common=New Hasim Common Library
+hasim_common=Hasim Common Library
 hasim_system=Hasim - Hardware (fpga) based system
 hasim_controller=Hasim Standard Controller
 fpgaenv=FPGA Environment
@@ -55,9 +55,6 @@ Packagehint=hasim
 File=config/pm/hasim-alpha/submodels/funcp/alpha_funcp_v3.apm
 Packagehint=hasim-alpha
 
-[New Hasim Common Library]
-File=config/pm/hasim/submodels/common/hasim_common.apm
-Packagehint=hasim
 
 [Alpha ISA Definition]
 File=modules/hasim/functional-partition/isa/definition/isa_definition_alpha.awb
@@ -88,14 +85,12 @@ File=modules/hasim/timing-models/memory/dcachememory.awb
 Packagehint=hasim-models
 
 [Direct mapped write through data cache]
-File=modules/hasim/timing-models/caches/write-through-dcache/direct-mapped-write-through-dcache/direct_mapped_write_through_dcache.awb
+File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-write-through-dcache/direct_mapped_write_through_dcache.awb
 Packagehint=hasim-models
 
 [Direct mapped write through data cache/Requires]
 hasim_dcache_types=DCache Types
 hasim_dcache_memory=Dummy memory for DCache
-
-
 
 [Set-associative instruction cache]
 File=modules/hasim/timing-models/caches/set-associative-icache/set_associative_icache.awb
@@ -109,3 +104,7 @@ Packagehint=hasim-models
 hasim_icache_types=ICache Types
 hasim_cache_replacement_algorithm=LRU
 hasim_icache_memory=Dummy ICache Memory
+
+[Hasim Common Library]
+File=config/pm/hasim/submodels/common/hasim_common.apm
+Packagehint=hasim

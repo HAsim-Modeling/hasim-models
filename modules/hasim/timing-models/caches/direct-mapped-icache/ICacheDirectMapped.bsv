@@ -31,6 +31,7 @@ CacheInput deriving (Eq, Bits);
 typedef union tagged{
    INST_ADDRESS Hit;
    INST_ADDRESS Hit_servicing;
+   INST_ADDRESS Miss;
    INST_ADDRESS Miss_servicing;
    INST_ADDRESS Miss_retry;
    } 

@@ -27,6 +27,7 @@ import Vector::*;
 `include "asim/dict/EVENTS_CPU.bsh"
 `include "asim/dict/STATS_CPU.bsh"
 
+`include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
 `include "asim/provides/hasim_icache.bsh"
 `include "asim/provides/hasim_dcache.bsh"
@@ -104,7 +105,8 @@ module [HASim_Module] mkCPU
   link_to_dec <- mkConnection_Client("funcp_getDependencies");
   
   Connection_Client#(TOKEN,
-                     Tuple2#(TOKEN, ISA_EXECUTION_RESULT))
+                     //Tuple2#(TOKEN, ISA_EXECUTION_RESULT))
+		     FUNCP_GET_RESULTS_MSG)
   //...
   link_to_exe <- mkConnection_Client("funcp_getResults");
   
@@ -157,14 +159,19 @@ module [HASim_Module] mkCPU
    let data_cache <- mkDCache();
    
    // Ports communicating with DCache
+   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_dcache_spec <- mkPort_Send("cpu_to_dcache_speculative");  // speculative port to the data cache
    
-   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_dcache <- mkPort_Send("cpu_to_dcache"); // port to the data cache
+   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_dcache_comm <- mkPort_Send("cpu_to_dcache_committed"); // committed port to the data cache
    
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_dcache_imm <- mkPort_Receive("dcache_to_cpu_immediate", 0); //immediate response port from dcache
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_dcache_imm_spec <- mkPort_Receive("dcache_to_cpu_immediate_speculative", 0);  // immediate speculative response
    
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_dcache_del <- mkPort_Receive("dcache_to_cpu_delayed", 0); // delayed response port from dcache
-    
-     
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_dcache_del_spec <- mkPort_Receive("dcache_to_cpu_delayed_speculative", 0); // delayed speculative response
+   
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_dcache_imm_comm <- mkPort_Receive("dcache_to_cpu_immediate_committed", 0); // immediate committed response
+   
+   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_dcache_del_comm <- mkPort_Receive("dcache_to_cpu_delayed_committed", 0); // delayed committed response
+   
+   
    // state for communication with ICache
    Reg#(Bool) waitForICache <- mkReg(True);
    Reg#(TOKEN) icache_tok <- mkRegU();
@@ -178,14 +185,17 @@ module [HASim_Module] mkCPU
    
    
    /********* Communication with local controller for icache ports ******/
-   Vector#(4, Port_Control) inports  = newVector();
-   Vector#(2, Port_Control) outports = newVector();
+   Vector#(6, Port_Control) inports  = newVector();
+   Vector#(3, Port_Control) outports = newVector();
    inports[0]  = port_from_icache_imm.ctrl;
    inports[1]  = port_from_icache_del.ctrl;
-   inports[2] = port_from_dcache_imm.ctrl;
-   inports[3] = port_from_dcache_del.ctrl;
+   inports[2] = port_from_dcache_imm_spec.ctrl;
+   inports[3] = port_from_dcache_del_spec.ctrl;
+   inports[4] = port_from_dcache_imm_comm.ctrl;
+   inports[5] = port_from_dcache_del_comm.ctrl;
    outports[0] = port_to_icache.ctrl;
-   outports[1] = port_to_dcache.ctrl;
+   outports[1] = port_to_dcache_spec.ctrl;
+   outports[2] = port_to_dcache_comm.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports);     
   
   //********* Rules *********//
@@ -310,7 +320,9 @@ module [HASim_Module] mkCPU
 		      // if there is message from icache
 		      tagged Invalid:
 			 begin
-			    port_to_dcache.send(tagged Invalid);
+			    port_to_dcache_spec.send(tagged Invalid);
+			    port_to_dcache_comm.send(tagged Invalid);
+			    
 			    stage <= ICACHE_STALL;
 			 end
 		      // if there is an immediate message from icache
@@ -323,12 +335,16 @@ module [HASim_Module] mkCPU
 				  end
 			       tagged Miss_servicing .icacheaddr:
 				  begin
-				     port_to_dcache.send(tagged Invalid);
+				     port_to_dcache_spec.send(tagged Invalid);
+				     port_to_dcache_comm.send(tagged Invalid);				     
+				     
 				     stage <= ICACHE_STALL;
 				  end
 			       tagged Miss_retry .icacheaddr:
 				  begin
-				     port_to_dcache.send(tagged Invalid);
+				     port_to_dcache_spec.send(tagged Invalid);
+				     port_to_dcache_comm.send(tagged Invalid);
+				     
 				     stage <= ICACHE_STALL;
 				  end
 			    endcase
@@ -344,8 +360,11 @@ module [HASim_Module] mkCPU
 
        ICACHE_STALL:
        begin
-	  let msg_from_dcache_imm <- port_from_dcache_imm.receive();
-	  let msg_from_dcache_del <- port_from_dcache_del.receive();
+	  let msg_from_dcache_imm_spec <- port_from_dcache_imm_spec.receive();
+	  let msg_from_dcache_del_spec <- port_from_dcache_del_spec.receive();
+	  let msg_from_dcache_imm_comm <- port_from_dcache_imm_comm.receive();
+	  let msg_from_dcache_del_comm <- port_from_dcache_del_comm.receive();
+	  
 	  port_to_icache.send(tagged Invalid);
 	  iCacheRead = True;
 	  baseTick <= baseTick + 1;
@@ -404,8 +423,12 @@ module [HASim_Module] mkCPU
 	    debug_else("!madeReq");
 	    
  	    //Get the response
-            match {.tok, .res} = link_to_exe.getResp();
-	    link_to_exe.deq();
+            //match {.tok, .res} = link_to_exe.getResp();
+	     let exe_resp = link_to_exe.getResp();
+	     link_to_exe.deq();
+	     
+	     let tok = exe_resp.token;
+	     let res = exe_resp.result;
 
 	    debug(2, $fdisplay(debug_log, "[%d] EXE Responded with TOKEN %0d.", hostCC, tok.index));
 	    
@@ -445,9 +468,10 @@ module [HASim_Module] mkCPU
 		   stage <= DCACHE;
 		   req_stage <= LOA;
 		   // make read request to data cache
-		   port_to_dcache.send(tagged Valid tuple2(tok, tagged Data_read_mem_ref tuple2(pc, effMemAddr)));
+		   port_to_dcache_spec.send(tagged Valid tuple2(tok, tagged Data_read_mem_ref tuple2(pc, effMemAddr)));
+		   port_to_dcache_comm.send(tagged Invalid);
 		   waitForDCache <= True;
-		   $display("Model PC: %x, Load Instruction", baseTick, pc);
+		   //$display("Model PC: %x, Load Instruction", baseTick, pc);
 		    
 		end
              else if (isaIsStore(cur_inst))
@@ -457,8 +481,9 @@ module [HASim_Module] mkCPU
 		   stage <= DCACHE;
 		   req_stage <= STO;
 		   // make write request to data cache
-		   port_to_dcache.send(tagged Valid tuple2(tok, tagged Data_write_mem_ref tuple2(pc, effMemAddr)));
-		   $display("Model cycle: %d, Store Instruction", baseTick);
+		   port_to_dcache_spec.send(tagged Invalid);
+		   port_to_dcache_comm.send(tagged Valid tuple2(tok, tagged Data_write_mem_ref tuple2(pc, effMemAddr)));
+		  // $display("Model cycle: %d, Store Instruction", baseTick);
 		   waitForDCache <= True;
 		    
 		end
@@ -472,62 +497,118 @@ module [HASim_Module] mkCPU
        DCACHE:
        begin
 	  // read output ports from data cache
-	  let dcache_ret_imm <- port_from_dcache_imm.receive();
-	  let dcache_ret_del <- port_from_dcache_del.receive();
+	  let dcache_ret_imm_spec <- port_from_dcache_imm_spec.receive();
+	  let dcache_ret_del_spec <- port_from_dcache_del_spec.receive();
+	  let dcache_ret_imm_comm <- port_from_dcache_imm_comm.receive();
+	  let dcache_ret_del_comm <- port_from_dcache_del_comm.receive();
 	  
-	  case (dcache_ret_del) matches
-	     tagged Invalid:
-		begin
-		   case (dcache_ret_imm) matches
-		      tagged Invalid:
-			 begin
-			    if (!iCacheRead) 
-			       port_to_icache.send(tagged Invalid);
-			    stage <= DCACHE_STALL;
-			    $display ("Model cycle %d, stall", baseTick);
-			 end
-		      tagged Valid {.dcachetok, .dcachemsg}:
-			 begin
-			    case (dcachemsg) matches
-			       tagged Hit .ref_addr:
-				  begin
-				     stage <= req_stage;
-				     $display ("Model cycle %d, hit address %x", baseTick, ref_addr);
-				  end
-			       tagged Miss_servicing .ref_addr:
-				  begin
-				     if (!iCacheRead)
-					port_to_icache.send(tagged Invalid);
-				     stage <= DCACHE_STALL;
-				     $display ("Model cycle %d, miss address %x", baseTick, ref_addr);
-				  end
-			       tagged Hit_servicing .ref_addr:
-				  begin
-				     if (!iCacheRead)
-					port_to_icache.send(tagged Invalid);
-				     stage <= DCACHE_STALL;
-				     $display ("Model cycle %d, hit service address %x", baseTick, ref_addr);
-				  end
-			       tagged Miss_retry .ref_addr:
-				  begin
-				     // currently not implemented
-				  end
-			    endcase
-			 end
-		   endcase      
-		end
-	     tagged Valid .dcachemsg:
-		begin
-		   stage <= req_stage;
-		end
-	  endcase
+	  if (req_stage == LOA) 
+	     begin
+		case (dcache_ret_del_spec) matches
+		   tagged Invalid:
+		      begin
+			 case (dcache_ret_imm_spec) matches
+			    tagged Invalid:
+			       begin
+				  if (!iCacheRead) 
+				     port_to_icache.send(tagged Invalid);
+				  stage <= DCACHE_STALL;
+				  //$display ("Model cycle %d, stall", baseTick);
+			       end
+			    tagged Valid {.dcachetok, .dcachemsg}:
+			       begin
+				  case (dcachemsg) matches
+				     tagged Hit .ref_addr:
+					begin
+					   stage <= req_stage;
+					   //$display ("Model cycle %d, hit address %x", baseTick, ref_addr);
+					end
+				     tagged Miss_servicing .ref_addr:
+					begin
+					   if (!iCacheRead)
+					      port_to_icache.send(tagged Invalid);
+					   stage <= DCACHE_STALL;
+					   //$display ("Model cycle %d, miss address %x", baseTick, ref_addr);
+					end
+				     tagged Hit_servicing .ref_addr:
+					begin
+					   if (!iCacheRead)
+					      port_to_icache.send(tagged Invalid);
+					   stage <= DCACHE_STALL;
+					   //$display ("Model cycle %d, hit service address %x", baseTick, ref_addr);
+					end
+				     tagged Miss_retry .ref_addr:
+					begin
+					   // currently not implemented
+					end
+				  endcase
+			       end
+			 endcase      
+		      end
+		   tagged Valid .dcachemsg:
+		      begin
+			 stage <= LOA;
+		      end
+		endcase
+	     end
+	  else
+	     begin
+		case (dcache_ret_del_comm) matches
+		   tagged Invalid:
+		      begin
+			 case (dcache_ret_imm_comm) matches
+			    tagged Invalid:
+			       begin
+				  if (!iCacheRead) 
+				     port_to_icache.send(tagged Invalid);
+				  stage <= DCACHE_STALL;
+				  //$display ("Model cycle %d, stall", baseTick);
+			       end
+			    tagged Valid {.dcachetok, .dcachemsg}:
+			       begin
+				  case (dcachemsg) matches
+				     tagged Hit .ref_addr:
+					begin
+					   stage <= req_stage;
+					   //$display ("Model cycle %d, hit address %x", baseTick, ref_addr);
+					end
+				     tagged Miss_servicing .ref_addr:
+					begin
+					   if (!iCacheRead)
+					      port_to_icache.send(tagged Invalid);
+					   stage <= DCACHE_STALL;
+					   //$display ("Model cycle %d, miss address %x", baseTick, ref_addr);
+					end
+				     tagged Hit_servicing .ref_addr:
+					begin
+					   if (!iCacheRead)
+					      port_to_icache.send(tagged Invalid);
+					   stage <= DCACHE_STALL;
+					   //$display ("Model cycle %d, hit service address %x", baseTick, ref_addr);
+					end
+				     tagged Miss_retry .ref_addr:
+					begin
+					   // currently not implemented
+					end
+				  endcase
+			       end
+			 endcase      
+		      end
+		   tagged Valid .dcachemsg:
+		      begin
+			 stage <= STO;
+		      end
+		endcase
+	     end
        end
+		
        
        DCACHE_STALL:
        begin
 	  let msg_icache_imm <- port_from_icache_imm.receive();
 	  let msg_icache_del <- port_from_icache_del.receive();
-	  port_to_dcache.send(tagged Invalid);
+	  port_to_dcache_spec.send(tagged Invalid);
+	  port_to_dcache_comm.send(tagged Invalid);
 	  iCacheRead = False;
 	  baseTick <= baseTick + 1;
 	  link_model_cycle.send(?);

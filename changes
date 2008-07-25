@@ -641,3 +641,80 @@ Directory modules/hasim/timing-models/out-of-order
 
 The out of order model. Documentation to follow
 
+
+----------
+abhattac    Date: Fri Jul 25 16:34:46 EDT 2008  CSN: CSN-hasim-models-25
+                  Fri Jul 25 20:34:46 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           24 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ ICacheDirectMapped.bsv    Locally Modified           24 
+
+Directory modules/hasim/timing-models/caches
+ write-through-dcache/     Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache
+ direct-mapped-write-through-dcache/ Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache/direct-mapped-write-through-dcache
+ DCacheDirectMappedWriteThrough.bsv.bk Locally Removed            24 
+ direct_mapped_write_through_dcache.awb Locally Removed            24 
+ DCacheDirectMappedWriteThrough.bsv Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache
+ direct-mapped-writeback-dcache/ Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache/direct-mapped-writeback-dcache
+ direct_mapped_writeback_dcache.awb Locally Removed            24 
+ DCacheDirectMappedWriteback.bsv Locally Removed            24 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ UnpipelinedCPU.bsv        Locally Modified           24 
+
+Deleted dcache structure due to reorganization
+----------
+abhattac    Date: Fri Jul 25 16:52:46 EDT 2008  CSN: CSN-hasim-models-25
+                  Fri Jul 25 20:52:46 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           24 
+
+Directory admin
+ mytags                    Locally Modified           24 
+
+Directory admin/packages
+ hasim-models              Locally Modified           24 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ ICacheDirectMapped.bsv    Locally Modified           24 
+
+Directory modules/hasim/timing-models/caches
+ write-through-dcache/     Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache
+ direct-mapped-write-through-dcache/ Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache/direct-mapped-write-through-dcache
+ DCacheDirectMappedWriteThrough.bsv.bk Locally Removed            24 
+ direct_mapped_write_through_dcache.awb Locally Removed            24 
+ DCacheDirectMappedWriteThrough.bsv Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache
+ direct-mapped-writeback-dcache/ Locally Removed            24 
+
+Directory modules/hasim/timing-models/caches/write-through-dcache/direct-mapped-writeback-dcache
+ direct_mapped_writeback_dcache.awb Locally Removed            24 
+ DCacheDirectMappedWriteback.bsv Locally Removed            24 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ UnpipelinedCPU.bsv        Locally Modified           24 
+
+Directory .
+ changes                   Locally Modified           24 
+
+Reorganization of data cache files. Unpipelined model with cache
+changed to include data cache.
