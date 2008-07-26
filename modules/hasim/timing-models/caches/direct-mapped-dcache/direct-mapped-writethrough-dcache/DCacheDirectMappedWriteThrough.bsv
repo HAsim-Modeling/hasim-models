@@ -14,15 +14,14 @@ import fpga_components::*;
 
 typedef enum {HandleReq, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite} State deriving (Eq, Bits);
 
-
 module [HASim_Module] mkDCache();
-
+   
    // initialize cache memory
    let cachememory <- mkDCacheMemory();
    
    // state register
    Reg#(State) state <- mkReg(HandleReq);
-   
+      
    // BRAM for cache tag store
    BRAM_MULTI_READ#(2, `DCACHE_IDX_BITS, Maybe#(DCACHE_TAG)) dcache_tag_store <- mkMultiReadBramInitialized(tagged Invalid);
 
@@ -343,6 +342,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_del_spec.send(tagged Invalid);
 		     port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Hit_servicing inst_addr_comm));
 		     port_to_cpu_del_comm.send(tagged Invalid);
+		     dcache_tag_store.write(req_dcache_index_comm, tagged Valid req_dcache_tag_comm);
 		     state <= WriteStall;
 		     hit <= True;
 		  end

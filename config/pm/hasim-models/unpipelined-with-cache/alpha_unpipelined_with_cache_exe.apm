@@ -65,7 +65,7 @@ Packagehint=hasim-models
 
 [Hasim Unpipelined CPU With Cache/Requires]
 hasim_icache=Set-associative instruction cache
-hasim_dcache=Direct mapped write through data cache
+hasim_dcache=Direct mapped writeback data cache
 
 [ICache Types]
 File=modules/hasim/timing-models/caches/cache-types/icache_types.awb
@@ -83,14 +83,6 @@ Packagehint=hasim-models
 File=modules/hasim/timing-models/memory/dcachememory.awb
 Packagehint=hasim-models
 
-[Direct mapped write through data cache]
-File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache/direct_mapped_write_through_dcache.awb
-Packagehint=hasim-models
-
-[Direct mapped write through data cache/Requires]
-hasim_dcache_types=DCache Types
-hasim_dcache_memory=Dummy memory for DCache
-
 [Set-associative instruction cache]
 File=modules/hasim/timing-models/caches/set-associative-icache/set_associative_icache.awb
 Packagehint=hasim-models
@@ -107,3 +99,11 @@ hasim_icache_memory=Dummy ICache Memory
 [Hasim Common Library]
 File=config/pm/hasim/submodels/common/hasim_common.apm
 Packagehint=hasim
+
+[Direct mapped writeback data cache]
+File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache/direct_mapped_write_back_dcache.awb
+Packagehint=hasim-models
+
+[Direct mapped writeback data cache/Requires]
+hasim_dcache_types=DCache Types
+hasim_dcache_memory=Dummy memory for DCache

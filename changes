@@ -748,3 +748,18 @@ Directory config/pm/hasim-models/unpipelined-with-cache
  alpha_unpipelined_with_cache_exe.apm Locally Modified           25 
 
 Modified .apm file to include data cache module.
+----------
+abhattac    Date: Sat Jul 26 03:27:33 EDT 2008  CSN: CSN-hasim-models-28
+                  Sat Jul 26 07:27:33 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           27 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ DCacheDirectMappedWriteThrough.bsv Locally Modified           27 
+
+Directory modules/hasim/timing-models/unpipelined-with-cache
+ UnpipelinedCPU.bsv        Locally Modified           27 
+
+Fixed unpipelined model to feed correct address to the data cache.

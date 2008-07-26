@@ -454,6 +454,7 @@ module [HASim_Module] mkCPU
 		  begin
 		     debug(2, $fdisplay(debug_log, "Load/Store"));
 		     effMemAddr = ea;
+		     $display ("ea is %x", ea);
 		  end
               default:
 	      begin
@@ -468,7 +469,7 @@ module [HASim_Module] mkCPU
 		   stage <= DCACHE;
 		   req_stage <= LOA;
 		   // make read request to data cache
-		   port_to_dcache_spec.send(tagged Valid tuple2(tok, tagged Data_read_mem_ref tuple2(pc, effMemAddr)));
+		   port_to_dcache_spec.send(tagged Valid tuple2(tok, tagged Data_read_mem_ref tuple2(pc, pc)));
 		   port_to_dcache_comm.send(tagged Invalid);
 		   waitForDCache <= True;
 		   //$display("Model PC: %x, Load Instruction", baseTick, pc);
