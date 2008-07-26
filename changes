@@ -763,3 +763,13 @@ Directory modules/hasim/timing-models/unpipelined-with-cache
  UnpipelinedCPU.bsv        Locally Modified           27 
 
 Fixed unpipelined model to feed correct address to the data cache.
+----------
+abhattac    Date: Sat Jul 26 04:23:21 EDT 2008  CSN: CSN-hasim-models-29
+                  Sat Jul 26 08:23:21 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ direct_mapped_write_through_dcache.awb Locally Removed            26 
+ DCacheDirectMappedWriteThrough.bsv Locally Removed            26 
+
+Deleting previous file structure of the writeback cache. 
