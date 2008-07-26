@@ -773,3 +773,16 @@ Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-
  DCacheDirectMappedWriteThrough.bsv Locally Removed            26 
 
 Deleting previous file structure of the writeback cache. 
+----------
+abhattac    Date: Sat Jul 26 04:36:42 EDT 2008  CSN: CSN-hasim-models-30
+                  Sat Jul 26 08:36:42 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache
+ direct-mapped-writethrough-dcache/ Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ direct_mapped_write_through_dcache.awb Locally Added               0 
+ DCacheDirectMappedWriteThrough.bsv Locally Added               0 
+
+Updated write-through data cache
