@@ -786,3 +786,19 @@ Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-
  DCacheDirectMappedWriteThrough.bsv Locally Added               0 
 
 Updated write-through data cache
+----------
+abhattac    Date: Sat Jul 26 04:38:53 EDT 2008  CSN: CSN-hasim-models-31
+                  Sat Jul 26 08:38:53 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ direct_mapped_write_back_dcache.awb Locally Added               0 
+ DCacheDirectMappedWriteBack.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache
+ direct-mapped-writeback-dcache/ Locally Added               0 
+
+Added write-back direct-mapped data cache. Similar to the
+write-through version apart from an additional flush rule which is
+used to write dirty cache lines to memory before line refill. Has been
+tested to work correctly with the Unpipelined model. 

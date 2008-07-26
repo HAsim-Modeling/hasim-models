@@ -1,0 +1,20 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Direct mapped writeback data cache
+# %desc Direct mapped writeback data cache
+# %requires hasim_dcache_types hasim_dcache_memory  
+# %provides hasim_dcache 
+#
+# %attributes hasim caches
+#
+# %public DCacheDirectMappedWriteBack.bsv 
+#
+# %AWB_END
+# */
