@@ -68,9 +68,11 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
 
   //For branch prediction
   
-  Param#(1)  predOnlyBranches  <- mkDynamicParameter(`PARAMS_HASIM_CPU_FET_PRED_ONLY_BRANCHES);
-  Param#(7)  icacheHitChance   <- mkDynamicParameter(`PARAMS_HASIM_CPU_FET_ICACHE_HIT_CHANCE);
-  Param#(16) icacheMissPenalty <- mkDynamicParameter(`PARAMS_HASIM_CPU_FET_ICACHE_MISS_PENALTY);
+  PARAMETER_NODE paramNode <- mkDynamicParameterNode();
+  Param#(1)  predOnlyBranches  <- mkDynamicParameter(`PARAMS_HASIM_CPU_FET_PRED_ONLY_BRANCHES, paramNode);
+  Param#(7)  icacheHitChance   <- mkDynamicParameter(`PARAMS_HASIM_CPU_FET_ICACHE_HIT_CHANCE, paramNode);
+  Param#(16) icacheMissPenalty <- mkDynamicParameter(`PARAMS_HASIM_CPU_FET_ICACHE_MISS_PENALTY, paramNode);
+
   BranchPred branch_pred <- mkBranchPred();
   BRAM#(`FET_BTB_HASH_BITS, Maybe#(ISA_ADDRESS)) btb <- mkBramInitialized(tagged Invalid);
   
