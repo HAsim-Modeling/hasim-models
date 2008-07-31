@@ -49,7 +49,7 @@ module [HASim_Module] mkDCache();
    Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu_comm <- mkPort_Receive("cpu_to_dcache_committed", 0);
    
    // incoming port from memory
-   Port_Receive#(Tuple2#(TOKEN, MemOutput)) port_from_memory <- mkPort_Receive("memory_to_dcache", 0);
+   Port_Receive#(Tuple2#(TOKEN, MemOutput)) port_from_memory <- mkPort_Receive("memory_to_dcache", valueOf(TSub#(`DCACHE_MISS_PENALTY, 1)));
    
    // outgoing ports
    // port to CPU with speculative request immediate response

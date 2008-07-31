@@ -42,14 +42,12 @@ module [HASIM_MODULE] mkFetch ();
 
     Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_NEXTPC);
 
-    // ABHISHEK add
     Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache");
 
     Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_icache_immediate <- mkPort_Receive("icache_to_cpu_immediate", 0);
     Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed))   port_from_icache_delayed   <- mkPort_Receive("icache_to_cpu_delayed", 0);
 
     Reg#(Bool) waitForICache <- mkReg(False);
-    // ABHISHEK end
 
     //Local Controller
     Vector#(5, Port_Control) inports  = newVector();

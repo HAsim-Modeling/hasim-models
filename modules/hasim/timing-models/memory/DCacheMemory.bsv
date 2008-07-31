@@ -18,7 +18,7 @@ MemOutput deriving (Eq, Bits);
 
 module [HASim_Module] mkDCacheMemory();
    // incoming ports
-   Port_Receive#(Tuple2#(TOKEN, MemInput)) port_from_dcache <- mkPort_Receive("dcache_to_memory", 10);
+   Port_Receive#(Tuple2#(TOKEN, MemInput)) port_from_dcache <- mkPort_Receive("dcache_to_memory", 1);
    
    // outgoing ports
    Port_Send#(Tuple2#(TOKEN, MemOutput)) port_to_dcache <- mkPort_Send("memory_to_dcache");

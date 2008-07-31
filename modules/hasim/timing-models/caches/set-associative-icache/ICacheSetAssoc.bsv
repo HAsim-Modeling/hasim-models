@@ -72,7 +72,7 @@ module [HASIM_MODULE] mkICache();
    Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu <- mkPort_Receive("cpu_to_icache", 0);
    
    // incoming port from memory (latency 10 cycles)
-   Port_Receive#(Tuple2#(TOKEN, MemOutput)) port_from_memory <- mkPort_Receive("memory_to_icache", 10);
+   Port_Receive#(Tuple2#(TOKEN, MemOutput)) port_from_memory <- mkPort_Receive("memory_to_icache", valueOf(TSub#(`ICACHE_MISS_PENALTY, 1)));
    
    // outgoing port to CPU (latency 0)
    Port_Send#(Tuple2#(TOKEN, CacheOutputImmediate)) port_to_cpu_imm <- mkPort_Send("icache_to_cpu_immediate");

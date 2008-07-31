@@ -811,3 +811,47 @@ Directory modules/hasim/timing-models/cpu/5-stage
  Fetch.bsv                 Locally Modified           31 
 
 Dynamic parameter ring changes.
+
+----------
+abhattac    Date: Thu Jul 31 15:26:30 EDT 2008  CSN: CSN-hasim-models-33
+                  Thu Jul 31 19:26:30 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           32 
+
+Directory modules/hasim/timing-models/inorder
+ Fetch.bsv                 Locally Modified           32 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ DCacheDirectMappedWriteThrough.bsv Locally Modified           32 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ DCacheDirectMappedWriteBack.bsv Locally Modified           32 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ dcache_types.awb          Locally Modified           32 
+ icache_types.awb          Locally Modified           32 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ ICacheDirectMapped.bsv    Locally Modified           32 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ ICacheSetAssoc.bsv        Locally Modified           32 
+
+Directory modules/hasim/timing-models/caches
+ null-caches/              Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ NullICache.bsv            Locally Added               0 
+ null_dcache.awb           Locally Added               0 
+ NullDCache.bsv            Locally Added               0 
+ null_icache.awb           Locally Added               0 
+
+Directory modules/hasim/timing-models/memory
+ DCacheMemory.bsv          Locally Modified           32 
+ ICacheMemory.bsv          Locally Modified           32 
+
+Modified all cache modules to make the cache miss penalty a static
+parameter. Also created null ICache and DCache modules for model
+creation with perfect hit rates.
