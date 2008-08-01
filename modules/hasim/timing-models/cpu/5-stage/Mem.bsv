@@ -7,6 +7,7 @@ import Vector::*;
 `include "asim/provides/hasim_isa.bsh"
 
 `include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/funcp_interface.bsh"
 
 `include "asim/dict/EVENTS_MEMORY.bsh"
 
@@ -18,6 +19,8 @@ import Vector::*;
 typedef enum 
 {
   MEM_Ready,
+  MEM_Begin_Load,
+  MEM_Begin_Store,
   MEM_Finish_Load,
   MEM_Finish_Store
 }
@@ -39,11 +42,13 @@ module [HASIM_MODULE] mkPipe_Mem#(File debug_file, Bit#(32) curTick)
   //Pseudo-randomness
   LFSR#(Bit#(7)) lfsr <- mkFeedLFSR(7'b1001110);
 
-  //Connections to FP
-  Connection_Send#(TOKEN)     fp_loads_req  <- mkConnection_Send("funcp_doLoads_req");
-  Connection_Receive#(TOKEN)  fp_loads_resp <- mkConnection_Receive("funcp_doLoads_resp");
-  Connection_Send#(TOKEN)     fp_stores_req  <- mkConnection_Send("funcp_doSpeculativeStores_req");
-  Connection_Receive#(TOKEN)  fp_stores_resp <- mkConnection_Receive("funcp_doSpeculativeStores_resp");
+  //Connections to FP 
+  Connection_Send#(FUNCP_REQ_DO_DTRANSLATE)      fp_dtr_req  <- mkConnection_Send("funcp_doDTranslate_req");
+  Connection_Receive#(FUNCP_RSP_DO_DTRANSLATE)   fp_dtr_rsp  <- mkConnection_Receive("funcp_doDTranslate_resp");
+  Connection_Send#(FUNCP_REQ_DO_LOADS)      fp_loads_req  <- mkConnection_Send("funcp_doLoads_req");
+  Connection_Receive#(FUNCP_RSP_DO_LOADS)   fp_loads_rsp  <- mkConnection_Receive("funcp_doLoads_resp");
+  Connection_Send#(FUNCP_REQ_DO_STORES)     fp_stores_req  <- mkConnection_Send("funcp_doSpeculativeStores_req");
+  Connection_Receive#(FUNCP_RSP_DO_STORES)  fp_stores_rsp  <- mkConnection_Receive("funcp_doSpeculativeStores_resp");
 
   //Events
   EventRecorder event_mem <- mkEventRecorder(`EVENTS_MEMORY_INSTRUCTION_MEM);
@@ -76,17 +81,18 @@ module [HASIM_MODULE] mkPipe_Mem#(File debug_file, Bit#(32) curTick)
       end
       tagged Valid {.tok, .isLoad, .isStore}:
       begin
+      
         if (isLoad)
         begin
-          $fdisplay(debug_file, "[%d]:REQ:LOA: %0d", curTick, tok.index);
-          fp_loads_req.send(tok);
-          state <= MEM_Finish_Load;
+          $fdisplay(debug_file, "[%d]:REQ:DTR: %0d", curTick, tok.index);
+          fp_dtr_req.send(initFuncpReqDoDTranslate(tok));
+          state <= MEM_Begin_Load;
         end
         else if (isStore)
         begin
-          $fdisplay(debug_file, "[%d]:REQ:STO: %0d", curTick, tok.index);
-          fp_stores_req.send(tok);
-          state <= MEM_Finish_Store;
+          $fdisplay(debug_file, "[%d]:REQ:DTR: %0d", curTick, tok.index);
+          fp_dtr_req.send(initFuncpReqDoDTranslate(tok));
+          state <= MEM_Begin_Store;
         end
         else
         begin
@@ -97,13 +103,41 @@ module [HASIM_MODULE] mkPipe_Mem#(File debug_file, Bit#(32) curTick)
         end
       end
     endcase
+  endrule
+
+  rule dtransRsp (state == MEM_Begin_Load || state == MEM_Begin_Store);
+
+    let rsp = fp_dtr_rsp.receive();
+    fp_dtr_rsp.deq();
+    let tok = rsp.token;
+
+    $fdisplay(debug_file, "[%d]:RSP:DTR: %0d", curTick, tok.index);
+
+    if (!rsp.hasMore)
+    begin
+
+       if (state == MEM_Begin_Load)
+       begin
+         $fdisplay(debug_file, "[%d]:REQ:LOA: %0d", curTick, tok.index);
+         fp_loads_req.send(initFuncpReqDoLoads(tok));
+         state <= MEM_Finish_Load;
+       end
+       else
+       begin
+         $fdisplay(debug_file, "[%d]:REQ:STO: %0d", curTick, tok.index);
+         fp_stores_req.send(initFuncpReqDoStores(tok));
+         state <= MEM_Finish_Store;
+       end
+
+    end
 
   endrule
 
   rule finishLoad (state == MEM_Finish_Load);
   
-    let tok = fp_loads_resp.receive();
-    fp_loads_resp.deq();
+    let rsp = fp_loads_rsp.receive();
+    fp_loads_rsp.deq();
+    let tok = rsp.token;
     
     $fdisplay(debug_file, "[%d]:RSP:LOA: %0d", curTick, tok.index);
     
@@ -116,8 +150,9 @@ module [HASIM_MODULE] mkPipe_Mem#(File debug_file, Bit#(32) curTick)
 
   rule finishStore (state == MEM_Finish_Store);
   
-    let tok = fp_stores_resp.receive();
-    fp_stores_resp.deq();
+    let rsp = fp_stores_rsp.receive();
+    fp_stores_rsp.deq();
+    let tok = rsp.token;
     
     $fdisplay(debug_file, "[%d]:RSP:STO: %0d", curTick, tok.index);
     

@@ -17,6 +17,7 @@ import Vector::*;
 `include "asim/dict/STATS_FETCH.bsh"
 `include "asim/dict/PARAMS_HASIM_CPU.bsh"
 
+`include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
 `include "asim/provides/hasim_5stage_interfaces.bsh"
 
@@ -31,7 +32,8 @@ typedef enum
   FET_Init,
   FET_Rewind,
   FET_Ready,
-  FET_Ready2,
+  FET_NewTok,
+  FET_GetITrans,
   FET_GetInst,
   FET_Finish
 }
@@ -83,13 +85,17 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
   Connection_Send#(Bool) link_model_cycle <- mkConnection_Send("model_cycle");
 
   //Connections to FP
-  Connection_Send#(Bit#(1))   fp_tok_req  <- mkConnection_Send("funcp_newInFlight_req");
-  Connection_Receive#(TOKEN)  fp_tok_resp <- mkConnection_Receive("funcp_newInFlight_resp");
+  Connection_Send#(FUNCP_REQ_NEW_IN_FLIGHT)     fp_tok_req  <- mkConnection_Send("funcp_newInFlight_req");
+  Connection_Receive#(FUNCP_RSP_NEW_IN_FLIGHT)  fp_tok_rsp  <- mkConnection_Receive("funcp_newInFlight_resp");
   
-  Connection_Send#(Tuple2#(TOKEN, ISA_ADDRESS))         fp_fet_req  <- mkConnection_Send("funcp_getInstruction_req");
-  Connection_Receive#(Tuple2#(TOKEN, ISA_INSTRUCTION))  fp_fet_resp <- mkConnection_Receive("funcp_getInstruction_resp");
+  
+  Connection_Send#(FUNCP_REQ_DO_ITRANSLATE)             fp_itr_req  <- mkConnection_Send("funcp_doITranslate_req");
+  Connection_Receive#(FUNCP_RSP_DO_ITRANSLATE)          fp_itr_rsp  <- mkConnection_Receive("funcp_doITranslate_resp");
+
+  Connection_Send#(FUNCP_REQ_GET_INSTRUCTION)           fp_fet_req  <- mkConnection_Send("funcp_getInstruction_req");
+  Connection_Receive#(FUNCP_RSP_GET_INSTRUCTION)        fp_fet_rsp  <- mkConnection_Receive("funcp_getInstruction_resp");
       
-  Connection_Send#(Token)     rewindToToken <- mkConnection_Send("funcp_rewindToToken_req");
+  Connection_Send#(FUNCP_REQ_REWIND_TO_TOKEN)     rewindToToken <- mkConnection_Send("funcp_rewindToToken_req");
 
   //Events
   EventRecorder event_fet <- mkEventRecorder(`EVENTS_FETCH_INSTRUCTION_FET);
@@ -103,7 +109,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
   //Incoming Ports
   Port_Receive#(EXE_TO_FET_MSG) port_from_exe <- mkPort_Receive("fet_branchResolve", 1);
 
-  Connection_Receive#(Bit#(1)) rewind <- mkConnection_Receive("funcp_rewindToToken_resp");
+  Connection_Receive#(FUNCP_RSP_REWIND_TO_TOKEN) rewind <- mkConnection_Receive("funcp_rewindToToken_resp");
 
   //Outgoing Ports
   Port_Send#(Tuple3#(TOKEN, ISA_ADDRESS, ISA_INSTRUCTION)) port_to_dec <- mkPort_Send("fet_to_dec");
@@ -138,7 +144,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
 
         case (exe_resp) matches
             tagged Invalid: //No Re-steer
-                state <= FET_Ready2;
+                state <= FET_NewTok;
 
             tagged Valid .pinfo: //Re-steer
             begin
@@ -156,7 +162,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
                     //
                     if (pinfo.updatePredictor)
                         branch_pred.upd(pinfo.token, cur_pc, pred_taken, pred_taken);
-                    state <= FET_Ready2;
+                    state <= FET_NewTok;
                 end
                 else
                 begin
@@ -177,7 +183,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
 
                     epoch <= epoch + 1;
                     state <= FET_Rewind;
-                    rewindToToken.send(pinfo.token);
+                    rewindToToken.send(initFuncpReqRewindToToken(pinfo.token));
                     $fdisplay(debug_file, "[%d]:Fetch Counter when rewinding: %0d", curTick, counter);
                     $fdisplay(debug_file, "[%d]:Fetch resuming from PC 0x%0x", curTick, new_pc);
 
@@ -188,12 +194,12 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
 
     endrule
   
-  rule beginFetch2 (state == FET_Ready2);
+  rule beginFetch2 (state == FET_NewTok);
     if (!stalling)
       begin
         $fdisplay(debug_file, "[%d]:TOK:REQ", curTick);
         fp_tok_req.send(?);
-        state <= FET_GetInst;
+        state <= FET_GetITrans;
 
       end
     else
@@ -216,30 +222,53 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
 
    endrule
    
-   rule fetchInst (state == FET_GetInst);
+   rule getITrans (state == FET_GetITrans);
 
-     let tok = fp_tok_resp.receive();
-     fp_tok_resp.deq();
+     let rsp = fp_tok_rsp.receive();
+     fp_tok_rsp.deq();
+     let tok = rsp.newToken;
 
      $fdisplay(debug_file, "[%d]:TOK:RSP: %0d", curTick, tok.index);
      
      let inf = TIMEP_TokInfo {epoch: epoch, scratchpad: 0};
      tok.timep_info = inf;
 
-     $fdisplay(debug_file, "[%d]:FET:REQ: %0d:0x%h", curTick, tok.index, pc);
-     fp_fet_req.send(tuple2(tok, pc));
-     branch_pred.getPredReq(tok, pc);
-     btb.readReq(btbHash(pc));
+     $fdisplay(debug_file, "[%d]:ITR:REQ: %0d:0x%h", curTick, tok.index, pc);
+     fp_itr_req.send(initFuncpReqDoITranslate(tok, pc));
 
-     state <= FET_Finish;
+     state <= FET_GetInst;
+     
+   endrule
+
+   rule fetchInst (state == FET_GetInst);
+
+     let rsp = fp_itr_rsp.receive();
+     fp_itr_rsp.deq();
+     let tok = rsp.token;
+
+     $fdisplay(debug_file, "[%d]:ITR:RSP: %0d", curTick, tok.index);
+     
+     if (!rsp.hasMore)
+     begin
+     
+       $fdisplay(debug_file, "[%d]:FET:REQ: %0d:0x%h", curTick, tok.index, pc);
+       fp_fet_req.send(initFuncpReqGetInstruction(tok));
+       branch_pred.getPredReq(tok, pc);
+       btb.readReq(btbHash(pc));
+
+       state <= FET_Finish;
+     
+     end
      
    endrule
 
 
    rule finishFetch (state == FET_Finish);
    
-     match {.tok, .inst} = fp_fet_resp.receive();
-     fp_fet_resp.deq();
+     let rsp = fp_fet_rsp.receive();
+     fp_fet_rsp.deq();
+     let tok = rsp.token;
+     let inst = rsp.instruction;
      
      $fdisplay(debug_file, "[%d]:FET:RSP: %0d:0x%h", curTick, tok.index, inst);
      
@@ -295,7 +324,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
   rule fetchFinishRewind(state == FET_Rewind);
 
       rewind.deq();
-      state <= FET_Ready2;
+      state <= FET_NewTok;
  
   endrule
 

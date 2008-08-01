@@ -9,7 +9,7 @@ import Vector::*;
 
 `include "asim/dict/EVENTS_MEMORY.bsh"
 
-typedef enum { MEM_STATE_REQ, MEM_STATE_LOAD, MEM_STATE_STORE, MEM_STATE_DONE } MEM_STATE deriving (Bits, Eq);
+typedef enum { MEM_STATE_REQ, MEM_STATE_LOAD_REQ, MEM_STATE_STORE_REQ, MEM_STATE_LOAD_RSP, MEM_STATE_STORE_RSP} MEM_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkMem ();
 
@@ -20,8 +20,9 @@ module [HASIM_MODULE] mkMem ();
 
     Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("mem_bus");
 
-    Connection_Client#(TOKEN,TOKEN) doLoads  <- mkConnection_Client("funcp_doLoads");
-    Connection_Client#(TOKEN,TOKEN) doStores <- mkConnection_Client("funcp_doSpeculativeStores");
+    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE, FUNCP_RSP_DO_DTRANSLATE) doDTranslate  <- mkConnection_Client("funcp_doDTranslate");
+    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoads  <- mkConnection_Client("funcp_doLoads");
+    Connection_Client#(FUNCP_REQ_DO_STORES,FUNCP_RSP_DO_STORES) doStores <- mkConnection_Client("funcp_doSpeculativeStores");
 
     Reg#(MEM_STATE) state <- mkReg(MEM_STATE_REQ);
 
@@ -35,6 +36,18 @@ module [HASIM_MODULE] mkMem ();
 
     //Events
     EventRecorder event_mem <- mkEventRecorder(`EVENTS_MEMORY_INSTRUCTION_MEM);
+
+    function Action finishCycle(TOKEN tok, BUNDLE bundle);
+    action
+
+        let x <- inQ.receive();
+        outQ.send(x);
+        busQ.send(Invalid);
+        event_mem.recordEvent(Valid(zeroExtend(tok.index)));
+        state <= MEM_STATE_REQ;
+
+    endaction
+    endfunction
 
     rule stall (state == MEM_STATE_REQ && !outQ.canSend);
         local_ctrl.startModelCC();
@@ -62,34 +75,52 @@ module [HASIM_MODULE] mkMem ();
         debug.startModelCC();
         if (bundle.isLoad)
         begin
-            doLoads.makeReq(tok);
-            state <= MEM_STATE_LOAD;
+            doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
+            state <= MEM_STATE_LOAD_REQ;
         end
         else if (bundle.isStore)
         begin
-            doStores.makeReq(tok);
-            state <= MEM_STATE_STORE;
+            doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
+            state <= MEM_STATE_STORE_REQ;
         end
         else
-            state <= MEM_STATE_DONE;
+        begin
+            
+            finishCycle(tok, bundle);
+        
+        end
+    endrule
+    
+    rule loadReq (state == MEM_STATE_LOAD_REQ);
+    
+        let rsp = doDTranslate.getResp();
+        doDTranslate.deq();
+        doLoads.makeReq(initFuncpReqDoLoads(rsp.token));
+        state <= MEM_STATE_LOAD_RSP;
+    
     endrule
 
-    rule load (state == MEM_STATE_LOAD);
+    rule storeReq (state == MEM_STATE_STORE_REQ);
+    
+        let rsp = doDTranslate.getResp();
+        doDTranslate.deq();
+        doStores.makeReq(initFuncpReqDoStores(rsp.token));
+        state <= MEM_STATE_STORE_RSP;
+    
+    endrule
+
+    rule loadRsp (state == MEM_STATE_LOAD_RSP &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+
         doLoads.deq();
-        state <= MEM_STATE_DONE;
+        finishCycle(tok, bundle);
+
     endrule
 
-    rule store (state == MEM_STATE_STORE);
+    rule storeRsp (state == MEM_STATE_STORE_RSP &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+
         doStores.deq();
-        state <= MEM_STATE_DONE;
-    endrule
-
-    rule done (state == MEM_STATE_DONE &&& inQ.peek() matches tagged Valid { .tok, .bundle });
-        let x <- inQ.receive();
-        outQ.send(x);
-        busQ.send(Invalid);
-        event_mem.recordEvent(Valid(zeroExtend(tok.index)));
-        state <= MEM_STATE_REQ;
+        finishCycle(tok, bundle);
+        
     endrule
 
 endmodule

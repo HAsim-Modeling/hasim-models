@@ -21,8 +21,8 @@ module [HASIM_MODULE] mkWriteBack ();
 
     Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("wb_bus");
 
-    Connection_Client#(TOKEN,TOKEN) commitResults <- mkConnection_Client("funcp_commitResults");
-    Connection_Client#(TOKEN,TOKEN) commitStores  <- mkConnection_Client("funcp_commitStores");
+    Connection_Client#(FUNCP_REQ_COMMIT_RESULTS, FUNCP_RSP_COMMIT_RESULTS) commitResults <- mkConnection_Client("funcp_commitResults");
+    Connection_Client#(FUNCP_REQ_COMMIT_STORES, FUNCP_RSP_COMMIT_STORES) commitStores  <- mkConnection_Client("funcp_commitStores");
 
     Reg#(WB_STATE) state <- mkReg(WB_STATE_REQ);
 
@@ -56,7 +56,7 @@ module [HASIM_MODULE] mkWriteBack ();
         debug.startModelCC();
         stat_wb.incr();
         linkModelCommit.send(1);
-        commitResults.makeReq(tok);
+        commitResults.makeReq(initFuncpReqCommitResults(tok));
         state <= WB_STATE_RESULTS;
     endrule
 
@@ -64,7 +64,7 @@ module [HASIM_MODULE] mkWriteBack ();
         commitResults.deq();
         if (bundle.isStore)
         begin
-            commitStores.makeReq(tok);
+            commitStores.makeReq(initFuncpReqCommitStores(tok));
             state <= WB_STATE_STORE;
         end
         else

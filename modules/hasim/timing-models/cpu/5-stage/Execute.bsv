@@ -37,7 +37,7 @@ module [HASIM_MODULE] mkPipe_Execute#(File debug_file, Bit#(32) curTick)
 
   //Connections to FP
   
-  Connection_Client#(TOKEN, FUNCP_GET_RESULTS_MSG) fp_exe <- mkConnection_Client("funcp_getResults");
+  Connection_Client#(FUNCP_REQ_GET_RESULTS, FUNCP_RSP_GET_RESULTS) fp_exe <- mkConnection_Client("funcp_getResults");
 
   //Events
   EventRecorder event_exe <- mkEventRecorder(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
@@ -166,7 +166,7 @@ module [HASIM_MODULE] mkPipe_Execute#(File debug_file, Bit#(32) curTick)
             else //continue to execute it
             begin
               $fdisplay(debug_file, "[%d]:EXE:REQ: %0d", curTick, tok.index);
-              fp_exe.makeReq(tok);
+              fp_exe.makeReq(initFuncpReqGetResults(tok));
               addrQ.enq(tuple4(branchPredAddr, isLoad, isStore, drainAfter));
               in_flight <= True;
         end
@@ -181,8 +181,8 @@ module [HASIM_MODULE] mkPipe_Execute#(File debug_file, Bit#(32) curTick)
     fp_exe.deq();
     
     let tok = exe_resp.token;
-    let cur_pc = exe_resp.instrAddr;
-    let next_seq_pc =  cur_pc + zeroExtend(exe_resp.instrSize);
+    let cur_pc = exe_resp.instructionAddress;
+    let next_seq_pc =  cur_pc + zeroExtend(exe_resp.instructionSize);
 
     $fdisplay(debug_file, "[%d]:EXE:RSP: %0d", curTick, tok.index);
     

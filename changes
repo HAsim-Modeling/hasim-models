@@ -855,3 +855,26 @@ Directory modules/hasim/timing-models/memory
 Modified all cache modules to make the cache miss penalty a static
 parameter. Also created null ICache and DCache modules for model
 creation with perfect hit rates.
+----------
+mpellaue    Date: Fri Aug  1 19:52:36 EDT 2008  CSN: CSN-hasim-models-34
+                  Fri Aug  1 23:52:36 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ Fetch.bsv                 Locally Modified           33 
+ Execute.bsv               Locally Modified           33 
+ WriteBack.bsv             Locally Modified           33 
+ Mem.bsv                   Locally Modified           33 
+ Decode.bsv                Locally Modified           33 
+
+Directory modules/hasim/timing-models/cpu/5-stage
+ Fetch.bsv                 Locally Modified           33 
+ Writeback.bsv             Locally Modified           33 
+ Mem.bsv                   Locally Modified           33 
+ Execute.bsv               Locally Modified           33 
+ Decode.bsv                Locally Modified           33 
+
+
+* Updated inorder and 5-stage models to the new interface. Neither model does anything with the physical address yet.
+
+Michael P.

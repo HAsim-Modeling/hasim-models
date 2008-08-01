@@ -8,6 +8,8 @@ import Vector::*;
 
 `include "asim/provides/module_local_controller.bsh"
 
+`include "asim/provides/funcp_interface.bsh"
+
 `include "asim/dict/EVENTS_DECODE.bsh"
 
 //AWB Parameters           default:
@@ -33,8 +35,8 @@ module [HASIM_MODULE] mkPipe_Decode#(File debug_file, Bit#(32) curTick)
   stall_toks[2] <- mkReg(tagged Invalid);
 
   //Connections to FP
-  Connection_Send#(TOKEN)        fp_dec_req  <- mkConnection_Send("funcp_getDependencies_req");
-  Connection_Receive#(Tuple2#(TOKEN, ISA_DEPENDENCY_INFO))  fp_dec_resp <- mkConnection_Receive("funcp_getDependencies_resp");
+  Connection_Send#(FUNCP_REQ_GET_DEPENDENCIES)     fp_dec_req  <- mkConnection_Send("funcp_getDependencies_req");
+  Connection_Receive#(FUNCP_RSP_GET_DEPENDENCIES)  fp_dec_rsp <- mkConnection_Receive("funcp_getDependencies_resp");
   
   //Events
   EventRecorder event_dec <- mkEventRecorder(`EVENTS_DECODE_INSTRUCTION_DECODE);
@@ -147,10 +149,8 @@ module [HASIM_MODULE] mkPipe_Decode#(File debug_file, Bit#(32) curTick)
   
   endfunction
 
-  function Bit#(2) stallLength(ISA_DEPENDENCY_INFO deps);
-  
-    match {.srcDeps, .dstDeps} = deps;
-    
+  function Bit#(2) stallLength(ISA_SRC_MAPPING srcDeps, ISA_DST_MAPPING dstDeps);
+      
     if (`DEC_PIPELINE_IS_BYPASSED)
     begin
       // Only check for Loads in EXE
@@ -228,7 +228,7 @@ module [HASIM_MODULE] mkPipe_Decode#(File debug_file, Bit#(32) curTick)
       begin
         // Always send the request to the funcp
         $fdisplay(debug_file, "[%d]:DEC:REQ: %0d", curTick, tok.index);
-        fp_dec_req.send(tok);
+        fp_dec_req.send(initFuncpReqGetDependencies(tok));
         infoQ.enq(tuple5(maddr, isaIsLoad(inst), isaIsStore(inst), isaDrainBefore(inst), isaDrainAfter(inst)));
         in_flight <= True;
       end
@@ -238,8 +238,9 @@ module [HASIM_MODULE] mkPipe_Decode#(File debug_file, Bit#(32) curTick)
 
   rule decodeResp (in_flight);
   
-    match {.tok, .deps} = fp_dec_resp.receive();
-    fp_dec_resp.deq();
+    let rsp = fp_dec_rsp.receive();
+    fp_dec_rsp.deq();
+    let tok = rsp.token;
     
     match {.addr, .isLoad, .isStore, .drainBefore, .drainAfter} = infoQ.first();
     infoQ.deq();
@@ -248,7 +249,7 @@ module [HASIM_MODULE] mkPipe_Decode#(File debug_file, Bit#(32) curTick)
 
     in_flight <= False;
 
-    Bit#(2) new_stall = drainBefore ? 3 : stallLength(deps);
+    Bit#(2) new_stall = drainBefore ? 3 : stallLength(rsp.srcMap, rsp.dstMap);
     
     let someone_is_stalled = isValid(stall_toks[0]) || isValid(stall_toks[1]) || isValid(stall_toks[2]);
     let we_are_stalling = (new_stall > 0) || someone_is_stalled;
@@ -258,7 +259,7 @@ module [HASIM_MODULE] mkPipe_Decode#(File debug_file, Bit#(32) curTick)
       
       // We go at the back of the stall line
       let stall_length = max(new_stall, longest_stalled_token);
-      manageStalls(stall_length, tagged Valid tuple6(tok, deps, addr, isLoad, isStore, drainAfter));
+      manageStalls(stall_length, tagged Valid tuple6(tok, tuple2(rsp.srcMap, rsp.dstMap), addr, isLoad, isStore, drainAfter));
 
       // But what do we send onwards?
       case (stall_toks[0]) matches
@@ -284,7 +285,7 @@ module [HASIM_MODULE] mkPipe_Decode#(File debug_file, Bit#(32) curTick)
     
       port_to_exe.send(tagged Valid tuple5(tok, addr, isLoad, isStore, drainAfter));
       event_dec.recordEvent(tagged Valid zeroExtend(tok.index));
-      shiftDepInfo(tagged Valid deps);
+      shiftDepInfo(tagged Valid tuple2(rsp.srcMap, rsp.dstMap));
       manageStalls(0, tagged Invalid);
       exe_is_load <= isLoad;
 

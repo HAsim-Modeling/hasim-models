@@ -13,7 +13,7 @@ import FShow::*;
 import FIFO::*;
 import Vector::*;
 
-typedef enum { FETCH_STATE_NEXTPC, FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_ICACHE_REQ, FETCH_STATE_INST, FETCH_STATE_SEND, FETCH_STATE_PASS } FETCH_STATE deriving (Bits, Eq);
+typedef enum { FETCH_STATE_NEXTPC, FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_ICACHE_REQ, FETCH_STATE_ITRANS_REQ, FETCH_STATE_INST_REQ, FETCH_STATE_SEND, FETCH_STATE_PASS } FETCH_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch ();
 
@@ -33,12 +33,17 @@ module [HASIM_MODULE] mkFetch ();
 
     Connection_Send#(Bool) model_cycle <- mkConnection_Send("model_cycle");
 
-    Connection_Client#(UNIT,TOKEN)                     newInFlight    <- mkConnection_Client("funcp_newInFlight");
+    Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT,
+                       FUNCP_RSP_NEW_IN_FLIGHT)      newInFlight    <- mkConnection_Client("funcp_newInFlight");
 
-    Connection_Client#(Tuple2#(TOKEN,ISA_ADDRESS),
-                       Tuple2#(TOKEN,ISA_INSTRUCTION)) getInstruction <- mkConnection_Client("funcp_getInstruction");
+    Connection_Client#(FUNCP_REQ_DO_ITRANSLATE,
+                       FUNCP_RSP_DO_ITRANSLATE)      doITranslate   <- mkConnection_Client("funcp_doITranslate");
 
-    Connection_Client#(TOKEN,UNIT)                     rewindToToken  <- mkConnection_Client("funcp_rewindToToken");
+    Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
+                       FUNCP_RSP_GET_INSTRUCTION)    getInstruction <- mkConnection_Client("funcp_getInstruction");
+
+    Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
+                       FUNCP_RSP_REWIND_TO_TOKEN)    rewindToToken  <- mkConnection_Client("funcp_rewindToToken");
 
     Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_NEXTPC);
 
@@ -87,7 +92,7 @@ module [HASIM_MODULE] mkFetch ();
         if (x matches tagged Valid { .tok, .a })
         begin
             debug <= fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a);
-            rewindToToken.makeReq(tok);
+            rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             pc <= a;
             epoch <= epoch + 1;
             state <= FETCH_STATE_REW_RESP;
@@ -104,13 +109,13 @@ module [HASIM_MODULE] mkFetch ();
     rule token (state == FETCH_STATE_TOKEN && outQ.canSend);
         if (waitForICache)
         begin
-            state <= FETCH_STATE_INST;
+            state <= FETCH_STATE_ITRANS_REQ;
             port_to_icache.send(tagged Invalid);
             bpQ.send(Invalid);
         end
         else
         begin
-            newInFlight.makeReq(?);
+            newInFlight.makeReq(initFuncpReqNewInFlight());
             state <= FETCH_STATE_ICACHE_REQ;
 	end
     endrule
@@ -132,14 +137,15 @@ module [HASIM_MODULE] mkFetch ();
 
    rule icachefetch (state == FETCH_STATE_ICACHE_REQ);
       newInFlight.deq();
-      let tok = newInFlight.getResp();
+      let rsp = newInFlight.getResp();
+      let tok = rsp.newToken;
       tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
       port_to_icache.send(tagged Valid tuple2(tok, tagged Inst_mem_ref pc));
       bpQ.send(Valid(pc));
-      state <= FETCH_STATE_INST;
+      state <= FETCH_STATE_ITRANS_REQ;
    endrule
 
-   rule inst (state == FETCH_STATE_INST);
+   rule inst (state == FETCH_STATE_ITRANS_REQ);
       let icache_ret_imm <- port_from_icache_immediate.receive();
       let icache_ret_del <- port_from_icache_delayed.receive();
       case (icache_ret_del) matches
@@ -157,7 +163,7 @@ module [HASIM_MODULE] mkFetch ();
                     tagged Hit .reqpc:
                       begin
                           waitForICache <= False;
-                          getInstruction.makeReq(tuple2(icachetok,reqpc));
+                          doITranslate.makeReq(initFuncpReqDoITranslate(icachetok,reqpc));
                           pc_fifo.enq(reqpc);
                           debug <= fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
                           stat_fet.incr();
@@ -185,17 +191,17 @@ module [HASIM_MODULE] mkFetch ();
             tagged Miss_response .reqpc:
               begin
                   waitForICache <= False;
-                  getInstruction.makeReq(tuple2(icachetok,reqpc));
+                  doITranslate.makeReq(initFuncpReqDoITranslate(icachetok,reqpc));
                   pc_fifo.enq(reqpc);
                   debug <= fshow("MISS: RESP: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
                   stat_fet.incr();
               end
           endcase
       endcase
-      state <= FETCH_STATE_SEND;
+      state <= FETCH_STATE_INST_REQ;
    endrule
 
-   rule done (state == FETCH_STATE_SEND);
+   rule getInst (state == FETCH_STATE_INST_REQ);
       if (waitForICache)
 	 begin
 	    outQ.send(tagged Invalid);
@@ -204,15 +210,32 @@ module [HASIM_MODULE] mkFetch ();
 	 end
       else
 	 begin
-            getInstruction.deq();
-            match { .tok, .inst } = getInstruction.getResp();
-            let bundle = FETCH_BUNDLE { pc: pc_fifo.first(), inst: inst, branchAttr: pred_fifo.first() };
-	    outQ.send(Valid(tuple2(tok,bundle)));
-            pc_fifo.deq();
-            pred_fifo.deq();
-            event_fet.recordEvent(Valid(zeroExtend(tok.index)));
-	    state <= FETCH_STATE_NEXTPC;
-	 end
+            doITranslate.deq();
+            let rsp = doITranslate.getResp();
+            
+            if (!rsp.hasMore)
+            begin
+            
+                state <= FETCH_STATE_SEND;
+                getInstruction.makeReq(initFuncpReqGetInstruction(rsp.token));
+            
+            end
+     end
+
+    endrule
+    
+    rule done (state == FETCH_STATE_SEND);
+ 
+        let rsp = getInstruction.getResp();
+        getInstruction.deq();
+        let tok = rsp.token;
+        let bundle = FETCH_BUNDLE { pc: pc_fifo.first(), inst: rsp.instruction, branchAttr: pred_fifo.first() };
+        outQ.send(Valid(tuple2(tok,bundle)));
+        pc_fifo.deq();
+        pred_fifo.deq();
+        event_fet.recordEvent(Valid(zeroExtend(tok.index)));
+        state <= FETCH_STATE_NEXTPC;
+
     endrule
 
     rule get_pred; // any state

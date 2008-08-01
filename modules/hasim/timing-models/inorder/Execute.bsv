@@ -27,7 +27,8 @@ module [HASIM_MODULE] mkExecute ();
 
     Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("exe_bus");
 
-    Connection_Client#(TOKEN, FUNCP_GET_RESULTS_MSG) getResults <- mkConnection_Client("funcp_getResults");
+    Connection_Client#(FUNCP_REQ_GET_RESULTS,
+                       FUNCP_RSP_GET_RESULTS) getResults <- mkConnection_Client("funcp_getResults");
 
     Reg#(EXECUTE_STATE) state <- mkReg(EXECUTE_STATE_EXEC);
 
@@ -73,7 +74,7 @@ module [HASIM_MODULE] mkExecute ();
         if (outQ.canSend)
         begin
             debug <= fshow("EXEC: ") + fshow(tok);
-            getResults.makeReq(tok);
+            getResults.makeReq(initFuncpReqGetResults(tok));
             state <= EXECUTE_STATE_WORK;
         end
         else
@@ -106,9 +107,9 @@ module [HASIM_MODULE] mkExecute ();
     rule results (state == EXECUTE_STATE_WORK);
         getResults.deq();
 
-        let fp_exe = getResults.getResp();
-        let tok = fp_exe.token;
-        let res = fp_exe.result;
+        let rsp = getResults.getResp();
+        let tok = rsp.token;
+        let res = rsp.result;
 
         let x <- inQ.receive();
         if (x matches tagged Valid { .tok2, .bndl })

@@ -19,15 +19,16 @@ module [HASIM_MODULE] mkDecode ();
     StallPort_Receive#(Tuple2#(TOKEN,FETCH_BUNDLE)) inQ <- mkStallPort_Receive("fet2dec");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))          outQ <- mkStallPort_Send   ("dec2exe");
 
-    Vector#(3,Port_Receive#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)))) busQ = newVector();
+    Vector#(3,Port_Receive#(ISA_INST_DSTS)) busQ = newVector();
     busQ[0] <- mkPort_Receive("exe_bus", 1);
     busQ[1] <- mkPort_Receive("mem_bus", 1);
     busQ[2] <- mkPort_Receive("wb_bus", 1);
 
-    Connection_Client#(TOKEN, Tuple2#(TOKEN, ISA_DEPENDENCY_INFO)) getDependencies <- mkConnection_Client("funcp_getDependencies");
+    Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES,
+                       FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
 
     Reg#(DECODE_STATE) state <- mkReg(DECODE_STATE_BUS1);
-    Reg#(Maybe#(Tuple2#(TOKEN, ISA_DEPENDENCY_INFO))) memoDependencies <- mkReg(Invalid);
+    Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies <- mkReg(Invalid);
 
     //Local Controller
     Vector#(4, Port_Control) inports  = newVector();
@@ -145,27 +146,29 @@ module [HASIM_MODULE] mkDecode ();
 
     rule inst (state == DECODE_STATE_INST &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .* });
         if (!isValid(memoDependencies))
-            getDependencies.makeReq(tok);
+            getDependencies.makeReq(initFuncpReqGetDependencies(tok));
         state <= DECODE_STATE_DEP;
     endrule
 
     rule dep (state == DECODE_STATE_DEP);
         if (!isValid(memoDependencies)) begin
-            memoDependencies <= Valid(getDependencies.getResp());
+            let rsp = getDependencies.getResp();
+            memoDependencies <= Valid(rsp);
             getDependencies.deq();
         end
         state <= DECODE_STATE_SEND;
     endrule
 
-    rule send (state == DECODE_STATE_SEND &&& memoDependencies matches tagged Valid { .tok, .inf });
-        match { .srcmap, .dstmap } = inf;
-        if (readyToGo(srcmap))
+    rule send (state == DECODE_STATE_SEND &&& memoDependencies matches tagged Valid .rsp);
+    
+        let tok = rsp.token;
+        if (readyToGo(rsp.srcMap))
         begin
-            markPRFInvalid(dstmap);
+            markPRFInvalid(rsp.dstMap);
             let mtup <- inQ.receive();
             if (mtup matches tagged Valid { .tok2, .fetchbundle })
             begin
-                outQ.send(Valid(tuple2(tok,makeBundle(fetchbundle, dstmap))));
+                outQ.send(Valid(tuple2(tok,makeBundle(fetchbundle, rsp.dstMap))));
                 event_dec.recordEvent(Valid(zeroExtend(tok.index)));
                 debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" BR-ATTR:") + fshow(fetchbundle.branchAttr);
             end
