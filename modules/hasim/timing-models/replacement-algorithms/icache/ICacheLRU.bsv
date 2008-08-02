@@ -26,7 +26,7 @@ typedef struct{
    }
 ReplacementAlgorithmOutput deriving (Eq, Bits);
 
-module [HASIM_MODULE] mkReplacementAlgorithm();
+module [HASIM_MODULE] mkICacheReplacementAlgorithm();
       
    // states
    Reg#(TOKEN) resp_tok <- mkRegU();

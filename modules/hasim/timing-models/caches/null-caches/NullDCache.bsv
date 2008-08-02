@@ -5,12 +5,7 @@ import hasim_modellib::*;
 import module_local_controller::*;
 
 import hasim_isa::*;
-import hasim_dcache_memory::*;
 import fpga_components::*;
-
-`include "asim/provides/hasim_dcache_types.bsh"
-`include "asim/provides/hasim_dcache_memory.bsh"
-`include "asim/provides/hasim_icache.bsh"
 
 module [HASim_Module] mkDCache();
    

@@ -7,14 +7,14 @@
 #/*
 # %AWB_START
 #
-# %name Set-associative instruction cache
-# %desc Set-associative instruction cache
-# %requires hasim_icache_types hasim_icache_memory hasim_icache_replacement_algorithm 
-# %provides hasim_icache
+# %name Set associative writeback data cache
+# %desc Set associative writeback data cache
+# %requires hasim_dcache_types hasim_dcache_memory hasim_dcache_replacement_algorithm 
+# %provides hasim_dcache 
 #
 # %attributes hasim caches
 #
-# %public ICacheSetAssoc.bsv 
+# %public DCacheSetAssocWriteBack.bsv 
 #
 # %AWB_END
 # */

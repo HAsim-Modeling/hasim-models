@@ -10,7 +10,7 @@ import fpga_components::*;
 
 `include "asim/provides/hasim_icache_memory.bsh"
 `include "asim/provides/hasim_icache_types.bsh"
-`include "asim/provides/hasim_cache_replacement_algorithm.bsh"
+`include "asim/provides/hasim_icache_replacement_algorithm.bsh"
 
 typedef enum {HandleReq, HandleReq2, HandleTag, HandleRead, HandleStall1, HandleStall2} State deriving (Eq, Bits);
 
@@ -66,12 +66,12 @@ module [HASIM_MODULE] mkICache();
    Reg#(ISA_ADDRESS) req_addr <- mkReg(0);
    
    // instatiate replacement algorithm
-   let replacementmodule <- mkReplacementAlgorithm();
+   let replacementmodule <- mkICacheReplacementAlgorithm();
    
    // incoming port from CPU (latency 0)
    Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu <- mkPort_Receive("cpu_to_icache", 0);
    
-   // incoming port from memory (latency 10 cycles)
+   // incoming port from memory 
    Port_Receive#(Tuple2#(TOKEN, MemOutput)) port_from_memory <- mkPort_Receive("memory_to_icache", valueOf(TSub#(`ICACHE_MISS_PENALTY, 1)));
    
    // outgoing port to CPU (latency 0)

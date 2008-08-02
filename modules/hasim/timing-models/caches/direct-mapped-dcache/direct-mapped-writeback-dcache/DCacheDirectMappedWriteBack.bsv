@@ -97,7 +97,7 @@ module [HASim_Module] mkDCache();
       
       // check request type
       case (tuple2(msg_from_cpu_spec, msg_from_cpu_comm)) matches
-	 // activity on only speculative port
+	 // no activity on ports
 	 {tagged Invalid, tagged Invalid}:
 			     begin
 				port_to_cpu_imm_spec.send(tagged Invalid);
@@ -108,7 +108,7 @@ module [HASim_Module] mkDCache();
 				//$display ("Invalid");
 			     end
 	 
-	 {tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec},
+	 {tagged Valid {.tok_fro m_cpu_spec, .req_from_cpu_spec},
 	  tagged Invalid}:
 	     begin
 		// check memory reference type
@@ -302,7 +302,7 @@ module [HASim_Module] mkDCache();
 			   case (req_from_cpu_spec) matches
 			      tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 				 begin
-				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_mem_addr));
+				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
 				 end
 			   endcase
 			end
@@ -375,7 +375,7 @@ module [HASim_Module] mkDCache();
 		     case (req_from_cpu_comm) matches
 			tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 			   begin
-			      port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_mem_addr));
+			      port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
 			   end
 		     endcase
 		  end
@@ -395,7 +395,7 @@ module [HASim_Module] mkDCache();
 			   case (req_from_cpu_spec) matches
 			      tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 				 begin
-				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_mem_addr));
+				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
 				 end
 			   endcase
 			end
@@ -408,7 +408,7 @@ module [HASim_Module] mkDCache();
 			   case (req_from_cpu_comm) matches
 			      tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 				 begin
-				    port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_mem_addr));
+				    port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
 				 end
 			   endcase
 			end
@@ -456,7 +456,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
 		     state <= HandleReq;
-		     hit <= True;
+		     hit <= False;
 		     //$display ("Write Hit, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
 		  end
 	       // cache miss
@@ -484,6 +484,7 @@ module [HASim_Module] mkDCache();
 			   dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
 			   state <= Flush;
 			   read <= False;
+			   hit <= False;
 			   //$display ("Write Miss, tag %x, index %d, flush", req_dcache_tag_comm, req_dcache_index_comm);
 			end
 		  end
@@ -514,7 +515,7 @@ module [HASim_Module] mkDCache();
 		     case (req_from_cpu_spec) matches
 			tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 			   begin
-			      port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_mem_addr));
+			      port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
 			   end
 		     endcase
 		  end
@@ -527,7 +528,7 @@ module [HASim_Module] mkDCache();
 		     case (req_from_cpu_comm) matches
 			tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 			   begin
-			      port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_mem_addr));
+			      port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
 			   end
 		     endcase
 		  end
@@ -547,7 +548,7 @@ module [HASim_Module] mkDCache();
 			   case (req_from_cpu_spec) matches
 			      tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 				 begin
-				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_mem_addr));
+				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
 				 end
 			   endcase
 			end
@@ -560,15 +561,15 @@ module [HASim_Module] mkDCache();
 			   case (req_from_cpu_comm) matches
 			      tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
 				 begin
-				    port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_mem_addr));
+				    port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
 				 end
 			   endcase
 			end
 			      
-		     if (hit)
-			port_to_cpu_del_comm.send(tagged Valid tuple2(tok_from_memory, tagged Hit_response pc_from_mem)); 
-		     else
-			port_to_cpu_del_comm.send(tagged Valid tuple2(tok_from_memory, tagged Miss_response pc_from_mem)); 
+		    // if (hit)
+			//port_to_cpu_del_comm.send(tagged Valid tuple2(tok_from_memory, tagged Hit_response pc_from_mem)); 
+		     //else
+		     port_to_cpu_del_comm.send(tagged Valid tuple2(tok_from_memory, tagged Miss_response pc_from_mem)); 
 		     
 		     port_to_memory.send(tagged Invalid);    
 		     

@@ -65,26 +65,34 @@ Packagehint=hasim-models
 
 [Hasim Unpipelined CPU With Cache/Requires]
 hasim_icache=Null ICache
-hasim_dcache=Null DCache
-
-
-
-
-
-
-
+hasim_dcache=Set associative writeback data cache
 
 [Hasim Common Library]
 File=config/pm/hasim/submodels/common/hasim_common.apm
 Packagehint=hasim
 
 
-
-
-[Null DCache]
-File=modules/hasim/timing-models/caches/null-caches/null_dcache.awb
-Packagehint=hasim-models
-
 [Null ICache]
 File=modules/hasim/timing-models/caches/null-caches/null_icache.awb
+Packagehint=hasim-models
+
+[DCache Types]
+File=modules/hasim/timing-models/caches/cache-types/dcache_types.awb
+Packagehint=hasim-models
+
+[Set associative writeback data cache/Requires]
+hasim_dcache_replacement_algorithm=LRU
+hasim_dcache_types=DCache Types
+hasim_dcache_memory=Dummy memory for DCache
+
+[LRU]
+File=modules/hasim/timing-models/replacement-algorithms/dcache/dcache_lru.awb
+Packagehint=hasim-models
+
+[Dummy memory for DCache]
+File=modules/hasim/timing-models/memory/dcachememory.awb
+Packagehint=hasim-models
+
+[Set associative writeback data cache]
+File=modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache/set_associative_write_back_dcache.awb
 Packagehint=hasim-models

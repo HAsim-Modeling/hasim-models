@@ -9,11 +9,11 @@
 #
 # %name LRU
 # %desc LRU
-# %provides hasim_cache_replacement_algorithm
+# %provides hasim_dcache_replacement_algorithm
 #
-# %attributes hasim cache LRU algorithm
+# %attributes hasim dcache LRU algorithm
 #
-# %public LRU.bsv 
+# %public DCacheLRU.bsv 
 #
 #
 # %AWB_END

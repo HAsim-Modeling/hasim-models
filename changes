@@ -878,3 +878,57 @@ Directory modules/hasim/timing-models/cpu/5-stage
 * Updated inorder and 5-stage models to the new interface. Neither model does anything with the physical address yet.
 
 Michael P.
+
+----------
+abhattac    Date: Sat Aug  2 01:27:39 EDT 2008  CSN: CSN-hasim-models-35
+                  Sat Aug  2 05:27:39 UTC 2008
+
+
+Directory config/pm/hasim-models/unpipelined-with-cache
+ alpha_unpipelined_with_cache_exe.apm Locally Modified           34 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ DCacheDirectMappedWriteBack.bsv Locally Modified           34 
+
+Directory modules/hasim/timing-models/caches
+ set-associative-dcache/   Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache
+ set-associative-writeback-dcache/ Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ DCacheSetAssocWriteBack.bsv Locally Added               0 
+ set_associative_write_back_dcache.awb Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ set_associative_icache.awb Locally Modified           34 
+ ICacheSetAssoc.bsv        Locally Modified           34 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ NullICache.bsv            Locally Modified           34 
+ NullDCache.bsv            Locally Modified           34 
+
+Directory modules/hasim/timing-models/replacement-algorithms
+ dcache/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/replacement-algorithms/dcache
+ dcache_lru.awb            Locally Added               0 
+ DCacheLRU.bsv             Locally Added               0 
+
+Directory modules/hasim/timing-models/replacement-algorithms
+ LRU.awb                   Locally Removed            34 
+ LRU.bsv                   Locally Removed            34 
+ icache/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/replacement-algorithms/icache
+ icache_lru.awb            Locally Added               0 
+ ICacheLRU.bsv             Locally Added               0 
+
+Addded set-associative write-back blocking data cache. This design
+uses two distinct ports for the loads and stores. The design
+necessitated the creation of a replacement algorithm module for the
+data cache. Currently, this is implemented with an LRU module. 
+The Null cache modules have also been adjusted to fix a couple of
+import errors.
+The ICache set-associative model has also been adjusted to fix
+existing bugs as has the DCache direct-mapped module. 
