@@ -1,0 +1,2 @@
+def STATS.ICACHE.ICACHE_HITS	"ICache Hits";
+def STATS.ICACHE.ICACHE_MISSES	"ICache Misses";

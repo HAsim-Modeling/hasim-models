@@ -7,8 +7,8 @@
 #/*
 # %AWB_START
 #
-# %name LRU
-# %desc LRU
+# %name DCacheLRU
+# %desc DCacheLRU
 # %provides hasim_dcache_replacement_algorithm
 #
 # %attributes hasim dcache LRU algorithm

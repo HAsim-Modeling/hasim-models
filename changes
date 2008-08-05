@@ -932,3 +932,29 @@ The Null cache modules have also been adjusted to fix a couple of
 import errors.
 The ICache set-associative model has also been adjusted to fix
 existing bugs as has the DCache direct-mapped module. 
+----------
+abhattac    Date: Tue Aug  5 11:09:02 EDT 2008  CSN: CSN-hasim-models-36
+                  Tue Aug  5 15:09:02 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ DCacheDirectMappedWriteBack.bsv Locally Modified           35 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ direct_mapped_icache.awb  Locally Modified           35 
+ ICacheDirectMapped.bsv    Locally Modified           35 
+ direct_mapped_icache.dic  Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ set_associative_icache.dic Locally Added               0 
+ set_associative_icache.awb Locally Modified           35 
+ ICacheSetAssoc.bsv        Locally Modified           35 
+
+Directory modules/hasim/timing-models/replacement-algorithms/dcache
+ dcache_lru.awb            Locally Modified           35 
+
+Directory modules/hasim/timing-models/replacement-algorithms/icache
+ icache_lru.awb            Locally Modified           35 
+
+Added statistics to the ICache (direct mapped and
+set-associative). Also fixed bugs in the ICache code.

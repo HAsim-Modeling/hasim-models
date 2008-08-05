@@ -7,8 +7,8 @@
 #/*
 # %AWB_START
 #
-# %name LRU
-# %desc LRU
+# %name ICacheLRU
+# %desc ICacheLRU
 # %provides hasim_icache_replacement_algorithm
 #
 # %attributes hasim icache LRU algorithm

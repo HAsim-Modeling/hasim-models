@@ -108,7 +108,7 @@ module [HASim_Module] mkDCache();
 				//$display ("Invalid");
 			     end
 	 
-	 {tagged Valid {.tok_fro m_cpu_spec, .req_from_cpu_spec},
+	 {tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec},
 	  tagged Invalid}:
 	     begin
 		// check memory reference type

@@ -10,6 +10,7 @@ import fpga_components::*;
 
 `include "asim/provides/hasim_icache_types.bsh"
 `include "asim/provides/hasim_icache_memory.bsh"
+`include "asim/dict/STATS_ICACHE.bsh"
 
 typedef ISA_ADDRESS INST_ADDRESS;
 typedef ISA_ADDRESS DATA_ADDRESS;
@@ -86,6 +87,10 @@ module [HASim_Module] mkICache();
    outports[1] = port_to_cpu_del.ctrl;
    outports[2] = port_to_memory.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports); 
+   
+   // Stats
+   Stat stat_icache_hits <- mkStatCounter(`STATS_ICACHE_ICACHE_HITS);
+   Stat stat_icache_misses <- mkStatCounter(`STATS_ICACHE_ICACHE_MISSES);
   
    // rules
    rule handlereq (state == HandleReq);
@@ -144,6 +149,7 @@ module [HASim_Module] mkICache();
 	       //update BRAM tag store
 	       icache_tag_store.write(req_icache_index, tagged Valid req_icache_tag);
 	       state <= HandleStall;
+	       stat_icache_misses.incr();
 	    end
 	 // valid cache line
 	 tagged Valid .storedtag:
@@ -155,6 +161,7 @@ module [HASim_Module] mkICache();
 		     port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Hit req_addr));
 		     port_to_cpu_del.send(tagged Invalid);
 		     state <= HandleReq;
+		     stat_icache_hits.incr();
 		  end
 	       // cache miss
 	       else
@@ -165,6 +172,7 @@ module [HASim_Module] mkICache();
 		     // update BRAM tag store
 		     icache_tag_store.write(req_icache_index, tagged Valid req_icache_tag);
 		     state <= HandleStall;
+		     stat_icache_misses.incr();
 		  end
 	    end
       endcase

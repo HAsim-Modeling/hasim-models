@@ -11,6 +11,7 @@ import fpga_components::*;
 `include "asim/provides/hasim_icache_memory.bsh"
 `include "asim/provides/hasim_icache_types.bsh"
 `include "asim/provides/hasim_icache_replacement_algorithm.bsh"
+`include "asim/dict/STATS_SET_ASSOC_ICACHE.bsg"
 
 typedef enum {HandleReq, HandleReq2, HandleTag, HandleRead, HandleStall1, HandleStall2} State deriving (Eq, Bits);
 
@@ -99,6 +100,10 @@ module [HASIM_MODULE] mkICache();
    outports[3] = port_to_replacement_alg.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports); 
    
+   // Stats
+   Stat stat_icache_hits <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_HITS);
+   Stat stat_icache_misses <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_MISSES);
+   
    Reg#(Bool) noRequest <- mkReg(False);
    Reg#(Bool) hit  <- mkReg(False);      
    Reg#(ICACHE_WAY) hit_way <- mkReg(0);
@@ -182,12 +187,14 @@ module [HASIM_MODULE] mkICache();
 	 if (hit_rec)
 	    begin
 	       port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: True, accessed_set: tag_from_bram, accessed_way: hit_way_rec}));
-	       state <= HandleRead;	
+	       state <= HandleRead;
+	       stat_icache_hits.incr();
 	    end
 	 else
 	    begin
 	       port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: False, accessed_set: tag_from_bram, accessed_way: ?}));
 	       state <= HandleRead;
+	       stat_icache_misses.incr();
 	    end
       end
      
