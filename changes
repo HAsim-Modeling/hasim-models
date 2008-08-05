@@ -958,3 +958,14 @@ Directory modules/hasim/timing-models/replacement-algorithms/icache
 
 Added statistics to the ICache (direct mapped and
 set-associative). Also fixed bugs in the ICache code.
+----------
+abhattac    Date: Tue Aug  5 13:30:11 EDT 2008  CSN: CSN-hasim-models-37
+                  Tue Aug  5 17:30:11 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ DCacheSetAssocWriteBack.bsv Locally Modified           35 
+
+Fixed bug in set-associative dcache. When handling both a commited
+store and a load request, the data cache now ensures that only one can
+be serviced at a time since it is purely blocking.
