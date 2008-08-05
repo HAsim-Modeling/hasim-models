@@ -1,5 +1,6 @@
 import hasim_common::*;
 import hasim_icache::*;
+import hasim_dcache::*;
 
 module [HASIM_MODULE] mkCPU ();
     let fetch   <- mkFetch();
@@ -8,7 +9,9 @@ module [HASIM_MODULE] mkCPU ();
     let mem     <- mkMem();
     let wb      <- mkWriteBack();
 
-    let bp <- mkBranchPredictor();
+    let bp     <- mkBranchPredictor();
     let icache <- mkICache();
+    let dcache <- mkDCache();
+    let sb     <- mkStoreBuffer();
 endmodule
 

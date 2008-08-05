@@ -158,6 +158,8 @@ module [HASIM_MODULE] mkExecute ();
                 end
               tagged REffectiveAddr .ea:
                 begin
+                    debug <= fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea);
+                    bundle.effAddr = ea;
                     rewindQ.send(Invalid);
                     bptrainQ.send(Invalid);
                 end

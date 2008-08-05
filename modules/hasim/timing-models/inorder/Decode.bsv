@@ -71,8 +71,10 @@ module [HASIM_MODULE] mkDecode ();
         Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
-            if (dstmap[i] matches tagged Valid { .ar, .pr })
+            if (dstmap[i] matches tagged Valid { .ar, .pr }) begin
                 prf_valid[pr] = False;
+                debug <= $format("PRF: PR %d <= 0 (alloc)", pr);
+            end
         end
         prfValid <= prf_valid;
       endaction
@@ -83,8 +85,10 @@ module [HASIM_MODULE] mkDecode ();
         Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
-            if (dst[i] matches tagged Valid .pr)
+            if (dst[i] matches tagged Valid .pr) begin
                 prf_valid[pr] = True;
+                debug <= $format("PRF: PR %d <= 1 (free)", pr);
+            end
         end
         prfValid <= prf_valid;
       endaction
@@ -104,6 +108,7 @@ module [HASIM_MODULE] mkDecode ();
                         isTerminate: Invalid,
                         pc: fbndl.pc,
                         branchAttr: fbndl.branchAttr,
+                        effAddr: ?,
                         dests: dests };
     endfunction
 
@@ -168,9 +173,10 @@ module [HASIM_MODULE] mkDecode ();
             let mtup <- inQ.receive();
             if (mtup matches tagged Valid { .tok2, .fetchbundle })
             begin
-                outQ.send(Valid(tuple2(tok,makeBundle(fetchbundle, rsp.dstMap))));
+                let bundle = makeBundle(fetchbundle, rsp.dstMap);
+                outQ.send(Valid(tuple2(tok,bundle)));
                 event_dec.recordEvent(Valid(zeroExtend(tok.index)));
-                debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" BR-ATTR:") + fshow(fetchbundle.branchAttr);
+                debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle);
             end
             memoDependencies <= Invalid;
         end

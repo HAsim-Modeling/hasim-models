@@ -2,13 +2,13 @@
 
 %name Inorder CPU
 %desc Inorder CPU
-%requires hasim_icache
+%requires hasim_icache hasim_dcache
 %provides hasim_cpu
 
 %attributes hasim inorder cpu
 
 %public CPU.bsv
-%private DebugFile.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Execute.bsv Mem.bsv WriteBack.bsv BranchPredictor.bsv
+%private DebugFile.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Execute.bsv Mem.bsv WriteBack.bsv BranchPredictor.bsv StoreBuffer.bsv
 %sources -t DICT -v PUBLIC fetch.dic decode.dic execute.dic mem.dic writeback.dic
 
 %param SYNTH_BOUNDARY mkCPU "Name of synthesis boundary"

@@ -24,9 +24,12 @@ typedef struct {
     BRANCH_ATTR branchAttr;
     Bool isLoad;
     Bool isStore;
+    ISA_ADDRESS effAddr;
     Maybe#(Bool) isTerminate;
     Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dests;
 } BUNDLE deriving (Bits, Eq);
+
+typedef enum { SB_HIT, SB_MISS, SB_STALL } SB_RESPONSE deriving (Bits, Eq);
 
 instance FShow#(BRANCH_ATTR);
     function Fmt fshow(BRANCH_ATTR x) =
@@ -41,11 +44,11 @@ instance FShow#(BUNDLE);
     function Fmt fshow(BUNDLE x);
         Fmt s = fshow("BUNDLE: pc = ") + fshow(x.pc);
         if (x.isLoad)
-            s = s + fshow("LOAD");
+            s = s + fshow(" LOAD");
         if (x.isStore)
-            s = s + fshow("STORE");
+            s = s + fshow(" STORE");
         if (x.isTerminate matches tagged Valid .b)
-            s = s + $format("TERMINATE(%b)", b);
+            s = s + $format(" TERMINATE(%b)", b);
         s = s + fshow(" BRANCH-ATTR: ") + fshow(x.branchAttr);
         return s;
     endfunction

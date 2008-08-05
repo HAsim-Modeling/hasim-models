@@ -969,3 +969,30 @@ Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associat
 Fixed bug in set-associative dcache. When handling both a commited
 store and a load request, the data cache now ensures that only one can
 be serviced at a time since it is purely blocking.
+----------
+nikhil      Date: Tue Aug  5 15:12:40 CDT 2008  CSN: CSN-hasim-models-38
+                  Tue Aug  5 20:12:40 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ StoreBuffer.bsv           Locally Added               0 
+ CPU.bsv                   Locally Modified           37 
+ PipelineTypes.bsv         Locally Modified           37 
+ Execute.bsv               Locally Modified           37 
+ WriteBack.bsv             Locally Modified           37 
+ Mem.bsv                   Locally Modified           37 
+ inorder.awb               Locally Modified           37 
+ Decode.bsv                Locally Modified           37 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ DCacheDirectMappedWriteBack.bsv Locally Modified           37 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ DCacheSetAssocWriteBack.bsv Locally Modified           37 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ ICacheSetAssoc.bsv        Locally Modified           37 
+
+- data-cache integrated into inorder model.
+- a simple (3-entry fully associative) storebuffer module added to inorder model.
+- fixed some typos etc. in the dcache modules.

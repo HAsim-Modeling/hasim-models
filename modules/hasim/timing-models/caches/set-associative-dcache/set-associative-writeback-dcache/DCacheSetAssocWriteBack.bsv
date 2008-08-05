@@ -626,13 +626,13 @@ module [HASim_Module] mkDCache();
 	       // write miss
 	       else
 		  begin
-		     // cold read miss
+		     // cold write miss
 		     if (!conflict_miss)
 			begin
 			   port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-			   port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
+			   port_to_cpu_imm_spec.send(tagged Invalid);
 			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Invalid);
+			   port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
 			   port_to_cpu_del_comm.send(tagged Invalid);
 			   state <= WriteStall;
 			   read <= False;
@@ -788,7 +788,7 @@ module [HASim_Module] mkDCache();
 	       if (req_hit) 
 		  begin
 		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));;
+		     port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
 		     port_to_cpu_del_spec.send(tagged Invalid);
 		     port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Hit inst_addr_comm));
 		     port_to_cpu_del_comm.send(tagged Invalid);
@@ -804,7 +804,7 @@ module [HASim_Module] mkDCache();
 			   port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
 			   port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
 			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm)));
+			   port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
 			   port_to_cpu_del_comm.send(tagged Invalid);
 			   state <= WriteStall;
 			   read <= False;
@@ -827,7 +827,7 @@ module [HASim_Module] mkDCache();
 			   else
 			      begin
 				 port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-				 port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));;
+				 port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
 				 port_to_cpu_del_spec.send(tagged Invalid);
 				 port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
 				 port_to_cpu_del_comm.send(tagged Invalid);

@@ -11,7 +11,7 @@ import fpga_components::*;
 `include "asim/provides/hasim_icache_memory.bsh"
 `include "asim/provides/hasim_icache_types.bsh"
 `include "asim/provides/hasim_icache_replacement_algorithm.bsh"
-`include "asim/dict/STATS_SET_ASSOC_ICACHE.bsg"
+`include "asim/dict/STATS_SET_ASSOC_ICACHE.bsh"
 
 typedef enum {HandleReq, HandleReq2, HandleTag, HandleRead, HandleStall1, HandleStall2} State deriving (Eq, Bits);
 
