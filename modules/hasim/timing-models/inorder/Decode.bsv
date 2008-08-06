@@ -54,6 +54,9 @@ module [HASIM_MODULE] mkDecode ();
     for (Integer i = numIsaArchRegisters; i < numFuncpPhyRegisters; i = i + 1)
         prfValid_init[i] = False;
 
+    Reg#(FUNCP_PHYSICAL_REG_INDEX) numInFlight <- mkReg(0);
+    Reg#(Bool)    drainingAfter <- mkReg(False);
+
     Reg#(Vector#(FUNCP_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
 
     function Bool readyToGo(ISA_SRC_MAPPING srcmap);
@@ -66,31 +69,74 @@ module [HASIM_MODULE] mkDecode ();
         return rdy;
     endfunction
 
+    function Bool readyDrainBefore(ISA_INSTRUCTION inst);
+    
+        if (isaDrainBefore(inst))
+        begin
+        
+            return numInFlight == 0;
+        
+        end
+        else
+        begin
+        
+            return True;
+        
+        end
+    
+    endfunction
+    
+    function Bool readyDrainAfter();
+    
+        if (drainingAfter)
+        begin
+        
+            return numInFlight == 0;
+        
+        end
+        else
+        begin
+        
+            return True;
+        
+        end
+    
+    endfunction
+
     function Action markPRFInvalid(ISA_DST_MAPPING dstmap);
       action
         Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+        FUNCP_PHYSICAL_REG_INDEX res = 0;
+
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
             if (dstmap[i] matches tagged Valid { .ar, .pr }) begin
                 prf_valid[pr] = False;
+                res = res + 1;
                 debug <= $format("PRF: PR %d <= 0 (alloc)", pr);
             end
         end
         prfValid <= prf_valid;
+        numInFlight <= numInFlight + res;
       endaction
     endfunction
 
     function Action markPRFValid(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dst);
       action
         Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+        
+        FUNCP_PHYSICAL_REG_INDEX res = 0;
+
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
             if (dst[i] matches tagged Valid .pr) begin
                 prf_valid[pr] = True;
+                res = res + 1;
                 debug <= $format("PRF: PR %d <= 1 (free)", pr);
             end
         end
         prfValid <= prf_valid;
+        numInFlight <= numInFlight - res;
       endaction
     endfunction
 
@@ -117,19 +163,25 @@ module [HASIM_MODULE] mkDecode ();
         debug.startModelCC();
         let mpregs <- busQ[0].receive();
         if (mpregs matches tagged Valid .pregs)
+        begin
             markPRFValid(pregs);
+        end
         state <= DECODE_STATE_BUS2;
     endrule
     rule bus2 (state == DECODE_STATE_BUS2);
         let mpregs <- busQ[1].receive();
         if (mpregs matches tagged Valid .pregs)
+        begin
             markPRFValid(pregs);
+        end
         state <= DECODE_STATE_BUS3;
     endrule
     rule bus3 (state == DECODE_STATE_BUS3);
         let mpregs <- busQ[2].receive();
         if (mpregs matches tagged Valid .pregs)
+        begin
             markPRFValid(pregs);
+        end
         state <= DECODE_STATE_INST;
     endrule
 
@@ -164,21 +216,22 @@ module [HASIM_MODULE] mkDecode ();
         state <= DECODE_STATE_SEND;
     endrule
 
-    rule send (state == DECODE_STATE_SEND &&& memoDependencies matches tagged Valid .rsp);
+    rule send (state == DECODE_STATE_SEND &&& memoDependencies matches tagged Valid .rsp
+                                          &&& inQ.peek() matches tagged Valid { .tok, .fetchbundle });
     
         let tok = rsp.token;
-        if (readyToGo(rsp.srcMap))
+        if (readyToGo(rsp.srcMap) && readyDrainAfter() && readyDrainBefore(fetchbundle.inst))
         begin
+
             markPRFInvalid(rsp.dstMap);
             let mtup <- inQ.receive();
-            if (mtup matches tagged Valid { .tok2, .fetchbundle })
-            begin
-                let bundle = makeBundle(fetchbundle, rsp.dstMap);
-                outQ.send(Valid(tuple2(tok,bundle)));
-                event_dec.recordEvent(Valid(zeroExtend(tok.index)));
-                debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle);
-            end
+            let bundle = makeBundle(fetchbundle, rsp.dstMap);
+            outQ.send(Valid(tuple2(tok,bundle)));
+            event_dec.recordEvent(Valid(zeroExtend(tok.index)));
+            debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle);
             memoDependencies <= Invalid;
+            drainingAfter <= isaDrainAfter(fetchbundle.inst);
+            
         end
         else
         begin

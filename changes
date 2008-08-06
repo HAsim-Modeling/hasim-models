@@ -996,3 +996,16 @@ Directory modules/hasim/timing-models/caches/set-associative-icache
 - data-cache integrated into inorder model.
 - a simple (3-entry fully associative) storebuffer module added to inorder model.
 - fixed some typos etc. in the dcache modules.
+
+----------
+mpellaue    Date: Wed Aug  6 16:36:33 EDT 2008  CSN: CSN-hasim-models-39
+                  Wed Aug  6 20:36:33 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ Decode.bsv                Locally Modified           38 
+
+
+Added support for isaDrainBefore/isaDrainAfter. Nikhil should look this change over.
+
+Michael P.
