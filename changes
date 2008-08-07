@@ -1009,3 +1009,21 @@ Directory modules/hasim/timing-models/inorder
 Added support for isaDrainBefore/isaDrainAfter. Nikhil should look this change over.
 
 Michael P.
+
+----------
+mvijayar    Date: Wed Aug  6 21:55:18 EDT 2008  CSN: CSN-hasim-models-40
+                  Thu Aug  7 01:55:18 UTC 2008
+
+
+Directory modules/hasim/timing-models/out-of-order
+ Commit.bsv                Locally Modified           39 
+ Fetch.bsv                 Locally Modified           39 
+ PipelineTypes.bsv         Locally Modified           39 
+ Mem.bsv                   Locally Modified           39 
+ Alu.bsv                   Locally Modified           39 
+ GetResults.bsv            Locally Modified           39 
+ Rob.bsv                   Locally Modified           39 
+ Decode.bsv                Locally Modified           39 
+
+Uses the new funcp interface
+

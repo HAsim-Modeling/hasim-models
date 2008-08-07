@@ -6,14 +6,14 @@ import hasim_modellib::*;
 `include "hasim_controller.bsh"
 
 module [HASIM_MODULE] mkCommit();
-    DebugFile                                                                    debug <- mkDebugFile("Commit.out");
+    DebugFile                                                                      debug <- mkDebugFile("Commit.out");
 
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(COMMIT_BUNDLE, `COMMIT_NUM, `COMMIT_NUM) commitPort <- mkPortBandwidthCreditReceive("commit", `COMMIT_NUM);
+    PORT_BANDWIDTH_CREDIT_RECEIVE#(COMMIT_BUNDLE, `COMMIT_NUM, `COMMIT_NUM)   commitPort <- mkPortBandwidthCreditReceive("commit", `COMMIT_NUM);
 
-    Connection_Client#(TOKEN,TOKEN)                                      commitResults <- mkConnection_Client("funcp_commitResults");
-    Connection_Client#(TOKEN,TOKEN)                                       commitStores <- mkConnection_Client("funcp_commitStores");
+    Connection_Client#(FUNCP_REQ_COMMIT_RESULTS, FUNCP_RSP_COMMIT_RESULTS) commitResults <- mkConnection_Client("funcp_commitResults");
+    Connection_Client#(FUNCP_REQ_COMMIT_STORES, FUNCP_RSP_COMMIT_STORES)    commitStores <- mkConnection_Client("funcp_commitStores");
 
-    Connection_Send#(MODEL_NUM_COMMITS)                                    modelCommit <- mkConnection_Send("model_commits");
+    Connection_Send#(MODEL_NUM_COMMITS)                                      modelCommit <- mkConnection_Send("model_commits");
 
     rule commitResultsReq(True);
         if(commitPort.canReceive())
@@ -21,7 +21,7 @@ module [HASIM_MODULE] mkCommit();
             modelCommit.send(1);
             let bundle <- commitPort.pop();
             bundle.token.timep_info.scratchpad = zeroExtend(pack(bundle.isStore));
-            commitResults.makeReq(bundle.token);
+            commitResults.makeReq(FUNCP_REQ_COMMIT_RESULTS{token: bundle.token});
         end
         else
         begin
@@ -31,17 +31,17 @@ module [HASIM_MODULE] mkCommit();
     endrule
 
     rule commitResultsResp(True);
-        let token = commitResults.getResp();
+        let resp = commitResults.getResp();
         commitResults.deq();
-        if(token.timep_info.scratchpad == 1)
+        if(resp.token.timep_info.scratchpad == 1)
         begin
             debug <= $format("commiting stores");
-            commitStores.makeReq(token);
+            commitStores.makeReq(FUNCP_REQ_COMMIT_STORES{token: resp.token});
         end
     endrule
 
     rule commitStoresResp(True);
-        let token = commitStores.getResp();
+        let resp = commitStores.getResp();
         commitStores.deq();
     endrule
 endmodule

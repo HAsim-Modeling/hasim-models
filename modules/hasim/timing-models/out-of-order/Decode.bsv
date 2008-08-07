@@ -11,16 +11,16 @@ import Vector::*;
 typedef enum {DECODE_STATE_FILL, DECODE_STATE_REQ_DEPENDENCIES, DECODE_STATE_RESP_DEPENDENCIES} DECODE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkDecode();
-    DebugFile                                                                    debug <- mkDebugFile("Decode.out");
+    DebugFile                                                                            debug <- mkDebugFile("Decode.out");
 
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(FETCH_BUNDLE, `FETCH_NUM, `FETCH_CREDITS) fetchPort <- mkPortBandwidthCreditReceive("fetch", fromInteger(`FETCH_CREDITS));
-    PORT_BANDWIDTH_CREDIT_SEND#(DECODE_BUNDLE, `DECODE_NUM, DECODE_CREDITS) decodePort <- mkPortBandwidthCreditSend("decode");
+    PORT_BANDWIDTH_CREDIT_RECEIVE#(FETCH_BUNDLE, `FETCH_NUM, `FETCH_CREDITS)         fetchPort <- mkPortBandwidthCreditReceive("fetch", fromInteger(`FETCH_CREDITS));
+    PORT_BANDWIDTH_CREDIT_SEND#(DECODE_BUNDLE, `DECODE_NUM, DECODE_CREDITS)         decodePort <- mkPortBandwidthCreditSend("decode");
 
-    Connection_Client#(TOKEN, Tuple2#(TOKEN, ISA_DEPENDENCY_INFO))     getDependencies <- mkConnection_Client("funcp_getDependencies");
+    Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES, FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
 
-    FIFOF#(FETCH_BUNDLE)                                                   fetchBuffer <- mkSizedFIFOF(`FETCH_CREDITS);
-    Reg#(DECODE_STATE)                                                           state <- mkReg(DECODE_STATE_FILL);
-    Reg#(FETCH_BUFFER_INDEX)                                              fetchCredits <- mkReg(`FETCH_CREDITS);
+    FIFOF#(FETCH_BUNDLE)                                                           fetchBuffer <- mkSizedFIFOF(`FETCH_CREDITS);
+    Reg#(DECODE_STATE)                                                                   state <- mkReg(DECODE_STATE_FILL);
+    Reg#(FETCH_BUFFER_INDEX)                                                      fetchCredits <- mkReg(`FETCH_CREDITS);
 
     function Vector#(n, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) extractPhysReg(Vector#(n, Maybe#(Tuple2#(ISA_REG_INDEX, FUNCP_PHYSICAL_REG_INDEX))) regMap);
         Vector#(n, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) regs = newVector();
@@ -51,7 +51,7 @@ module [HASIM_MODULE] mkDecode();
     rule reqDependencies(state == DECODE_STATE_REQ_DEPENDENCIES);
         if(fetchBuffer.notEmpty() && decodePort.canSend())
         begin
-            getDependencies.makeReq(fetchBuffer.first().token);
+            getDependencies.makeReq(FUNCP_REQ_GET_DEPENDENCIES{token: fetchBuffer.first().token});
             state <= DECODE_STATE_RESP_DEPENDENCIES;
         end
         else
@@ -63,11 +63,11 @@ module [HASIM_MODULE] mkDecode();
     endrule
 
     rule respDependencies(state == DECODE_STATE_RESP_DEPENDENCIES);
-        match {.token, {.srcMap, .destMap}} = getDependencies.getResp();
+        let resp = getDependencies.getResp();
         getDependencies.deq();
         fetchBuffer.deq();
         let fetchBundle = fetchBuffer.first();
-        let decodeBundle = makeDecodeBundle(fetchBundle, extractPhysReg(srcMap), extractPhysReg(destMap));
+        let decodeBundle = makeDecodeBundle(fetchBundle, extractPhysReg(resp.srcMap), extractPhysReg(resp.dstMap));
         debug <= $format("respDependencies ") + fshow(decodeBundle);
         decodePort.enq(decodeBundle);
         fetchCredits <= fetchCredits + 1;

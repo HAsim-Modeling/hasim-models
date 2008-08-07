@@ -17,7 +17,7 @@ module [HASIM_MODULE] mkAlu();
     PORT_BANDWIDTH_CREDIT_RECEIVE#(ALU_BUNDLE, `ALU_NUM, `ALU_CREDITS)             aluPort <- mkPortBandwidthCreditReceive("alu", `ALU_CREDITS);
     PORT_BANDWIDTH_CREDIT_SEND#(ALU_WRITEBACK_BUNDLE, `ALU_NUM, `ALU_NUM) aluWritebackPort <- mkPortBandwidthCreditSend("aluWriteback");
 
-    Connection_Client#(TOKEN, FUNCP_GET_RESULTS_MSG)                            getResults <- mkConnection_Client("funcp_getResults0");
+    Connection_Client#(FUNCP_REQ_GET_RESULTS, FUNCP_RSP_GET_RESULTS)            getResults <- mkConnection_Client("funcp_getResults0");
 
     FIFOF#(ALU_BUNDLE)                                                             aluFifo <- mkSizedFIFOF(`ALU_CREDITS);
     Reg#(ALU_STATE)                                                                  state <- mkReg(ALU_STATE_FILL);
@@ -40,7 +40,7 @@ module [HASIM_MODULE] mkAlu();
     rule writebackReq(state == ALU_STATE_WRITEBACK_REQ);
         if(aluFifo.notEmpty() && aluWritebackPort.canSend())
         begin
-            getResults.makeReq(aluFifo.first().token);
+            getResults.makeReq(FUNCP_REQ_GET_RESULTS{token: aluFifo.first().token});
             state <= ALU_STATE_WRITEBACK_RESP;
         end
         else

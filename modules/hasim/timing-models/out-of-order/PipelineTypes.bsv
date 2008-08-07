@@ -149,7 +149,7 @@ instance FShow#(ALU_WRITEBACK_BUNDLE);
     endfunction
 endinstance
 
-function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_GET_RESULTS_MSG res);
+function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_RSP_GET_RESULTS res);
     Bool mispredict;
     ISA_ADDRESS addr;
     Bool terminate;
@@ -208,7 +208,7 @@ instance FShow#(MEM_ADDRESS_BUNDLE);
     endfunction
 endinstance
 
-function MEM_ADDRESS_BUNDLE makeMemAddressBundle(MEM_BUNDLE mem, FUNCP_GET_RESULTS_MSG res);
+function MEM_ADDRESS_BUNDLE makeMemAddressBundle(MEM_BUNDLE mem, FUNCP_RSP_GET_RESULTS res);
     ISA_ADDRESS addr;
     if(res.result matches tagged REffectiveAddr .ea)
         addr = ea;

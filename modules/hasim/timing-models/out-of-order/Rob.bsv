@@ -52,7 +52,8 @@ module [HASIM_MODULE] mkRob();
 
     Reg#(REWIND_BUNDLE)                                                          rewindBundle <- mkReg(nullRewindBundle);
 
-    Reg#(Bool)                                                              inorderIssueStall <- mkReg(False);
+    Reg#(Bool)                                                                  allPrevIssued <- mkReg(False);
+    Reg#(Bool)                                                               allPrevMemIssued <- mkReg(False);
 
     Vector#(0, Port_Control) inports  = newVector();
     Vector#(0, Port_Control) outports = newVector();
@@ -181,7 +182,8 @@ module [HASIM_MODULE] mkRob();
             commitPort.done();
             state <= ROB_STATE_ISSUE_REQ;
             issuePtr <= commitPtr;
-            inorderIssueStall <= False;
+            allPrevIssued <= True;
+            allPrevMemIssued <= True;
         end
         else if(!robValid[commitIndex])
             commitPtr <= commitPtr + 1;
@@ -204,7 +206,7 @@ module [HASIM_MODULE] mkRob();
     endrule
 
     rule issueReq(state == ROB_STATE_ISSUE_REQ);
-        if((!memPort.canSend() && !aluPort.canSend()) || issuePtr == addPtr || inorderIssueStall)
+        if((!memPort.canSend() && !aluPort.canSend()) || issuePtr == addPtr || !allPrevIssued)
         begin
             debug.endModelCC();
             memPort.done();
@@ -229,27 +231,52 @@ module [HASIM_MODULE] mkRob();
 
     rule issueResp(state == ROB_STATE_ISSUE_RESP);
         let entry <- rob.readResp();
+        Bool isMem = isaIsStore(entry.inst) || isaIsLoad(entry.inst);
+        Bool newAllPrevMemIssued = allPrevMemIssued;
+        Bool newAllPrevIssued = True;
+        debug <= $format("issueResp check issuePtr: %d", issuePtr) + fshow(entry);
         if(isReady(entry))
         begin
-            Bool isMem = isaIsStore(entry.inst) || isaIsLoad(entry.inst);
-            if(isMem && memPort.canSend())
+            if(isMem)
             begin
-                debug <= $format("issueResp mem") + fshow(entry);
-                memPort.enq(makeMemBundle(entry, issuePtr));
-                robIssued.upd(issueIndex, True);
+                if(allPrevMemIssued && memPort.canSend())
+                begin
+                    debug <= $format("issueResp mem") + fshow(entry);
+                    memPort.enq(makeMemBundle(entry, issuePtr));
+                    robIssued.upd(issueIndex, True);
+                end
+                else
+                begin
+                    newAllPrevMemIssued = False;
+                    if(`INORDER_ISSUE == 1)
+                        newAllPrevIssued = False;
+                end
             end
-            else if(!isMem && aluPort.canSend())
+            else
             begin
-                debug <= $format("issueResp alu") + fshow(entry);
-                aluPort.enq(makeAluBundle(entry, issuePtr));
-                robIssued.upd(issueIndex, True);
+                if(aluPort.canSend())
+                begin
+                    debug <= $format("issueResp alu") + fshow(entry);
+                    aluPort.enq(makeAluBundle(entry, issuePtr));
+                    robIssued.upd(issueIndex, True);
+                end
+                else
+                begin
+                    if(`INORDER_ISSUE == 1)
+                        newAllPrevIssued = False;
+                end
             end
-            else if(`INORDER_ISSUE == 1)
-                inorderIssueStall <= True;
         end
-        else if(`INORDER_ISSUE == 1)
-            inorderIssueStall <= True;
+        else
+        begin
+            if(isMem)
+                newAllPrevMemIssued = False;
+            if(`INORDER_ISSUE == 1)
+                newAllPrevIssued = False;
+        end
         issuePtr <= issuePtr + 1;
         state <= ROB_STATE_ISSUE_REQ;
+        allPrevMemIssued <= newAllPrevMemIssued;
+        allPrevIssued <= newAllPrevIssued;
     endrule
 endmodule

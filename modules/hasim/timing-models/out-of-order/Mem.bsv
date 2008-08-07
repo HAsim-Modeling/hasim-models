@@ -17,7 +17,7 @@ module [HASIM_MODULE] mkMemAddress();
     PORT_BANDWIDTH_CREDIT_RECEIVE#(MEM_BUNDLE, `MEM_NUM, `MEM_CREDITS)             memPort <- mkPortBandwidthCreditReceive("mem", `MEM_CREDITS);
     PORT_BANDWIDTH_CREDIT_SEND#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortBandwidthCreditSend("memAddress");
 
-    Connection_Client#(TOKEN, FUNCP_GET_RESULTS_MSG)                            getResults <- mkConnection_Client("funcp_getResults1");
+    Connection_Client#(FUNCP_REQ_GET_RESULTS, FUNCP_RSP_GET_RESULTS)            getResults <- mkConnection_Client("funcp_getResults1");
 
     FIFOF#(MEM_BUNDLE)                                                             memFifo <- mkSizedFIFOF(`MEM_CREDITS);
     Reg#(MEM_ADDRESS_STATE)                                                          state <- mkReg(MEM_ADDRESS_STATE_FILL);
@@ -40,7 +40,7 @@ module [HASIM_MODULE] mkMemAddress();
     rule addressReq(state == MEM_ADDRESS_STATE_ADDRESS_REQ);
         if(memFifo.notEmpty() && memAddressPort.canSend())
         begin
-            getResults.makeReq(memFifo.first().token);
+            getResults.makeReq(FUNCP_REQ_GET_RESULTS{token: memFifo.first().token});
             state <= MEM_ADDRESS_STATE_ADDRESS_RESP;
         end
         else
@@ -61,7 +61,7 @@ module [HASIM_MODULE] mkMemAddress();
     endrule
 endmodule
 
-typedef enum {MEM_STATE_FILL, MEM_STATE_MEM_REQ, MEM_STATE_MEM_RESP} MEM_STATE deriving (Bits, Eq);
+typedef enum {MEM_STATE_FILL, MEM_STATE_D_TRANSLATE_REQ, MEM_STATE_MEM_REQ, MEM_STATE_MEM_RESP} MEM_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkMem();
     DebugFile                                                                           debug <- mkDebugFile("Mem.out");
@@ -69,8 +69,9 @@ module [HASIM_MODULE] mkMem();
     PORT_BANDWIDTH_CREDIT_RECEIVE#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortBandwidthCreditReceive("memAddress", `MEM_CREDITS);
     PORT_BANDWIDTH_CREDIT_SEND#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, `MEM_NUM)    memWritebackPort <- mkPortBandwidthCreditSend("memWriteback");
 
-    Connection_Client#(TOKEN,TOKEN)                                                   doLoads <- mkConnection_Client("funcp_doLoads");
-    Connection_Client#(TOKEN,TOKEN)                                                  doStores <- mkConnection_Client("funcp_doSpeculativeStores");
+    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE, FUNCP_RSP_DO_DTRANSLATE)         doDTranslate <- mkConnection_Client("funcp_doDTranslate");
+    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS)                        doLoads <- mkConnection_Client("funcp_doLoads");
+    Connection_Client#(FUNCP_REQ_DO_STORES, FUNCP_RSP_DO_STORES)                     doStores <- mkConnection_Client("funcp_doSpeculativeStores");
 
     FIFOF#(MEM_ADDRESS_BUNDLE)                                                 memAddressFifo <- mkSizedFIFOF(`MEM_CREDITS);
     Reg#(MEM_STATE)                                                                     state <- mkReg(MEM_STATE_FILL);
@@ -86,18 +87,15 @@ module [HASIM_MODULE] mkMem();
         else
         begin
             memAddressPort.done(memCredits);
-            state <= MEM_STATE_MEM_REQ;
+            state <= MEM_STATE_D_TRANSLATE_REQ;
         end
     endrule
 
-    rule memReq(state == MEM_STATE_MEM_REQ);
+    rule dTranslate(state == MEM_STATE_D_TRANSLATE_REQ);
         if(memAddressFifo.notEmpty() && memWritebackPort.canSend())
         begin
-            if(isaIsLoad(memAddressFifo.first().inst))
-                doLoads.makeReq(memAddressFifo.first().token);
-            else
-                doStores.makeReq(memAddressFifo.first().token);
-            state <= MEM_STATE_MEM_RESP;
+            doDTranslate.makeReq(FUNCP_REQ_DO_DTRANSLATE{token: memAddressFifo.first().token});
+            state <= MEM_STATE_MEM_REQ;
         end
         else
         begin
@@ -107,6 +105,15 @@ module [HASIM_MODULE] mkMem();
         end
     endrule
 
+    rule memReq(state == MEM_STATE_MEM_REQ);
+        doDTranslate.deq();
+        if(isaIsLoad(memAddressFifo.first().inst))
+            doLoads.makeReq(FUNCP_REQ_DO_LOADS{token: memAddressFifo.first().token});
+        else
+            doStores.makeReq(FUNCP_REQ_DO_STORES{token: memAddressFifo.first().token});
+        state <= MEM_STATE_MEM_RESP;
+    endrule
+
     rule memResp(state == MEM_STATE_MEM_RESP);
         if(isaIsLoad(memAddressFifo.first().inst))
             doLoads.deq();
@@ -114,7 +121,7 @@ module [HASIM_MODULE] mkMem();
             doStores.deq();
         memWritebackPort.enq(makeMemWritebackBundle(memAddressFifo.first()));
         memAddressFifo.deq();
-        state <= MEM_STATE_MEM_REQ;
+        state <= MEM_STATE_D_TRANSLATE_REQ;
         memCredits <= memCredits + 1;
     endrule
 endmodule
