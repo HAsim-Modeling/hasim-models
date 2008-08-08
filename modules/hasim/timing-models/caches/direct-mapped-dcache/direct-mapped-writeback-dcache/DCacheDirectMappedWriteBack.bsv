@@ -11,6 +11,7 @@ import fpga_components::*;
 `include "asim/provides/hasim_dcache_types.bsh"
 `include "asim/provides/hasim_dcache_memory.bsh"
 `include "asim/provides/hasim_icache.bsh"
+`include "asim/dict/STATS_DIRECT_MAPPED_DCACHE_WRITEBACK.bsh"
 
 typedef enum {HandleReq, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite, Flush} State deriving (Eq, Bits);
 typedef Bit#(1) DCACHE_DIRTY_BIT;
@@ -82,7 +83,12 @@ module [HASim_Module] mkDCache();
    outports[4] = port_to_memory.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports);
    
-   
+   // Stats
+   Stat stat_dcache_read_hits <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_READ_HITS);
+   Stat stat_dcache_read_misses <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_READ_MISSES);
+   Stat stat_dcache_write_hits <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_WRITE_HITS);
+   Stat stat_dcache_write_misses <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_WRITE_MISSES);
+     
    // rules
    rule handlereq (state == HandleReq);
       
@@ -201,6 +207,7 @@ module [HASim_Module] mkDCache();
 	       port_to_cpu_del_comm.send(tagged Invalid);
 	       dcache_tag_store.write(req_dcache_index_spec, tagged Valid tuple2(0, req_dcache_tag_spec));
 	       state <= ReadStall;
+	       stat_dcache_read_misses.incr();
 	       //$display ("Read Miss, Tag %x, Index %d, Clean", req_dcache_tag_spec, req_dcache_index_spec);
 	    end
 	 tagged Valid {.dcache_dirty_bit, .dcache_tag}:
@@ -214,6 +221,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_imm_comm.send(tagged Invalid);
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     state <= HandleReq;
+		     stat_dcache_read_hits.incr();
 		     //$display ("Read Hit, Tag %x, Index %d", req_dcache_tag_spec, req_dcache_index_spec);
 		  end
 	       // cache miss
@@ -242,6 +250,7 @@ module [HASim_Module] mkDCache();
 			   read <= True;
 			   //$display ("Read Miss, Tag %x, Index %d, Flush", req_dcache_tag_spec, req_dcache_index_spec);
 			end
+		     stat_dcache_read_misses.incr();
 		  end
 	    end
       endcase
@@ -442,6 +451,7 @@ module [HASim_Module] mkDCache();
 	       dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
 	       state <= WriteStall;
 	       hit <= False;
+	       stat_dcache_write_misses.incr();
 	       //$display ("Write Miss, tag %x, index %d, clean", req_dcache_tag_comm, req_dcache_index_comm);
 	    end
 	 tagged Valid {.dcache_dirty_bit, .dcache_tag}:
@@ -457,6 +467,7 @@ module [HASim_Module] mkDCache();
 		     dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
 		     state <= HandleReq;
 		     hit <= False;
+		     stat_dcache_write_hits.incr();
 		     //$display ("Write Hit, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
 		  end
 	       // cache miss
@@ -488,6 +499,7 @@ module [HASim_Module] mkDCache();
 			   //$display ("Write Miss, tag %x, index %d, flush", req_dcache_tag_comm, req_dcache_index_comm);
 			end
 		  end
+	       stat_dcache_write_misses.incr();
 	    end
       endcase
    endrule
@@ -600,21 +612,22 @@ module [HASim_Module] mkDCache();
 	       port_to_cpu_del_comm.send(tagged Invalid);
 	       dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
 	       state <= WriteStall;
+	       stat_dcache_write_misses.incr();
 	       //$display ("Write Miss, tag %x, index %d, clean", req_dcache_tag_comm, req_dcache_index_comm);
 	    end
 	 tagged Valid {.dcache_dirty_bit, .dcache_tag}:
 	    begin
 	       // write hit
-	       // write through
 	       if (dcache_tag == req_dcache_tag_comm)
 		  begin
-		     port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
+		     port_to_memory.send(tagged Invalid);
 		     port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
 		     port_to_cpu_del_spec.send(tagged Invalid);
 		     port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Hit_servicing inst_addr_comm));
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     dcache_tag_store.write(req_dcache_index_comm,tagged Valid tuple2(1, req_dcache_tag_comm));
-		     state <= WriteStall;
+		     state <= HandleReq;
+		     stat_dcache_write_hits.incr();
 		     //$display ("Write Hit, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
 		  end
 	       // write miss
@@ -643,6 +656,7 @@ module [HASim_Module] mkDCache();
 			   state <= Flush;
 			   read <= False;
 			end
+		     stat_dcache_write_misses.incr();
 		  end
 	    end
       endcase

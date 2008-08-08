@@ -11,6 +11,7 @@ import fpga_components::*;
 `include "asim/provides/hasim_dcache_types.bsh"
 `include "asim/provides/hasim_dcache_memory.bsh"
 `include "asim/provides/hasim_icache.bsh"
+`include "asim/dict/STATS_DIRECT_MAPPED_DCACHE_WRITETHROUGH.bsh"
 
 typedef enum {HandleReq, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite} State deriving (Eq, Bits);
 
@@ -79,6 +80,12 @@ module [HASim_Module] mkDCache();
    outports[3] = port_to_cpu_del_comm.ctrl;
    outports[4] = port_to_memory.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports);
+   
+   // Stats
+   Stat stat_dcache_read_hits <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITETHROUGH_DCACHE_READ_HITS);
+   Stat stat_dcache_read_misses <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITETHROUGH_DCACHE_READ_MISSES);
+   Stat stat_dcache_write_hits <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITETHROUGH_DCACHE_WRITE_HITS);
+   Stat stat_dcache_write_misses <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITETHROUGH_DCACHE_WRITE_MISSES);
    
    
    // rules
@@ -198,6 +205,7 @@ module [HASim_Module] mkDCache();
 	       port_to_cpu_del_comm.send(tagged Invalid);
 	       dcache_tag_store.write(req_dcache_index_spec, tagged Valid req_dcache_tag_spec);
 	       state <= ReadStall;
+	       stat_dcache_read_misses.incr();
 	    end
 	 tagged Valid .dcache_tag:
 	    begin
@@ -210,6 +218,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_imm_comm.send(tagged Invalid);
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     state <= HandleReq;
+		     stat_dcache_read_hits.incr();
 		  end
 	       // cache miss
 	       else
@@ -221,6 +230,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     dcache_tag_store.write(req_dcache_index_spec, tagged Valid req_dcache_tag_spec);
 		     state <= ReadStall;
+		     stat_dcache_read_misses.incr();
 		  end
 	    end
       endcase
@@ -331,6 +341,7 @@ module [HASim_Module] mkDCache();
 	       dcache_tag_store.write(req_dcache_index_comm, tagged Valid req_dcache_tag_comm);
 	       state <= WriteStall;
 	       hit <= False;
+	       stat_dcache_write_misses.incr();
 	    end
 	 tagged Valid .dcache_tag:
 	    begin
@@ -345,6 +356,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     state <= WriteStall;
 		     hit <= True;
+		     stat_dcache_write_hits.incr();
 		  end
 	       // cache miss
 	       else
@@ -357,6 +369,7 @@ module [HASim_Module] mkDCache();
 		     dcache_tag_store.write(req_dcache_index_comm, tagged Valid req_dcache_tag_comm);
 		     state <= WriteStall;
 		     hit <= False;
+		     stat_dcache_write_misses.incr();
 		  end
 	    end
       endcase
@@ -470,6 +483,7 @@ module [HASim_Module] mkDCache();
 	       port_to_cpu_del_comm.send(tagged Invalid);
 	       dcache_tag_store.write(req_dcache_index_comm, tagged Valid req_dcache_tag_comm);
 	       state <= WriteStall;
+	       stat_dcache_write_misses.incr();
 	    end
 	 tagged Valid .dcache_tag:
 	    begin
@@ -484,6 +498,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     dcache_tag_store.write(req_dcache_index_comm,tagged Valid req_dcache_tag_comm);
 		     state <= WriteStall;
+		     stat_dcache_write_hits.incr();
 		  end
 	       // write miss
 	       else
@@ -495,6 +510,7 @@ module [HASim_Module] mkDCache();
 		     port_to_cpu_del_comm.send(tagged Invalid);
 		     dcache_tag_store.write(req_dcache_index_comm,tagged Valid req_dcache_tag_comm);
 		     state <= WriteStall;
+		     stat_dcache_write_misses.incr();
 		  end
 	    end
       endcase

@@ -12,6 +12,7 @@ import fpga_components::*;
 `include "asim/provides/hasim_dcache_memory.bsh"
 `include "asim/provides/hasim_icache.bsh"
 `include "asim/provides/hasim_dcache_replacement_algorithm.bsh"
+`include "asim/dict/STATS_SETASSOC_DCACHE_WRITEBACK.bsh"
 
 typedef enum {HandleReq, NullReq, CheckTag, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite, Flush} State deriving (Eq, Bits);
 typedef enum {Null, Read, Write, ReadWrite} RequestType deriving (Eq, Bits);
@@ -95,6 +96,12 @@ module [HASim_Module] mkDCache();
    outports[4] = port_to_memory.ctrl;
    outports[5] = port_to_replacement_alg.ctrl;
    LocalController local_ctrl <- mkLocalController(inports, outports);
+   
+   // Stats
+   Stat stat_dcache_read_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_HITS);
+   Stat stat_dcache_read_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_MISSES);
+   Stat stat_dcache_write_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_HITS);
+   Stat stat_dcache_write_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_MISSES);
    
    // rules
    rule handlereq (state == HandleReq);
@@ -241,11 +248,13 @@ module [HASim_Module] mkDCache();
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: True, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleReadWrite;
+		  stat_dcache_write_hits.incr();
 	       end
 	    else
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: False, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleReadWrite;
+		  stat_dcache_write_misses.incr();
 	       end
 	 end
       else if (req_type == Read)
@@ -272,11 +281,13 @@ module [HASim_Module] mkDCache();
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_spec, DCacheReplacementAlgorithmInput{accessed_hit: True, accessed_set: tagstore_read, accessed_way: hit_way}));
 		  state <= HandleRead;
+		  stat_dcache_read_hits.incr();
 	       end
 	    else
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_spec, DCacheReplacementAlgorithmInput{accessed_hit: False, accessed_set: tagstore_read, accessed_way: hit_way}));
 		  state <= HandleRead;
+		  stat_dcache_read_misses.incr();
 	       end
 	 end
       else if (req_type == Write)
@@ -303,11 +314,13 @@ module [HASim_Module] mkDCache();
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: True, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleWrite;
+		  stat_dcache_write_hits.incr();
 	       end
 	    else
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: False, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleWrite;
+		  stat_dcache_write_misses.incr();
 	       end
 	 end
    endrule

@@ -15,6 +15,7 @@
 # %attributes hasim caches
 #
 # %public DCacheDirectMappedWriteBack.bsv 
+# %sources -t DICT -v PUBLIC direct_mapped_write_back_dcache.dic
 #
 # %AWB_END
 # */
