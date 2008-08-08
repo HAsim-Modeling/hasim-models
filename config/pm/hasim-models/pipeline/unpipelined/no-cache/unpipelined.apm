@@ -1,0 +1,17 @@
+
+[Global]
+SaveParameters=0
+Description=Unpipelined CPU
+File=unpipelined
+Version=2.1
+Name=Unpipelined CPU
+Type=HAsim
+Class=Asim::Model
+
+[Model]
+DefaultAttributes=hasim unpipelined
+model=Hasim Unpipelined CPU
+
+[Hasim Unpipelined CPU]
+File=modules/hasim/timing-models/cpu/unpipelined/no-cache/unpipelined_cpu.awb
+Packagehint=hasim-models

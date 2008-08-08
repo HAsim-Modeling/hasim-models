@@ -1,0 +1,53 @@
+
+[Global]
+SaveParameters=0
+Description=Inorder CPU
+File=inorder
+Version=2.1
+Name=Inorder CPU
+Type=HAsim
+Class=Asim::Model
+
+[Model]
+DefaultAttributes=hasim inorder
+model=Inorder CPU
+
+[Inorder CPU]
+File=modules/hasim/timing-models/cpu/inorder/inorder.awb
+Packagehint=hasim-models
+
+[DCache Types]
+File=modules/hasim/timing-models/caches/cache-types/dcache_types.awb
+Packagehint=hasim-models
+
+[Inorder CPU/Requires]
+hasim_dcache=Direct mapped write through data cache
+hasim_icache=Direct mapped instruction cache
+
+[Direct mapped instruction cache/Requires]
+hasim_icache_types=ICache Types
+hasim_icache_memory=Dummy ICache Memory
+
+[Direct mapped write through data cache/Requires]
+hasim_dcache_types=DCache Types
+hasim_dcache_memory=Dummy memory for DCache
+
+[Dummy ICache Memory]
+File=modules/hasim/timing-models/memory/icachememory.awb
+Packagehint=hasim-models
+
+[Direct mapped instruction cache]
+File=modules/hasim/timing-models/caches/direct-mapped-icache/direct_mapped_icache.awb
+Packagehint=hasim-models
+
+[Dummy memory for DCache]
+File=modules/hasim/timing-models/memory/dcachememory.awb
+Packagehint=hasim-models
+
+[Direct mapped write through data cache]
+File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache/direct_mapped_write_through_dcache.awb
+Packagehint=hasim-models
+
+[ICache Types]
+File=modules/hasim/timing-models/caches/cache-types/icache_types.awb
+Packagehint=hasim-models

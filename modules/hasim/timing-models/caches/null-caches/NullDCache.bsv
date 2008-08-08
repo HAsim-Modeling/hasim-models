@@ -7,7 +7,7 @@ import module_local_controller::*;
 import hasim_isa::*;
 import fpga_components::*;
 
-module [HASim_Module] mkDCache();
+module [HASIM_MODULE] mkDCache();
    
    // incoming port from CPU with speculative stores
    Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu_spec <- mkPort_Receive("cpu_to_dcache_speculative", 0);

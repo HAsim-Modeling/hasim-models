@@ -1,0 +1,17 @@
+
+[Global]
+SaveParameters=0
+Description=Superscalar Out-of-order CPU
+File=superscalar-out-of-order
+Version=2.1
+Name=Superscalar Out-of-order CPU
+Type=HAsim
+Class=Asim::Model
+
+[Model]
+DefaultAttributes=hasim superscalar-out-of-order
+model=Hasim superscalar out-of-order CPU
+
+[Hasim superscalar out-of-order CPU]
+File=modules/hasim/timing-models/cpu/out-of-order/out-of-order.awb
+Packagehint=hasim-models
