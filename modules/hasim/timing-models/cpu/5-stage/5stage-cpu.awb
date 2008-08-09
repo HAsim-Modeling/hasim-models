@@ -1,0 +1,24 @@
+%name 5-stage pipeline CPU
+%desc 5-stage pipeline CPU
+
+%provides hasim_cpu
+
+%requires hasim_5stage_interfaces
+%requires hasim_branch_pred
+
+%attributes 5stage mips hasim
+
+%public CPU.bsv Fetch.bsv Decode.bsv Execute.bsv Mem.bsv Writeback.bsv
+%public fetch.dic decode.dic execute.dic mem.dic writeback.dic
+
+%param SYNTH_BOUNDARY mkCPU "Name of synthesis boundary"
+
+%param --dynamic FET_ICACHE_HIT_CHANCE   125 "Chance to hit in our simple ICache (0-127)"
+%param --dynamic FET_ICACHE_MISS_PENALTY  10 "Number of cycles to stall on a miss (0-65535)"
+%param --dynamic FET_PRED_ONLY_BRANCHES    0 "Don't use branch predictor for non-branch instructions if 1."
+%param FET_BTB_HASH_BITS      11  "Number of bits to use in BTB hash (0-32)"
+
+%param DEC_PIPELINE_IS_BYPASSED True "Is the pipeline fully bypassed or must we stall? (True/False)"
+
+%param MEM_DCACHE_HIT_CHANCE 50 "Percentage of DCache requests that hit (0-100)"
+%param MEM_DCACHE_MISS_PENALTY 10 "Clock cycles to stall on a DCache miss (0-65535)"

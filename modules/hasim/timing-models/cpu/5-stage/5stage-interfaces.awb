@@ -1,0 +1,6 @@
+%name 5-stage pipeline CPU interfaces
+%desc 5-stage pipeline CPU interfaces
+
+%provides hasim_5stage_interfaces
+
+%public 5stage-interfaces.bsv

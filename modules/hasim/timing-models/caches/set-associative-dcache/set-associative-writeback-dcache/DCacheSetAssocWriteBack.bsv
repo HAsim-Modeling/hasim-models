@@ -17,7 +17,7 @@ import fpga_components::*;
 typedef enum {HandleReq, NullReq, CheckTag, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite, Flush} State deriving (Eq, Bits);
 typedef enum {Null, Read, Write, ReadWrite} RequestType deriving (Eq, Bits);
 
-module [HASIM_MODULE] mkDCache();
+module [HASim_Module] mkDCache();
    
    // initialize cache memory
    let cachememory <- mkDCacheMemory();

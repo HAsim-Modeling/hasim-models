@@ -18,7 +18,7 @@ endinterface
 module mkBranchPred(BranchPred);
     Reg#(GlobalHist) globalHist <- mkReg(0);
     RegFile#(BranchTableIndex, Bool) branchTable <- mkRegFileFull();
-    RegFile#(TOKEN_INDEX, GlobalHist) screenShot <- mkRegFileFull();
+    RegFile#(TokIndex, GlobalHist) screenShot <- mkRegFileFull();
     
     FIFO#(Bool) respQ <- mkFIFO();
 

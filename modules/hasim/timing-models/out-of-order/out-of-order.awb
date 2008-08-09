@@ -1,0 +1,24 @@
+%AWB_START
+
+%name Hasim superscalar out-of-order CPU
+%desc Hasim superscalar out-of-order CPU
+%provides hasim_cpu
+
+%attributes hasim
+
+%public CPU.bsv
+%private DebugFile.bsv BandwidthPort.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Rob.bsv Alu.bsv Mem.bsv GetResults.bsv Commit.bsv
+
+%param SYNTH_BOUNDARY mkCPU "Name of synthesis boundary"
+%param FETCH_CREDITS 32 "Fetch Buffer Credits"
+%param FETCH_NUM 4 "Fetch Bandwidth"
+%param LOG_DECODE_CREDITS 5 "Decode Buffer Credits (Log of)"
+%param DECODE_NUM 4 "Decode Bandwidth"
+%param COMMIT_NUM 4 "Commit Bandwidth"
+%param MEM_NUM 1 "Mem unit issue bandwidth"
+%param MEM_CREDITS 2 "Mem unit credits"
+%param ALU_NUM 4 "ALU unit issue bandwidth"
+%param ALU_CREDITS 8 "ALU unit credits"
+%param INORDER_ISSUE 0 "Bool: Inorder issue"
+
+%AWB_END

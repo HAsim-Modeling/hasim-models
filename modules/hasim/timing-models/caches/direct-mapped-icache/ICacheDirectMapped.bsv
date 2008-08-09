@@ -47,7 +47,7 @@ CacheOutputDelayed deriving (Eq, Bits);
 typedef enum {HandleReq, HandleRead, HandleStall} State deriving (Eq, Bits);
 
  
-module [HASIM_MODULE] mkICache();
+module [HASim_Module] mkICache();
    
    // FSM register
    Reg#(State) state <- mkReg(HandleReq);
