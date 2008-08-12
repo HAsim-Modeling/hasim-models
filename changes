@@ -1051,3 +1051,42 @@ Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associat
 Fixed bug on DCache involving case of a simultaneous read on the
 speculative port and write on the commit port.
 Also added statistics to all data cache modules.
+----------
+mvijayar    Date: Tue Aug 12 18:43:47 EDT 2008  CSN: CSN-hasim-models-44
+                  Tue Aug 12 22:43:47 UTC 2008
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/globHistory
+ BranchPred.bsv            Locally Modified           43 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ DCacheDirectMappedWriteBack.bsv Locally Modified           43 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ DCacheDirectMappedWriteThrough.bsv Locally Modified           43 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ ICacheDirectMapped.bsv    Locally Modified           43 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ DCacheSetAssocWriteBack.bsv Locally Modified           43 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ NullDCache.bsv            Locally Modified           43 
+
+Directory modules/hasim/timing-models/memory
+ DCacheMemory.bsv          Locally Modified           43 
+ ICacheMemory.bsv          Locally Modified           43 
+
+Changed the hierachy to contain:
+system
+    chip(s)
+        core(s)
+            pipeline
+            (l1 caches)
+        shared memory
+    off chip memory [ unfortunately called memory now ]
+
+() for options
+
+Created submodels for each architecture

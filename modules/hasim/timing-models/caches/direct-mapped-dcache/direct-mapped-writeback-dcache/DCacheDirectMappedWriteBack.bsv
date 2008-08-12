@@ -17,7 +17,7 @@ typedef enum {HandleReq, HandleRead, HandleWrite, ReadStall, WriteStall, HandleR
 typedef Bit#(1) DCACHE_DIRTY_BIT;
 typedef Tuple2#(DCACHE_DIRTY_BIT, DCACHE_TAG) DCACHE_LINE;
 
-module [HASim_Module] mkDCache();
+module [HASIM_MODULE] mkDCache();
    
    // initialize cache memory
    let cachememory <- mkDCacheMemory();
