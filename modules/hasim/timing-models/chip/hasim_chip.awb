@@ -1,0 +1,13 @@
+%name Single core chip
+%desc Single core chip 
+
+%provides hasim_chip
+
+%requires hasim_core
+%requires hasim_shared_cache
+
+%attributes hasim chip
+
+%public Chip.bsv
+
+%param SYNTH_BOUNDARY mkChip "Name of synthesis boundary"

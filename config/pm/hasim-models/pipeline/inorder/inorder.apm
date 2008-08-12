@@ -1,0 +1,20 @@
+
+[Global]
+SaveParameters=0
+Description=Inorder pipeline
+File=inorder
+Version=2.1
+Name=Inorder pipeline
+Type=HAsim
+Class=Asim::Model
+
+[Model]
+DefaultAttributes=hasim inorder
+model=Inorder pipeline
+
+
+
+
+[Inorder pipeline]
+File=modules/hasim/timing-models/pipeline/inorder/inorder.awb
+Packagehint=hasim-models

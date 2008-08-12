@@ -1090,3 +1090,147 @@ system
 () for options
 
 Created submodels for each architecture
+
+----------
+mvijayar    Date: Tue Aug 12 18:51:41 EDT 2008  CSN: CSN-hasim-models-45
+                  Tue Aug 12 22:51:41 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/l2-cache
+ hasim_shared_cache.awb    Locally Added               0 
+ L2Cache.bsv               Locally Added               0 
+
+Directory modules/hasim/timing-models/caches
+ l2-cache/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ L1Cache.bsv               Locally Added               0 
+ hasim_l1_caches.awb       Locally Added               0 
+
+Directory modules/hasim/timing-models/caches
+ l1-caches/                Locally Added               0 
+
+Directory modules/hasim/timing-models/memory
+ memory.awb                Locally Added               0 
+ Memory.bsv                Locally Added               0 
+
+Directory modules/hasim/timing-models/chip
+ Chip.bsv                  Locally Added               0 
+ hasim_chip.awb            Locally Added               0 
+
+Directory modules/hasim/timing-models
+ chip/                     Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline
+ inorder/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ StoreBuffer.bsv           Locally Added               0 
+ decode.dic                Locally Added               0 
+ Fetch.bsv                 Locally Added               0 
+ PipelineTypes.bsv         Locally Added               0 
+ fetch.dic                 Locally Added               0 
+ Execute.bsv               Locally Added               0 
+ Pipeline.bsv              Locally Added               0 
+ execute.dic               Locally Added               0 
+ BranchPredictor.bsv       Locally Added               0 
+ WriteBack.bsv             Locally Added               0 
+ Mem.bsv                   Locally Added               0 
+ writeback.dic             Locally Added               0 
+ inorder.awb               Locally Added               0 
+ mem.dic                   Locally Added               0 
+ Decode.bsv                Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline
+ superscalar-out-of-order/ Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ Commit.bsv                Locally Added               0 
+ Fetch.bsv                 Locally Added               0 
+ BandwidthPort.bsv         Locally Added               0 
+ PipelineTypes.bsv         Locally Added               0 
+ Mem.bsv                   Locally Added               0 
+ Alu.bsv                   Locally Added               0 
+ GetResults.bsv            Locally Added               0 
+ Rob.bsv                   Locally Added               0 
+ Decode.bsv                Locally Added               0 
+ superscalar-out-of-order.awb Locally Added               0 
+ Pipeline.bsv              Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline
+ 5stage/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/5stage
+ execute.dic               Locally Added               0 
+ 5stage.awb                Locally Added               0 
+ decode.dic                Locally Added               0 
+ Fetch.bsv                 Locally Added               0 
+ Writeback.bsv             Locally Added               0 
+ Mem.bsv                   Locally Added               0 
+ fetch.dic                 Locally Added               0 
+ writeback.dic             Locally Added               0 
+ Execute.bsv               Locally Added               0 
+ Decode.bsv                Locally Added               0 
+ Interfaces.bsv            Locally Added               0 
+ mem.dic                   Locally Added               0 
+ Pipeline.bsv              Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline
+ unpipelined/              Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined
+ with-cache/               Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined_cpu.dic       Locally Added               0 
+ unpipelined_cpu.awb       Locally Added               0 
+ UnpipelinedCPU.bsv        Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined
+ no-cache/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined_cpu.dic       Locally Added               0 
+ unpipelined_cpu.awb       Locally Added               0 
+ UnpipelinedCPU.bsv        Locally Added               0 
+
+Directory modules/hasim/timing-models
+ pipeline/                 Locally Added               0 
+
+Directory config/pm/hasim-models
+ pipeline/                 Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline
+ inorder/                  Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline
+ superscalar-out-of-order/ Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
+ superscalar-out-of-order.apm Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline
+ 5stage/                   Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/5stage
+ 5stage.apm                Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline
+ unpipelined/              Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/unpipelined
+ with-cache/               Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/unpipelined/with-cache
+ unpipelined.apm           Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/unpipelined
+ no-cache/                 Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/unpipelined/no-cache
+ unpipelined.apm           Locally Added               0 
+
+Missed adding a few files in previous checkin
