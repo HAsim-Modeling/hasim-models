@@ -1,0 +1,13 @@
+%name Core
+%desc Core
+
+%provides hasim_core
+
+%requires hasim_pipeline
+%requires hasim_l1_caches
+
+%attributes hasim core
+
+%public Core.bsv
+
+%param SYNTH_BOUNDARY mkCore "Name of synthesis boundary"
