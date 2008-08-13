@@ -1234,3 +1234,22 @@ Directory config/pm/hasim-models/pipeline/unpipelined/no-cache
  unpipelined.apm           Locally Added               0 
 
 Missed adding a few files in previous checkin
+
+----------
+mvijayar    Date: Wed Aug 13 14:56:27 EDT 2008  CSN: CSN-hasim-models-47
+                  Wed Aug 13 18:56:27 UTC 2008
+
+
+Directory config/pm/hasim-models/l1-caches
+ l1_caches.apm             Locally Added               0 
+
+Directory config/pm/hasim-models
+ l1-caches/                Locally Added               0 
+
+Directory config/pm/hasim-models/5stage
+ 5stage-simple.apm         Locally Removed            44 
+
+Directory config/pm/hasim-models
+ 5stage/                   Locally Removed            44 
+
+added l1 caches model
