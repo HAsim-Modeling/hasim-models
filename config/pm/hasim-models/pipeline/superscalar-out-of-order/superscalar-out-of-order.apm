@@ -14,5 +14,5 @@ model=Hasim superscalar out-of-order CPU
 
 
 [Hasim superscalar out-of-order CPU]
-File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/out-of-order.awb
+File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/superscalar-out-of-order.awb
 Packagehint=hasim-models

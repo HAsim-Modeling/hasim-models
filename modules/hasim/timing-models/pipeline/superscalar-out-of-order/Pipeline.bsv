@@ -1,7 +1,6 @@
 `include "hasim_common.bsh"
-`include "hasim_pipeline.bsh"
 
-module [HASIM_MODULE] mkPipeline;
+module [HASIM_MODULE] mkPipeline();
     let  fetch <- mkFetch;
     let decode <- mkDecode;
     let    rob <- mkRob;
