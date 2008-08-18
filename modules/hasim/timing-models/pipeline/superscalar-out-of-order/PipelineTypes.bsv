@@ -7,6 +7,7 @@ import hasim_isa::*;
 
 import funcp_interface::*;
 
+import FShow::*;
 import Vector::*;
 
 typedef TAdd#(`ALU_NUM, `MEM_NUM) WRITEBACK_NUM;
