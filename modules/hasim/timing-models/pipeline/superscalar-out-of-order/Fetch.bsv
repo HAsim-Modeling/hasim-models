@@ -3,7 +3,6 @@ import hasim_modellib::*;
 import hasim_isa::*;
 
 `include "PipelineTypes.bsv"
-`include "DebugFile.bsv"
 
 `include "funcp_simulated_memory.bsh"
 

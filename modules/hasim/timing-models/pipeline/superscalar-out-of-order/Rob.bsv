@@ -8,7 +8,6 @@ import RegFile::*;
 import Vector::*;
 
 `include "PipelineTypes.bsv"
-`include "DebugFile.bsv"
 
 typedef enum {ROB_STATE_WRITEBACK_ALU, ROB_STATE_WRITEBACK_MEM, ROB_STATE_ADD, ROB_STATE_COMMIT_REQ, ROB_STATE_COMMIT_RESP, ROB_STATE_ISSUE_REQ, ROB_STATE_ISSUE_RESP} ROB_STATE deriving (Bits, Eq);
 

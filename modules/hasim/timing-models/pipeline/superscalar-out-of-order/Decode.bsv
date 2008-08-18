@@ -6,7 +6,6 @@ import FIFOF::*;
 import Vector::*;
 
 `include "PipelineTypes.bsv"
-`include "DebugFile.bsv"
 
 typedef enum {DECODE_STATE_FILL, DECODE_STATE_REQ_DEPENDENCIES, DECODE_STATE_RESP_DEPENDENCIES} DECODE_STATE deriving (Bits, Eq);
 

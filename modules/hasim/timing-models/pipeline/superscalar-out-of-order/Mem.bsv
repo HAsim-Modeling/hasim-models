@@ -7,7 +7,6 @@ import funcp_interface::*;
 import FIFOF::*;
 
 `include "PipelineTypes.bsv"
-`include "DebugFile.bsv"
 
 typedef enum {MEM_ADDRESS_STATE_FILL, MEM_ADDRESS_STATE_ADDRESS_REQ, MEM_ADDRESS_STATE_ADDRESS_RESP} MEM_ADDRESS_STATE deriving (Bits, Eq);
 

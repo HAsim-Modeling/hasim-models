@@ -7,7 +7,6 @@ import funcp_interface::*;
 import FIFOF::*;
 
 `include "PipelineTypes.bsv"
-`include "DebugFile.bsv"
 
 typedef enum {ALU_STATE_FILL, ALU_STATE_WRITEBACK_REQ, ALU_STATE_WRITEBACK_RESP} ALU_STATE deriving (Bits, Eq);
 
