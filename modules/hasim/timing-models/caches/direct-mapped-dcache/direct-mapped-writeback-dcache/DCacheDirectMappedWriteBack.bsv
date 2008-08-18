@@ -26,7 +26,7 @@ module [HASIM_MODULE] mkDCache();
    Reg#(State) state <- mkReg(HandleReq);
       
    // BRAM for cache tag store
-   BRAM_MULTI_READ#(2, `DCACHE_IDX_BITS, Maybe#(DCACHE_LINE)) dcache_tag_store <- mkMultiReadBramInitialized(tagged Invalid);
+   BRAM_MULTI_READ#(2, DCACHE_INDEX, Maybe#(DCACHE_LINE)) dcache_tag_store <- mkBRAMMultiReadInitialized(tagged Invalid);
 
    // registers to hold cache request fields
    Reg#(DCACHE_TAG) req_dcache_tag_spec <- mkReg(0);
@@ -129,7 +129,7 @@ module [HASIM_MODULE] mkDCache();
 			 req_tok_spec <= tok_from_cpu_spec;
 			 req_dcache_addr_spec <= ref_addr_spec;
 			 inst_addr_spec <= cpu_addr_spec;
-			 dcache_tag_store.req[0].read(idx);
+			 dcache_tag_store.readPorts[0].readReq(idx);
 			 state <= HandleRead;
 		      end
 		endcase
@@ -150,7 +150,7 @@ module [HASIM_MODULE] mkDCache();
 			 req_tok_comm <= tok_from_cpu_comm;
 			 req_dcache_addr_comm <= ref_addr_comm;
 			 inst_addr_comm <= cpu_addr_comm;
-			 dcache_tag_store.req[0].read(idx);
+			 dcache_tag_store.readPorts[0].readReq(idx);
 			 state <= HandleWrite;
 		      end
 		endcase
@@ -171,7 +171,7 @@ module [HASIM_MODULE] mkDCache();
 				req_tok_spec <= tok_from_cpu_spec;
 				req_dcache_addr_spec <= ref_addr_spec;
 				inst_addr_spec <= cpu_addr_spec;
-				dcache_tag_store.req[0].read(idx_spec);
+				dcache_tag_store.readPorts[0].readReq(idx_spec);
 				
 				Tuple3#(DCACHE_TAG, DCACHE_INDEX, DCACHE_LINE_OFFSET) address_tup_comm = unpack(ref_addr_comm);
 				match {.tag_comm, .idx_comm, .line_offset_comm} = address_tup_comm;
@@ -180,7 +180,7 @@ module [HASIM_MODULE] mkDCache();
 				req_tok_comm <= tok_from_cpu_comm;
 				req_dcache_addr_comm <= ref_addr_comm;
 				inst_addr_comm <= cpu_addr_comm;
-				dcache_tag_store.req[1].read(idx_comm);
+				dcache_tag_store.readPorts[1].readReq(idx_comm);
 				
 				state <= HandleReadWrite;
 			     end
@@ -193,7 +193,7 @@ module [HASIM_MODULE] mkDCache();
    rule handleread (state == HandleRead);
 
       // read tag from BRAM
-      let tagstore <- dcache_tag_store.resp[0].read();
+      let tagstore <- dcache_tag_store.readPorts[0].readRsp();
       
       // check retrieved tag
       case (tagstore) matches
@@ -436,7 +436,7 @@ module [HASIM_MODULE] mkDCache();
    rule handlewrite (state == HandleWrite);
       
       // read rag from BRAM
-      let tagstore <- dcache_tag_store.resp[0].read();
+      let tagstore <- dcache_tag_store.readPorts[0].readRsp();
       
       // check retrieved tag
       case (tagstore) matches
@@ -594,10 +594,10 @@ module [HASIM_MODULE] mkDCache();
    rule handlereadwrite (state == HandleReadWrite);
 					       
       // get stored tag for read request
-      let tagstore_read <- dcache_tag_store.resp[0].read();
+      let tagstore_read <- dcache_tag_store.readPorts[0].readRsp();
       
       // get stored tag for write request
-      let tagstore_write <- dcache_tag_store.resp[1].read();
+      let tagstore_write <- dcache_tag_store.readPorts[1].readRsp();
       
       // cache is unable to distinguish conflicting read/write values
       // the commit port has priority so we send a miss retry back to pipeline for the speculative case

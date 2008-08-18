@@ -7,12 +7,11 @@ import funcp_interface::*;
 import FIFOF::*;
 
 `include "PipelineTypes.bsv"
-`include "DebugFile.bsv"
 
 typedef enum {ALU_STATE_FILL, ALU_STATE_WRITEBACK_REQ, ALU_STATE_WRITEBACK_RESP} ALU_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkAlu();
-    DebugFile                                                                        debug <- mkDebugFile("Alu.out");
+    TIMEP_DEBUG_FILE                                                              debugLog <- mkDebugFile("pipe_alu.out");
 
     PORT_BANDWIDTH_CREDIT_RECEIVE#(ALU_BUNDLE, `ALU_NUM, `ALU_CREDITS)             aluPort <- mkPortBandwidthCreditReceive("alu", `ALU_CREDITS);
     PORT_BANDWIDTH_CREDIT_SEND#(ALU_WRITEBACK_BUNDLE, `ALU_NUM, `ALU_NUM) aluWritebackPort <- mkPortBandwidthCreditSend("aluWriteback");
@@ -45,7 +44,7 @@ module [HASIM_MODULE] mkAlu();
         end
         else
         begin
-            debug.endModelCC();
+            debug.nextModelCycle();
             aluWritebackPort.done();
             state <= ALU_STATE_FILL;
         end

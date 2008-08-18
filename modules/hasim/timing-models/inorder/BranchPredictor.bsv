@@ -25,14 +25,14 @@ endfunction
 
 module [HASIM_MODULE] mkBranchPredictor ();
 
-    DebugFile debug <- mkDebugFile("pipe_bp.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_bp.out");
 
     Port_Receive#(ISA_ADDRESS)     pcQ <- mkPort_Receive("bp_req", 0);
     Port_Send#(ISA_ADDRESS)    nextpcQ <- mkPort_Send("bp_reply_pc");
     Port_Send#(BRANCH_ATTR)      predQ <- mkPort_Send("bp_reply_pred");
     Port_Receive#(Tuple2#(ISA_ADDRESS,BRANCH_ATTR)) trainQ <- mkPort_Receive("bp_train", 1);
 
-    BRAM#(BTB_IDX_SZ, Maybe#(Tuple2#(BTB_TAG,ISA_ADDRESS))) btb <- mkBramInitialized(Invalid);
+    BRAM#(BTB_INDEX, Maybe#(Tuple2#(BTB_TAG,ISA_ADDRESS))) btb <- mkBRAMInitialized(Invalid);
 
     Reg#(ISA_ADDRESS) pc <- mkReg(0);
     Reg#(BP_STATE) state <- mkReg(BP_STATE_TRAIN);
@@ -49,13 +49,12 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     rule train (state == BP_STATE_TRAIN);
         local_ctrl.startModelCC();
-        debug.startModelCC();
         let x <- trainQ.receive();
         if (x matches tagged Valid { .pc, .brattr })
         begin
             if (brattr matches tagged BranchTaken .tgt) begin
                 btb.write(getIndex(pc), Valid(tuple2(getTag(pc),tgt)));
-                debug <= $format("TRAIN: %h -> %h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc));
+                debugLog.record($format("TRAIN: %h -> %h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
             end
         end
         state <= BP_STATE_BTB;
@@ -76,27 +75,27 @@ module [HASIM_MODULE] mkBranchPredictor ();
         end
     endrule
     rule bp (state == BP_STATE_BP);
-        let x <- btb.readResp();
+        let x <- btb.readRsp();
         if (x matches tagged Valid { .tag, .tgt } &&& getTag(pc) == tag)
         begin
             if (tgt <= pc)
             begin
                 nextpcQ.send(Valid(tgt));
                 predQ.send(Valid(BranchTaken(tgt)));
-                debug <= $format("PRED: %h -> taken; tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc));
+                debugLog.record($format("PRED: %h -> taken; tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
             end
             else
             begin
                 nextpcQ.send(Valid(pc + 4));
                 predQ.send(Valid(BranchNotTaken(tgt)));
-                debug <= $format("PRED: %h -> not-taken; taken-tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc));
+                debugLog.record($format("PRED: %h -> not-taken; taken-tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
             end
         end
         else
         begin
             nextpcQ.send(Valid(pc + 4));
             predQ.send(Valid(NotBranch));
-            debug <= $format("PRED: %h -> not-branch", pc);
+            debugLog.record($format("PRED: %h -> not-branch", pc));
         end
         state <= BP_STATE_TRAIN;
     endrule

@@ -56,7 +56,7 @@ module [HASIM_MODULE] mkICache();
    let cachememory <- mkICacheMemory();
    
    // BRAM for the cache tag store
-   BRAM#(`ICACHE_IDX_BITS, Maybe#(ICACHE_TAG)) icache_tag_store <- mkBramInitialized(tagged Invalid);     
+   BRAM#(ICACHE_INDEX, Maybe#(ICACHE_TAG)) icache_tag_store <- mkBRAMInitialized(tagged Invalid);     
    // register to hold cache tag/index
    Reg#(ICACHE_TAG) req_icache_tag<- mkReg(0);
    Reg#(ICACHE_INDEX) req_icache_index <- mkReg(0);
@@ -136,7 +136,7 @@ module [HASIM_MODULE] mkICache();
    rule handleread (state == HandleRead);
       
       // read response from BRAM
-      let readtag <- icache_tag_store.readResp();
+      let readtag <- icache_tag_store.readRsp();
       
       // check if there is a tag match
       case (readtag) matches

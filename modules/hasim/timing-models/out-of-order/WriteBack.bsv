@@ -11,7 +11,7 @@ typedef enum { WB_STATE_REQ, WB_STATE_RESULTS, WB_STATE_STORE, WB_STATE_SEND } W
 
 module [HASIM_MODULE] mkWriteBack ();
 
-    DebugFile debug <- mkDebugFile("pipe_writeback.out", "PIPE: WB:\t");
+    TIMEP_DEBUG_FILE debugLog <- mkDebugFile("pipe_wb.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("mem2wb");
 
@@ -30,7 +30,7 @@ module [HASIM_MODULE] mkWriteBack ();
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
     rule bubble (state == WB_STATE_REQ && !isValid(inQ.peek));
-        debug <= $format("BUBBLE");
+        debug.record($format("BUBBLE"));
         local_ctrl.startModelCC();
         inQ.pass();
         busQ.send(Invalid);
@@ -59,7 +59,7 @@ module [HASIM_MODULE] mkWriteBack ();
     endrule
 
     rule done (state == WB_STATE_SEND &&& inQ.peek() matches tagged Valid { .tok, .bundle });
-        debug <= fshow("DONE: ") + fshow(tok) + fshow(" ") + fshow(bundle);
+        debug.record(fshow("DONE: ") + fshow(tok) + fshow(" ") + fshow(bundle));
         if (bundle.isTerminate matches tagged Valid .pf)
             local_ctrl.endProgram(pf);
         let x <- inQ.receive();

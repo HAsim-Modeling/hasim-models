@@ -14,7 +14,7 @@ typedef enum { DECODE_STATE_BUS1, DECODE_STATE_BUS2, DECODE_STATE_BUS3, DECODE_S
 
 module [HASIM_MODULE] mkDecode ();
 
-    DebugFile debug <- mkDebugFile("pipe_decode.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_decode.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,FETCH_BUNDLE)) inQ <- mkStallPort_Receive("fet2dec");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))          outQ <- mkStallPort_Send   ("dec2exe");
@@ -113,7 +113,7 @@ module [HASIM_MODULE] mkDecode ();
             if (dstmap[i] matches tagged Valid { .ar, .pr }) begin
                 prf_valid[pr] = False;
                 res = res + 1;
-                debug <= $format("PRF: PR %d <= 0 (alloc)", pr);
+                debug.record($format("PRF: PR %d <= 0 (alloc)", pr));
             end
         end
         prfValid <= prf_valid;
@@ -132,7 +132,7 @@ module [HASIM_MODULE] mkDecode ();
             if (dst[i] matches tagged Valid .pr) begin
                 prf_valid[pr] = True;
                 res = res + 1;
-                debug <= $format("PRF: PR %d <= 1 (free)", pr);
+                debugLog.record($format("PRF: PR %d <= 1 (free)", pr));
             end
         end
         prfValid <= prf_valid;
@@ -160,7 +160,6 @@ module [HASIM_MODULE] mkDecode ();
 
     rule bus1 (state == DECODE_STATE_BUS1);
         local_ctrl.startModelCC();
-        debug.startModelCC();
         let mpregs <- busQ[0].receive();
         if (mpregs matches tagged Valid .pregs)
         begin
@@ -186,7 +185,7 @@ module [HASIM_MODULE] mkDecode ();
     endrule
 
     rule stall (state == DECODE_STATE_INST && !outQ.canSend);
-        debug <= fshow("STALL PROPAGATED");
+        debugLog.record(fshow("STALL PROPAGATED"));
         inQ.pass();
         outQ.pass();
         event_dec.recordEvent(Invalid);
@@ -194,7 +193,7 @@ module [HASIM_MODULE] mkDecode ();
     endrule
 
     rule bubble (state == DECODE_STATE_INST && outQ.canSend && !isValid(inQ.peek));
-        debug <= fshow("BUBBLE");
+        debugLog.record(fshow("BUBBLE"));
         let x <- inQ.receive();
         outQ.send(Invalid);
         event_dec.recordEvent(Invalid);
@@ -228,14 +227,14 @@ module [HASIM_MODULE] mkDecode ();
             let bundle = makeBundle(fetchbundle, rsp.dstMap);
             outQ.send(Valid(tuple2(tok,bundle)));
             event_dec.recordEvent(Valid(zeroExtend(tok.index)));
-            debug <= fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle);
+            debugLog.record(fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
             memoDependencies <= Invalid;
             drainingAfter <= isaDrainAfter(fetchbundle.inst);
             
         end
         else
         begin
-            debug <= fshow("STALL ON DEPENDENCY: ") + fshow(tok);
+            debugLog.record(fshow("STALL ON DEPENDENCY: ") + fshow(tok));
             inQ.pass();
             outQ.send(Invalid);
             event_dec.recordEvent(Invalid);

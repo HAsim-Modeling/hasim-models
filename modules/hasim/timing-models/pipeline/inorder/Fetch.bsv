@@ -17,7 +17,7 @@ typedef enum { FETCH_STATE_NEXTPC, FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FET
 
 module [HASIM_MODULE] mkFetch ();
 
-    ModelDebugFile debug <- mkModelDebugFile("pipe_fetch.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_fetch.out");
 
     Reg#(ISA_ADDRESS)          pc <- mkReg(`PROGRAM_START_ADDR);
     Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
@@ -78,7 +78,6 @@ module [HASIM_MODULE] mkFetch ();
 
     rule nextpc (state == FETCH_STATE_NEXTPC);
         local_ctrl.startModelCC();
-        debug.startModelCC();
         stat_cycles.incr();
         model_cycle.send(?);
         let x <- nextpcQ.receive();
@@ -91,7 +90,7 @@ module [HASIM_MODULE] mkFetch ();
         let x <- rewindQ.receive();
         if (x matches tagged Valid { .tok, .a })
         begin
-            debug <= fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a);
+            debugLog.record(fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a));
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             pc <= a;
             epoch <= epoch + 1;
@@ -122,13 +121,14 @@ module [HASIM_MODULE] mkFetch ();
 
     rule pass (state == FETCH_STATE_TOKEN && !outQ.canSend);
         outQ.pass();
+        debugLog.nextModelCycle();
         event_fet.recordEvent(Invalid);
         port_to_icache.send(tagged Invalid);
         bpQ.send(Invalid);
         state <= FETCH_STATE_PASS;
     endrule
     rule pass2 (state == FETCH_STATE_PASS);
-        debug <= fshow("PASS");
+        debugLog.record(fshow("PASS"));
         let icache_resp_imm <- port_from_icache_immediate.receive();
         let icache_resp_del <- port_from_icache_delayed.receive();
         // assert icache_resp == Invalid.
@@ -153,7 +153,7 @@ module [HASIM_MODULE] mkFetch ();
           case (icache_ret_imm) matches
             tagged Invalid:  // miss is still begin serviced
               begin
-                  debug <= fshow("MISS: STALL");
+                  debugLog.record(fshow("MISS: STALL"));
                   waitForICache <= True;
               end
 
@@ -165,20 +165,20 @@ module [HASIM_MODULE] mkFetch ();
                           waitForICache <= False;
                           doITranslate.makeReq(initFuncpReqDoITranslate(icachetok,reqpc));
                           pc_fifo.enq(reqpc);
-                          debug <= fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
+                          debugLog.record(fshow("HIT: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc));
                           stat_fet.incr();
                       end
 
                     tagged Miss_servicing .reqpc:
                       begin
-                          debug <= fshow("MISS: STALL");
+                          debugLog.record(fshow("MISS: STALL"));
                           stat_imisses.incr();
                           waitForICache <= True;
                       end
 
                     tagged Miss_retry .reqpc:
                       begin
-                          debug <= fshow("MISS: RETRY");
+                          debugLog.record(fshow("MISS: RETRY"));
                           waitForICache <= True;
                           // not currently implemented
                       end
@@ -193,7 +193,7 @@ module [HASIM_MODULE] mkFetch ();
                   waitForICache <= False;
                   doITranslate.makeReq(initFuncpReqDoITranslate(icachetok,reqpc));
                   pc_fifo.enq(reqpc);
-                  debug <= fshow("MISS: RESP: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc);
+                  debugLog.record(fshow("MISS: RESP: ") + fshow(icachetok) + $format(" ADDR:0x%h", reqpc));
                   stat_fet.incr();
               end
           endcase
@@ -205,7 +205,8 @@ module [HASIM_MODULE] mkFetch ();
       if (waitForICache)
 	 begin
 	    outQ.send(tagged Invalid);
-            event_fet.recordEvent(Invalid);
+        debugLog.nextModelCycle();
+        event_fet.recordEvent(Invalid);
 	    state <= FETCH_STATE_NEXTPC;
 	 end
       else
@@ -233,6 +234,7 @@ module [HASIM_MODULE] mkFetch ();
         outQ.send(Valid(tuple2(tok,bundle)));
         pc_fifo.deq();
         pred_fifo.deq();
+        debugLog.nextModelCycle();
         event_fet.recordEvent(Valid(zeroExtend(tok.index)));
         state <= FETCH_STATE_NEXTPC;
 

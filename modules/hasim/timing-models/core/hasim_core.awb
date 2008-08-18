@@ -9,5 +9,3 @@
 %attributes hasim core
 
 %public Core.bsv
-
-%param SYNTH_BOUNDARY mkCore "Name of synthesis boundary"

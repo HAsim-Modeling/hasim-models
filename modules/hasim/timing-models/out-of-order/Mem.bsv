@@ -7,12 +7,11 @@ import funcp_interface::*;
 import FIFOF::*;
 
 `include "PipelineTypes.bsv"
-`include "DebugFile.bsv"
 
 typedef enum {MEM_ADDRESS_STATE_FILL, MEM_ADDRESS_STATE_ADDRESS_REQ, MEM_ADDRESS_STATE_ADDRESS_RESP} MEM_ADDRESS_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkMemAddress();
-    DebugFile                                                                        debug <- mkDebugFile("MemAddress.out");
+    TIMEP_DEBUG_FILE                                                               debugLog <- mkTIMEPDebugFile("pipe_mem_addr.out");
 
     PORT_BANDWIDTH_CREDIT_RECEIVE#(MEM_BUNDLE, `MEM_NUM, `MEM_CREDITS)             memPort <- mkPortBandwidthCreditReceive("mem", `MEM_CREDITS);
     PORT_BANDWIDTH_CREDIT_SEND#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortBandwidthCreditSend("memAddress");
@@ -45,7 +44,7 @@ module [HASIM_MODULE] mkMemAddress();
         end
         else
         begin
-            debug.endModelCC();
+            debug.nextModelCycle();
             memAddressPort.done();
             state <= MEM_ADDRESS_STATE_FILL;
         end
@@ -64,7 +63,7 @@ endmodule
 typedef enum {MEM_STATE_FILL, MEM_STATE_D_TRANSLATE_REQ, MEM_STATE_MEM_REQ, MEM_STATE_MEM_RESP} MEM_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkMem();
-    DebugFile                                                                           debug <- mkDebugFile("Mem.out");
+    TIMEP_DEBUG_FILE                                                                 debugLog <- mkTIMEPDebugFile("pipe_mem.out");
 
     PORT_BANDWIDTH_CREDIT_RECEIVE#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortBandwidthCreditReceive("memAddress", `MEM_CREDITS);
     PORT_BANDWIDTH_CREDIT_SEND#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, `MEM_NUM)    memWritebackPort <- mkPortBandwidthCreditSend("memWriteback");
@@ -99,7 +98,7 @@ module [HASIM_MODULE] mkMem();
         end
         else
         begin
-            debug.endModelCC();
+            debug.nextModelCycle();
             memWritebackPort.done();
             state <= MEM_STATE_FILL;
         end

@@ -9,5 +9,3 @@
 %attributes hasim chip
 
 %public Chip.bsv
-
-%param SYNTH_BOUNDARY mkChip "Name of synthesis boundary"

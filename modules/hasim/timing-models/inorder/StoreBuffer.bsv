@@ -3,7 +3,7 @@ typedef enum { SB_STATE_DEALLOC, SB_STATE_SEARCH } SB_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkStoreBuffer ();
 
-    DebugFile debug <- mkDebugFile("pipe_storebuffer.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_storebuffer.out");
 
     Port_Receive#(Tuple2#(TOKEN,CacheInput)) inQ      <- mkPort_Receive("storebuffer_req", 0);
     Port_Receive#(TOKEN)                     deallocQ <- mkPort_Receive("storebuffer_dealloc", 1);
@@ -28,13 +28,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     rule dealloc (state == SB_STATE_DEALLOC);
         local_ctrl.startModelCC();
-        debug.startModelCC();
         let m <- deallocQ.receive();
         if (m matches tagged Valid .tok)
         begin
             head <= head + 1;
             vec[head] <= Invalid;
-            debug <= fshow("DEALLOC ") + fshow(tok);
+            debugLog.record(fshow("DEALLOC ") + fshow(tok));
         end
         state <= SB_STATE_SEARCH;
     endrule
@@ -51,12 +50,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     if (elem(Valid(a), readVReg(vec)))
                     begin
                         outQ.send(Valid(tuple2(tok,SB_HIT)));
-                        debug <= fshow("LOAD HIT ") + fshow(tok);
+                        debugLog.record(fshow("LOAD HIT ") + fshow(tok));
                     end
                     else
                     begin
                         outQ.send(Valid(tuple2(tok,SB_MISS)));
-                        debug <= fshow("LOAD MISS ") + fshow(tok);
+                        debugLog.record(fshow("LOAD MISS ") + fshow(tok));
                     end
                 end
                 tagged Data_write_mem_ref { .pc, .a }:
@@ -64,14 +63,14 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     if (full)
                     begin
                         outQ.send(Valid(tuple2(tok,SB_STALL)));
-                        debug <= fshow("SB STORE RETRY (SB FULL!) ") + fshow(tok);
+                        debugLog.record(fshow("SB STORE RETRY (SB FULL!) ") + fshow(tok));
                     end
                     else
                     begin
                         tail <= tail + 1;
                         vec[tail] <= Valid(a);
                         outQ.send(Invalid);
-                        debug <= fshow("SB STORE ALLOC ") + fshow(tok);
+                        debugLog.record(fshow("SB STORE ALLOC ") + fshow(tok));
                     end
                 end
             endcase

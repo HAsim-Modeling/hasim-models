@@ -50,9 +50,7 @@ endfunction
 
 module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
     //interface:
-                ()
-    provisos
-            (Bits#(TOKEN_INDEX, idx_SZ));
+                ();
 
   //Local State
 
@@ -75,7 +73,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
   Param#(16) icacheMissPenalty <- mkDynamicParameter(`PARAMS_HASIM_PIPELINE_FET_ICACHE_MISS_PENALTY, paramNode);
 
   BranchPred branch_pred <- mkBranchPred();
-  BRAM#(`FET_BTB_HASH_BITS, Maybe#(ISA_ADDRESS)) btb <- mkBramInitialized(tagged Invalid);
+  BRAM#(ISA_ADDRESS_HASH, Maybe#(ISA_ADDRESS)) btb <- mkBRAMInitialized(tagged Invalid);
   
   //Pseudo-randomness
   LFSR#(Bit#(7)) lfsr <- mkFeedLFSR(7'b1001110);
@@ -272,7 +270,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
      $fdisplay(debug_file, "[%d]:FET:RSP: %0d:0x%h", curTick, tok.index, inst);
      
      let pred_taken <- branch_pred.getPredResp();
-     let btb_resp <- btb.readResp();
+     let btb_resp <- btb.readRsp();
      
      // Only use branch predictor if instruction is a branch
      if ((predOnlyBranches == 1) && ! isaIsBranch(inst))

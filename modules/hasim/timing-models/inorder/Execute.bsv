@@ -17,7 +17,7 @@ typedef enum { EXECUTE_STATE_EXEC, EXECUTE_STATE_WORK } EXECUTE_STATE deriving (
 
 module [HASIM_MODULE] mkExecute ();
 
-    DebugFile debug <- mkDebugFile("pipe_execute.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_execute.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("dec2exe");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("exe2mem");
@@ -54,9 +54,8 @@ module [HASIM_MODULE] mkExecute ();
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
 
     rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .bundle } &&& !good_epoch(tok));
-        debug <= fshow("FLUSH: ") + fshow(tok);
+        debugLog.record(fshow("FLUSH: ") + fshow(tok));
         local_ctrl.startModelCC();
-        debug.startModelCC();
         let x <- inQ.receive();
         if (outQ.canSend)
             outQ.send(Invalid);
@@ -70,16 +69,15 @@ module [HASIM_MODULE] mkExecute ();
 
     rule exec (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
         local_ctrl.startModelCC();
-        debug.startModelCC();
         if (outQ.canSend)
         begin
-            debug <= fshow("EXEC: ") + fshow(tok);
+            debugLog.record(fshow("EXEC: ") + fshow(tok));
             getResults.makeReq(initFuncpReqGetResults(tok));
             state <= EXECUTE_STATE_WORK;
         end
         else
         begin
-           debug <= fshow("STALL PROPAGATED");
+           debugLog.record(fshow("STALL PROPAGATED"));
            inQ.pass();
            outQ.pass();
            rewindQ.send(Invalid);
@@ -91,8 +89,7 @@ module [HASIM_MODULE] mkExecute ();
 
     rule bubble (state == EXECUTE_STATE_EXEC &&& inQ.peek() == Invalid);
         local_ctrl.startModelCC();
-        debug.startModelCC();
-        debug <= fshow("BUBBLE");
+        debugLog.record(fshow("BUBBLE"));
         let x <- inQ.receive();
         if (outQ.canSend)
             outQ.send(Invalid);
@@ -131,7 +128,7 @@ module [HASIM_MODULE] mkExecute ();
                         rewindQ.send(Valid(tuple2(tok,addr)));
                         bptrainQ.send(Valid(tuple2(pc,BranchTaken(addr))));
                     end
-                    debug <= fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch);
+                    debugLog.record(fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch));
                 end
               tagged RBranchNotTaken .addr:
                 begin
@@ -154,11 +151,11 @@ module [HASIM_MODULE] mkExecute ();
                                 bptrainQ.send(Invalid); // XXX
                             end
                     endcase
-                    debug <= fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr);
+                    debugLog.record(fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
                 end
               tagged REffectiveAddr .ea:
                 begin
-                    debug <= fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea);
+                    debugLog.record(fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea));
                     bundle.effAddr = ea;
                     rewindQ.send(Invalid);
                     bptrainQ.send(Invalid);
@@ -172,7 +169,7 @@ module [HASIM_MODULE] mkExecute ();
                     end
                     else
                     begin
-                        debug <= fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok);
+                        debugLog.record(fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok));
                         stat_mpred.incr();
                         epoch <= epoch + 1; // XXX
                         rewindQ.send(Valid(tuple2(tok,pc+4)));

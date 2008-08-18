@@ -17,7 +17,7 @@ typedef enum {
 
 module [HASIM_MODULE] mkMem ();
 
-    ModelDebugFile debug <- mkModelDebugFile("pipe_mem.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_mem.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("exe2mem");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("mem2wb");
@@ -62,6 +62,7 @@ module [HASIM_MODULE] mkMem ();
         outQ.send(x);
         busQ.send(Invalid);
         event_mem.recordEvent(Valid(zeroExtend(tok.index)));
+        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
 
     endaction
@@ -69,8 +70,7 @@ module [HASIM_MODULE] mkMem ();
 
     rule stall (state == MEM_STATE_REQ && !outQ.canSend);
         local_ctrl.startModelCC();
-        debug.startModelCC();
-        debug <= fshow("STALL PROPOGATED");
+        debugLog.record(fshow("STALL PROPOGATED"));
         inQ.pass();
         outQ.pass();
         busQ.send(Invalid);
@@ -81,8 +81,7 @@ module [HASIM_MODULE] mkMem ();
 
     rule bubble (state == MEM_STATE_REQ && outQ.canSend && !isValid(inQ.peek));
         local_ctrl.startModelCC();
-        debug.startModelCC();
-        debug <= fshow("BUBBLE");
+        debugLog.record(fshow("BUBBLE"));
         let x <- inQ.receive();
         outQ.send(Invalid);
         busQ.send(Invalid);
@@ -96,30 +95,30 @@ module [HASIM_MODULE] mkMem ();
         let del <- dcache_delQ.receive();
         let sbr <- sb_respQ.receive();
         event_mem.recordEvent(Invalid);
+        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
     endrule
 
     rule storebuf_req (state == MEM_STATE_REQ &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         local_ctrl.startModelCC();
-        debug.startModelCC();
         if (bundle.isLoad)
         begin
             if (stalled) begin
                 sbQ.send(Invalid);
             end
             else begin
-                debug <= fshow("SB LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr);
+                debugLog.record(fshow("SB LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
                 sbQ.send(Valid(tuple2(tok, Data_read_mem_ref(tuple2(?/*passthru*/, bundle.effAddr)))));
             end
         end
         else if (bundle.isStore)
         begin
-            debug <= fshow("SB STORE ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr);
+            debugLog.record(fshow("SB STORE ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
             sbQ.send(Valid(tuple2(tok, Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr)))));
         end
         else
         begin
-            debug <= fshow("NO-MEMORY ") + fshow(tok);
+            debugLog.record(fshow("NO-MEMORY ") + fshow(tok));
             sbQ.send(Invalid);
         end
         state <= MEM_STATE_DCACHE_REQ;
@@ -137,19 +136,19 @@ module [HASIM_MODULE] mkMem ();
             case (x) matches
               SB_HIT:
                 begin
-                    debug <= fshow("SB HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr);
+                    debugLog.record(fshow("SB HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
                     dcacheQ.send(Invalid);
                     state <= MEM_STATE_DCACHE_REPLY;
                 end
               SB_MISS:
                 begin
-                    debug <= fshow("DCACHE LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr);
+                    debugLog.record(fshow("DCACHE LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
                     dcacheQ.send(Valid(tuple2(tok, Data_read_mem_ref(tuple2(?/*passthru*/, bundle.effAddr)))));
                     state <= MEM_STATE_DCACHE_REPLY;
                 end
               SB_STALL:
                 begin
-                    debug <= fshow("SB STALL ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr);
+                    debugLog.record(fshow("SB STALL ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
                     dcacheQ.send(Invalid);
                     state <= MEM_STATE_SB_STALL;
                 end
@@ -209,13 +208,13 @@ module [HASIM_MODULE] mkMem ();
     rule funcp1 (state == MEM_STATE_FUNCP1 &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         if (bundle.isLoad)
         begin
-            debug <= fshow("FUNCP-REQ LOAD ") + fshow(tok);
+            debugLog.record(fshow("FUNCP-REQ LOAD ") + fshow(tok));
             doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
             state <= MEM_STATE_FUNCP2;
         end
         else if (bundle.isStore)
         begin
-            debug <= fshow("FUNCP-REQ STORE ") + fshow(tok);
+            debugLog.record(fshow("FUNCP-REQ STORE ") + fshow(tok));
             doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
             state <= MEM_STATE_FUNCP2;
         end
@@ -248,18 +247,20 @@ module [HASIM_MODULE] mkMem ();
         outQ.send(Invalid);
         busQ.send(Invalid);
         event_mem.recordEvent(Invalid);
+        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
     endrule
 
     rule dcache_stall (state == MEM_STATE_DCACHE_STALL &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         if (stalled)
-            debug <= fshow("DCACHE STALL ") + fshow(tok);
+            debugLog.record(fshow("DCACHE STALL ") + fshow(tok));
         else
-            debug <= fshow("DCACHE RETRY ") + fshow(tok);
+            debugLog.record(fshow("DCACHE RETRY ") + fshow(tok));
         inQ.pass();
         outQ.send(Invalid);
         busQ.send(Invalid);
         event_mem.recordEvent(Invalid);
+        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
     endrule
 

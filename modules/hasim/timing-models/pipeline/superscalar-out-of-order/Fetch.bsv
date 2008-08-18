@@ -9,7 +9,7 @@ import hasim_isa::*;
 typedef enum { FETCH_STATE_REWIND_REQ, FETCH_STATE_REWIND_RESP, FETCH_STATE_TOKEN_REQ, FETCH_STATE_I_TRANSLATE_REQ, FETCH_STATE_INST_REQ, FETCH_STATE_INST_RESP } FETCH_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch();
-    ModelDebugFile                                                                    debug <- mkModelDebugFile("Fetch.out");
+    TIMEP_DEBUG_FILE                                                               debugLog <- mkTIMEPDebugFile("pipe_fet.out");
 
     PORT_BANDWIDTH_CREDIT_SEND#(FETCH_BUNDLE, `FETCH_NUM, `FETCH_CREDITS)         fetchPort <- mkPortBandwidthCreditSend("fetch");
 
@@ -33,7 +33,7 @@ module [HASIM_MODULE] mkFetch();
 
     rule rewindReq(state == FETCH_STATE_REWIND_REQ);
         let bundle <- resteerPort.pop();
-        debug <= $format("rewindReq %d", fpgaCC) + fshow(bundle);
+        debugLog.record($format("rewindReq %d", fpgaCC) + fshow(bundle));
         if(bundle.mispredict)
         begin
             pc <= bundle.addr;
@@ -47,7 +47,7 @@ module [HASIM_MODULE] mkFetch();
     endrule
 
     rule rewindResp(state == FETCH_STATE_REWIND_RESP);
-        debug <= $format("rewindResp %d", fpgaCC);
+        debugLog.record($format("rewindResp %d", fpgaCC));
         rewindToToken.deq();
         epoch <= epoch + 1;
         state <= FETCH_STATE_TOKEN_REQ;
@@ -61,7 +61,7 @@ module [HASIM_MODULE] mkFetch();
         end
         else
         begin
-            debug.endModelCC();
+            debugLog.nextModelCycle();
             state <= FETCH_STATE_REWIND_REQ;
             fetchPort.done();
         end
@@ -86,7 +86,7 @@ module [HASIM_MODULE] mkFetch();
         let resp = getInstruction.getResp();
         getInstruction.deq();
         let bundle = FETCH_BUNDLE{token: resp.token, inst: resp.instruction, pc: pc, prediction: False, epochRob: epochRob, afterResteer: afterResteer};
-        debug <= $format("instResp ") + fshow(bundle);
+        debugLog.record($format("instResp ") + fshow(bundle));
         fetchPort.enq(bundle);
         pc <= pc + 4;
         afterResteer <= False;

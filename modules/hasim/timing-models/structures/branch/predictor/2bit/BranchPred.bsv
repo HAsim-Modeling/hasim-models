@@ -26,7 +26,7 @@ endinterface
 
 module mkBranchPred(BranchPred);
 
-    BRAM#(`BRANCH_TABLE_SIZE, Bit#(2)) branchPredTable <- mkBramInitialized(1);
+    BRAM#(BranchIndex, Bit#(2)) branchPredTable <- mkBRAMInitialized(1);
     FIFO#(Tuple2#(BranchIndex, Bool)) respQ <- mkFIFO();
 
     // This queue records where prediction table responses should go
@@ -42,7 +42,7 @@ module mkBranchPred(BranchPred);
     //
     rule updatePred (bpredPathQ.first() == BPRED_PATH_UPDATE);
 
-        let counter <- branchPredTable.readResp();
+        let counter <- branchPredTable.readRsp();
         match { .idx, .actual } = respQ.first();
         respQ.deq();
         bpredPathQ.deq();
@@ -74,7 +74,7 @@ module mkBranchPred(BranchPred);
     
     method ActionValue#(Bool) getPredResp() if (bpredPathQ.first() == BPRED_PATH_PREDICT);
         bpredPathQ.deq();
-        let counter <- branchPredTable.readResp();
+        let counter <- branchPredTable.readRsp();
         return (counter > 1);
     endmethod
 

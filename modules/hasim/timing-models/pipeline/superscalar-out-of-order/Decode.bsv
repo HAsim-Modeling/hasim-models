@@ -10,7 +10,7 @@ import Vector::*;
 typedef enum {DECODE_STATE_FILL, DECODE_STATE_REQ_DEPENDENCIES, DECODE_STATE_RESP_DEPENDENCIES} DECODE_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkDecode();
-    ModelDebugFile                                                                       debug <- mkModelDebugFile("Decode.out");
+    TIMEP_DEBUG_FILE                                                                  debugLog <- mkTIMEPDebugFile("pipe_dec.out");
 
     PORT_BANDWIDTH_CREDIT_RECEIVE#(FETCH_BUNDLE, `FETCH_NUM, `FETCH_CREDITS)         fetchPort <- mkPortBandwidthCreditReceive("fetch", fromInteger(`FETCH_CREDITS));
     PORT_BANDWIDTH_CREDIT_SEND#(DECODE_BUNDLE, `DECODE_NUM, DECODE_CREDITS)         decodePort <- mkPortBandwidthCreditSend("decode");
@@ -55,7 +55,7 @@ module [HASIM_MODULE] mkDecode();
         end
         else
         begin
-            debug.endModelCC();
+            debugLog.nextModelCycle();
             decodePort.done();
             state <= DECODE_STATE_FILL;
         end
@@ -67,7 +67,7 @@ module [HASIM_MODULE] mkDecode();
         fetchBuffer.deq();
         let fetchBundle = fetchBuffer.first();
         let decodeBundle = makeDecodeBundle(fetchBundle, extractPhysReg(resp.srcMap), extractPhysReg(resp.dstMap));
-        debug <= $format("respDependencies ") + fshow(decodeBundle);
+        debugLog.record($format("respDependencies ") + fshow(decodeBundle));
         decodePort.enq(decodeBundle);
         fetchCredits <= fetchCredits + 1;
         state <= DECODE_STATE_REQ_DEPENDENCIES;

@@ -15,8 +15,10 @@ typedef DECODE_BUNDLE ROB_ENTRY;
 
 REWIND_BUNDLE nullRewindBundle = REWIND_BUNDLE{robIndex: 0, prediction: False, mispredict: False, addr: 0, token: ?};
 
+typedef Bit#(`ROB_INDEX_SIZE) ROB_INDEX;
+
 module [HASIM_MODULE] mkRob();
-    ModelDebugFile                                                                      debug <- mkModelDebugFile("Rob.out");
+    TIMEP_DEBUG_FILE                                                                 debugLog <- mkTIMEPDebugFile("pipe_rob.out");
 
     PORT_BANDWIDTH_CREDIT_SEND#(COMMIT_BUNDLE, `COMMIT_NUM, `COMMIT_NUM)           commitPort <- mkPortBandwidthCreditSend("commit");
     PORT_BANDWIDTH_CREDIT_RECEIVE#(ALU_WRITEBACK_BUNDLE, `ALU_NUM, `ALU_NUM) aluWritebackPort <- mkPortBandwidthCreditReceive("aluWriteback", `ALU_NUM);
@@ -29,7 +31,7 @@ module [HASIM_MODULE] mkRob();
 
     Connection_Send#(Bool)                                                         modelCycle <- mkConnection_Send("model_cycle");
 
-    BRAM#(`LOG_DECODE_CREDITS, ROB_ENTRY)                                                 rob <- mkBram();
+    BRAM#(ROB_INDEX, ROB_ENTRY)                                                           rob <- mkBRAM();
 
     function prfInit(i) = (i < valueOf(TExp#(SizeOf#(ISA_REG_INDEX))));
     Reg#(Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Bool))                   prfValids <- mkReg(genWith(prfInit));
@@ -101,7 +103,7 @@ module [HASIM_MODULE] mkRob();
         if(aluWritebackPort.canReceive())
         begin
             let bundle <- aluWritebackPort.pop();
-            debug <= $format("writebackAlu ") + fshow(bundle) + $format(" robValid[%d]: %b", bundle.robIndex, robValid[bundle.robIndex]);
+            debugLog.record($format("writebackAlu ") + fshow(bundle) + $format(" robValid[%d]: %b", bundle.robIndex, robValid[bundle.robIndex]));
             if(robValid[bundle.robIndex])
             begin
                 prfValids <= markPrfValidOrInvalid(True, bundle.dsts);
@@ -127,7 +129,7 @@ module [HASIM_MODULE] mkRob();
         begin
             aluWritebackPort.done(`ALU_NUM);
             state <= ROB_STATE_WRITEBACK_MEM;
-            debug <= $format("writebackAlu resteer ") + fshow(rewindBundle);
+            debugLog.record($format("writebackAlu resteer ") + fshow(rewindBundle));
             resteerPort.enq(rewindBundle);
             rewindBundle <= REWIND_BUNDLE{robIndex: 0, prediction: False, mispredict: False, addr: 0, token: ?};
         end
@@ -137,7 +139,7 @@ module [HASIM_MODULE] mkRob();
         if(memWritebackPort.canReceive())
         begin
             let bundle <- memWritebackPort.pop();
-            debug <= $format("writebackMem ") + fshow(bundle) + $format(" robValid[%d]: %b", bundle.robIndex, robValid[bundle.robIndex]);
+            debugLog.record($format("writebackMem ") + fshow(bundle) + $format(" robValid[%d]: %b", bundle.robIndex, robValid[bundle.robIndex]));
             if(robValid[bundle.robIndex])
                 prfValids <= markPrfValidOrInvalid(True, bundle.dsts);
 
@@ -157,7 +159,7 @@ module [HASIM_MODULE] mkRob();
             if(robValid[addIndex] || entry.afterResteer && robEpoch[entry.epochRob])
             begin
                 resteerWait <= False;
-                debug <= $format("add ") + fshow(entry) + $format(" addPtr: %d commitPtr: %d credits: %d", addPtr, commitPtr, credits);
+                debugLog.record($format("add ") + fshow(entry) + $format(" addPtr: %d commitPtr: %d credits: %d", addPtr, commitPtr, credits));
                 robValid <= markValidOrInvalid(True, robValid, addIndex);
                 robIssued.upd(addIndex, False);
                 robDone.upd(addIndex, False);
@@ -175,7 +177,7 @@ module [HASIM_MODULE] mkRob();
     endrule
 
     rule commitReq(state == ROB_STATE_COMMIT_REQ);
-        debug <= $format("commitReq: commitPtr: %d robValid: %b robDone: %b robValid[]: %b addPtr: %d credits: %d", commitPtr, robValid, robDone.sub(commitIndex), robValid[commitIndex], addPtr, credits);
+        debugLog.record($format("commitReq: commitPtr: %d robValid: %b robDone: %b robValid[]: %b addPtr: %d credits: %d", commitPtr, robValid, robDone.sub(commitIndex), robValid[commitIndex], addPtr, credits));
         if(!commitPort.canSend() || commitPtr == addPtr || !robDone.sub(commitIndex))
         begin
             commitPort.done();
@@ -194,8 +196,8 @@ module [HASIM_MODULE] mkRob();
     endrule
 
     rule commitResp(state == ROB_STATE_COMMIT_RESP);
-        let entry <- rob.readResp();
-        debug <= $format("commitResp ") + fshow(entry) + $format(" commitPtr: %d robValid: %b addPtr: %d credits: %d", commitPtr, robValid, addPtr, credits);
+        let entry <- rob.readRsp();
+        debugLog.record($format("commitResp ") + fshow(entry) + $format(" commitPtr: %d robValid: %b addPtr: %d credits: %d", commitPtr, robValid, addPtr, credits));
         commitPort.enq(makeCommitBundle(entry));
         if(terminate.sub(commitIndex))
             localController.endProgram(passFail.sub(commitIndex));
@@ -207,7 +209,7 @@ module [HASIM_MODULE] mkRob();
     rule issueReq(state == ROB_STATE_ISSUE_REQ);
         if((!memPort.canSend() && !aluPort.canSend()) || issuePtr == addPtr || !allPrevIssued)
         begin
-            debug.endModelCC();
+            debugLog.nextModelCycle();
             memPort.done();
             aluPort.done();
             state <= ROB_STATE_WRITEBACK_ALU;
@@ -229,18 +231,18 @@ module [HASIM_MODULE] mkRob();
     endrule
 
     rule issueResp(state == ROB_STATE_ISSUE_RESP);
-        let entry <- rob.readResp();
+        let entry <- rob.readRsp();
         Bool isMem = isaIsStore(entry.inst) || isaIsLoad(entry.inst);
         Bool newAllPrevMemIssued = allPrevMemIssued;
         Bool newAllPrevIssued = True;
-        debug <= $format("issueResp check issuePtr: %d", issuePtr) + fshow(entry);
+        debugLog.record($format("issueResp check issuePtr: %d", issuePtr) + fshow(entry));
         if(isReady(entry))
         begin
             if(isMem)
             begin
                 if(allPrevMemIssued && memPort.canSend())
                 begin
-                    debug <= $format("issueResp mem") + fshow(entry);
+                    debugLog.record($format("issueResp mem") + fshow(entry));
                     memPort.enq(makeMemBundle(entry, issuePtr));
                     robIssued.upd(issueIndex, True);
                 end
@@ -255,7 +257,7 @@ module [HASIM_MODULE] mkRob();
             begin
                 if(aluPort.canSend())
                 begin
-                    debug <= $format("issueResp alu") + fshow(entry);
+                    debugLog.record($format("issueResp alu") + fshow(entry));
                     aluPort.enq(makeAluBundle(entry, issuePtr));
                     robIssued.upd(issueIndex, True);
                 end

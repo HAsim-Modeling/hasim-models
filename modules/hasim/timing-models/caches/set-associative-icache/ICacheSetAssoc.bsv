@@ -46,6 +46,7 @@ typedef union tagged{
    }
 CacheOutputDelayed deriving (Eq, Bits);
 
+typedef Bit#(`ICACHE_IDX_BITS) ICACHE_IDX;
 
 module [HASIM_MODULE] mkICache();
    
@@ -54,7 +55,7 @@ module [HASIM_MODULE] mkICache();
    
    // tag store BRAM
    // produce a BRAM containing vectors holding all the tags of each way
-   BRAM#(`ICACHE_IDX_BITS, Vector#(`ICACHE_ASSOC, Maybe#(ICACHE_LINE))) icache_tag_store <- mkBramInitialized(Vector::replicate(tagged Invalid));
+   BRAM#(ICACHE_IDX, Vector#(`ICACHE_ASSOC, Maybe#(ICACHE_LINE))) icache_tag_store <- mkBRAMInitialized(Vector::replicate(tagged Invalid));
 
    // register to hold state
    Reg#(State) state <- mkReg(HandleReq);
@@ -168,7 +169,7 @@ module [HASIM_MODULE] mkICache();
      
       begin
 	 // get response from BRAM
-	 let tag_from_bram <- icache_tag_store.readResp();
+	 let tag_from_bram <- icache_tag_store.readRsp();
 	 
 	 // check if anything in the set is valid
 	 for (Integer w = 0; w <`ICACHE_ASSOC; w = w + 1)

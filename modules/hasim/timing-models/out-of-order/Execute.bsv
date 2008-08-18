@@ -12,7 +12,7 @@ typedef enum { EXECUTE_STATE_EXEC, EXECUTE_STATE_WORK } EXECUTE_STATE deriving (
 
 module [HASIM_MODULE] mkExecute ();
 
-    DebugFile debug <- mkDebugFile("pipe_execute.out", "PIPE: EXECUTE:\t");
+    TIMEP_DEBUG_LOG debugLog <- mkTIMEPDebugFile("pipe_exe.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("dec2exe");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("exe2mem");
@@ -41,7 +41,7 @@ module [HASIM_MODULE] mkExecute ();
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
 
     rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .bundle } &&& !good_epoch(tok));
-        debug <= fshow("FLUSH: ") + fshow(tok);
+        debugLog.record(fshow("FLUSH: ") + fshow(tok));
         local_ctrl.startModelCC();
         let x <- inQ.receive();
         if (outQ.canSend)
@@ -56,13 +56,13 @@ module [HASIM_MODULE] mkExecute ();
         local_ctrl.startModelCC();
         if (outQ.canSend)
         begin
-            debug <= fshow("EXEC: ") + fshow(tok);
+            debugLog.record(fshow("EXEC: ") + fshow(tok));
             getResults.makeReq(tok);
             state <= EXECUTE_STATE_WORK;
         end
         else
         begin
-           debug <= fshow("STALL PROPAGATED");
+           debugLog.record(fshow("STALL PROPAGATED"));
            inQ.pass();
            outQ.pass();
            rewindQ.send(Invalid);
@@ -72,7 +72,7 @@ module [HASIM_MODULE] mkExecute ();
 
     rule bubble (state == EXECUTE_STATE_EXEC &&& inQ.peek() == Invalid);
         local_ctrl.startModelCC();
-        debug <= fshow("BUBBLE");
+        debugLog.record(fshow("BUBBLE"));
         let x <- inQ.receive();
         if (outQ.canSend)
             outQ.send(Invalid);
@@ -94,7 +94,7 @@ module [HASIM_MODULE] mkExecute ();
                 begin
                     epoch <= epoch + 1;
                     rewindQ.send(Valid(tuple2(tok, Valid(addr))));
-                    debug <= fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch);
+                    debugLog.record(fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch));
                 end
               tagged RBranchNotTaken .addr:
                 begin

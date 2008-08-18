@@ -18,7 +18,7 @@ typedef enum {
 
 module [HASIM_MODULE] mkWriteBack ();
 
-    ModelDebugFile debug <- mkModelDebugFile("pipe_writeback.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_writeback.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("mem2wb");
 
@@ -56,9 +56,8 @@ module [HASIM_MODULE] mkWriteBack ();
     Connection_Send#(MODEL_NUM_COMMITS) linkModelCommit <- mkConnection_Send("model_commits");
 
     rule bubble (state == WB_STATE_REQ && !isValid(inQ.peek));
-        debug <= $format("BUBBLE");
+        debugLog.record($format("BUBBLE"));
         local_ctrl.startModelCC();
-        debug.startModelCC();
         inQ.pass();
         busQ.send(Invalid);
         sb_deallocQ.send(Invalid);
@@ -75,15 +74,13 @@ module [HASIM_MODULE] mkWriteBack ();
 
     rule results (state == WB_STATE_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         local_ctrl.startModelCC();
-        debug.startModelCC();
         commitResults.makeReq(initFuncpReqCommitResults(tok));
         state <= WB_STATE_DCACHE;
     endrule
 
     rule dcache_retry (state == WB_STATE_RETRY_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         local_ctrl.startModelCC();
-        debug.startModelCC();
-        debug <= fshow("RETRYING DCACHE STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.effAddr);
+        debugLog.record(fshow("RETRYING DCACHE STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.effAddr));
         dcacheQ.send(Valid(tuple2(tok,Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr)))));
         state <= WB_STATE_DCACHE_RESP;
     endrule
@@ -91,7 +88,7 @@ module [HASIM_MODULE] mkWriteBack ();
     rule dcache (state == WB_STATE_DCACHE &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         commitResults.deq();
         if (bundle.isStore) begin
-            debug <= fshow("DCACHE STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.effAddr);
+            debugLog.record(fshow("DCACHE STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.effAddr));
             dcacheQ.send(Valid(tuple2(tok,Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr)))));
         end
         else
@@ -129,7 +126,7 @@ module [HASIM_MODULE] mkWriteBack ();
     endrule
 
     rule dcache_stall (state == WB_STATE_DCACHE_STALL &&& inQ.peek() matches tagged Valid { .tok, .bundle });
-        debug <= fshow("DCACHE RETRY ") + fshow(tok);
+        debugLog.record(fshow("DCACHE RETRY ") + fshow(tok));
         inQ.pass();
         busQ.send(Invalid);
         event_wb.recordEvent(Invalid);
@@ -137,7 +134,7 @@ module [HASIM_MODULE] mkWriteBack ();
     endrule
 
     rule done (state == WB_STATE_SEND &&& inQ.peek() matches tagged Valid { .tok, .bundle });
-        debug <= fshow("DONE: ") + fshow(tok) + fshow(" ") + fshow(bundle);
+        debugLog.record(fshow("DONE: ") + fshow(tok) + fshow(" ") + fshow(bundle));
         if (bundle.isTerminate matches tagged Valid .pf)
             local_ctrl.endProgram(pf);
         let x <- inQ.receive();

@@ -1253,3 +1253,76 @@ Directory config/pm/hasim-models
  5stage/                   Locally Removed            44 
 
 added l1 caches model
+
+----------
+mpellaue    Date: Mon Aug 18 19:41:42 EDT 2008  CSN: CSN-hasim-models-52
+                  Mon Aug 18 23:41:42 UTC 2008
+
+
+Directory modules/hasim/timing-models/inorder
+ StoreBuffer.bsv           Locally Modified           51 
+ Fetch.bsv                 Locally Modified           51 
+ Execute.bsv               Locally Modified           51 
+ BranchPredictor.bsv       Locally Modified           51 
+ WriteBack.bsv             Locally Modified           51 
+ Mem.bsv                   Locally Modified           51 
+ Decode.bsv                Locally Modified           51 
+
+Directory modules/hasim/timing-models/out-of-order
+ Commit.bsv                Locally Modified           51 
+ Fetch.bsv                 Locally Modified           51 
+ WriteBack.bsv             Locally Modified           51 
+ Mem.bsv                   Locally Modified           51 
+ Alu.bsv                   Locally Modified           51 
+ out-of-order.awb          Locally Modified           51 
+ Execute.bsv               Locally Modified           51 
+ Rob.bsv                   Locally Modified           51 
+ Decode.bsv                Locally Modified           51 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ BranchPred.bsv            Locally Modified           51 
+
+Directory modules/hasim/timing-models/chip
+ hasim_chip.awb            Locally Modified           51 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ StoreBuffer.bsv           Locally Modified           51 
+ Fetch.bsv                 Locally Modified           51 
+ Execute.bsv               Locally Modified           51 
+ BranchPredictor.bsv       Locally Modified           51 
+ WriteBack.bsv             Locally Modified           51 
+ Mem.bsv                   Locally Modified           51 
+ Decode.bsv                Locally Modified           51 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ Commit.bsv                Locally Modified           51 
+ Fetch.bsv                 Locally Modified           51 
+ Mem.bsv                   Locally Modified           51 
+ Alu.bsv                   Locally Modified           51 
+ Rob.bsv                   Locally Modified           51 
+ Decode.bsv                Locally Modified           51 
+ superscalar-out-of-order.awb Locally Modified           51 
+
+Directory modules/hasim/timing-models/pipeline/5stage
+ Fetch.bsv                 Locally Modified           51 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ DCacheDirectMappedWriteBack.bsv Locally Modified           51 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ ICacheDirectMapped.bsv    Locally Modified           51 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ ICacheSetAssoc.bsv        Locally Modified           51 
+
+Directory modules/hasim/timing-models/cpu/5-stage
+ Fetch.bsv                 Locally Modified           51 
+
+Directory modules/hasim/timing-models/core
+ hasim_core.awb            Locally Modified           51 
+
+
+* Changed timing models to use new DEBUG_FILE interface.
+* Updated timing models to use new BRAM interface.
+
+Michael P.

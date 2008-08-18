@@ -6,7 +6,7 @@ import hasim_modellib::*;
 `include "hasim_controller.bsh"
 
 module [HASIM_MODULE] mkCommit();
-    DebugFile                                                                      debug <- mkDebugFile("Commit.out");
+    TIMEP_DEBUG_FILE                                                            debugLog <- mkTIMEPDebugFile("pipe_com.out");
 
     PORT_BANDWIDTH_CREDIT_RECEIVE#(COMMIT_BUNDLE, `COMMIT_NUM, `COMMIT_NUM)   commitPort <- mkPortBandwidthCreditReceive("commit", `COMMIT_NUM);
 
@@ -25,7 +25,7 @@ module [HASIM_MODULE] mkCommit();
         end
         else
         begin
-            debug.endModelCC();
+            debugLog.nextModelCycle();
             commitPort.done(`COMMIT_NUM);
         end
     endrule
@@ -35,7 +35,7 @@ module [HASIM_MODULE] mkCommit();
         commitResults.deq();
         if(resp.token.timep_info.scratchpad == 1)
         begin
-            debug <= $format("commiting stores");
+            debugLog.record($format("commiting stores"));
             commitStores.makeReq(FUNCP_REQ_COMMIT_STORES{token: resp.token});
         end
     endrule
