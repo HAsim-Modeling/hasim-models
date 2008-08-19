@@ -12,7 +12,7 @@ Class=Asim::Model
 DefaultAttributes=hasim superscalar-out-of-order
 model=Hasim superscalar out-of-order CPU
 
-
 [Hasim superscalar out-of-order CPU]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/superscalar-out-of-order.awb
 Packagehint=hasim-models
+
