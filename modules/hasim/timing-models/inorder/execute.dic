@@ -1,2 +1,0 @@
-def EVENTS.EXECUTE.INSTRUCTION_EXECUTE   "3     EXE";
-def STATS.EXECUTE.BPRED_MISPREDS         "Branch Mispredicts";

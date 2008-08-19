@@ -1,4 +1,0 @@
-def EVENTS.FETCH.INSTRUCTION_FET "1 FET";
-def STATS.FETCH.ICACHE_MISSES    "ICache Misses";
-def STATS.FETCH.INSTS_FETCHED    "Instructions Fetched";
-def STATS.FETCH.TOTAL_CYCLES     "Total Cycles";
