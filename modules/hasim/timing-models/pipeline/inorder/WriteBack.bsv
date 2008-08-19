@@ -18,7 +18,7 @@ typedef enum {
 
 module [HASIM_MODULE] mkWriteBack ();
 
-    TIMEP_DEBUG_LOG debugLog <- mkTIMEPDebugFile("pipe_writeback.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_writeback.out");
 
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("mem2wb");
 

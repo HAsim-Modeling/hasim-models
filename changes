@@ -1339,3 +1339,23 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
 * Updated unpipelined CPU to use new DEBUG_FILE.
 
 Michael P.
+
+----------
+pellauer    Date: Tue Aug 19 13:51:43 EDT 2008  CSN: CSN-hasim-models-58
+                  Tue Aug 19 17:51:43 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Fetch.bsv                 Locally Modified           57 
+ Execute.bsv               Locally Modified           57 
+ WriteBack.bsv             Locally Modified           57 
+ Decode.bsv                Locally Modified           57 
+
+
+Now that there's only one version of the pipeline, update it so that it uses the new interface correctly.
+
+Nikhil: please check that we kept the correct version of the inorder pipeline. 
+We are afraid we may have reverted some of your changes accidentally.
+
+Michael P.
+

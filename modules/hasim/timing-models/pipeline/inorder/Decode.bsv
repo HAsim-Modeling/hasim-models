@@ -44,9 +44,9 @@ module [HASIM_MODULE] mkDecode ();
     EventRecorder event_dec <- mkEventRecorder(`EVENTS_DECODE_INSTRUCTION_DECODE);
 
     Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
-    Integer numFuncpPhyRegisters = valueof(FUNCP_PHYSICAL_REGS);
+    Integer numFuncpPhyRegisters = valueof(FUNCP_NUM_PHYSICAL_REGS);
 
-    Vector#(FUNCP_PHYSICAL_REGS,Bool) prfValid_init = newVector();
+    Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prfValid_init = newVector();
 
     for (Integer i = 0; i < numIsaArchRegisters; i = i + 1)
         prfValid_init[i] = True;
@@ -57,7 +57,7 @@ module [HASIM_MODULE] mkDecode ();
     Reg#(FUNCP_PHYSICAL_REG_INDEX) numInFlight <- mkReg(0);
     Reg#(Bool)    drainingAfter <- mkReg(False);
 
-    Reg#(Vector#(FUNCP_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
+    Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
 
     function Bool readyToGo(ISA_SRC_MAPPING srcmap);
         Bool rdy = True;
@@ -105,7 +105,7 @@ module [HASIM_MODULE] mkDecode ();
 
     function Action markPRFInvalid(ISA_DST_MAPPING dstmap);
       action
-        Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
         FUNCP_PHYSICAL_REG_INDEX res = 0;
 
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
@@ -113,7 +113,7 @@ module [HASIM_MODULE] mkDecode ();
             if (dstmap[i] matches tagged Valid { .ar, .pr }) begin
                 prf_valid[pr] = False;
                 res = res + 1;
-                debug.record($format("PRF: PR %d <= 0 (alloc)", pr));
+                debugLog.record($format("PRF: PR %d <= 0 (alloc)", pr));
             end
         end
         prfValid <= prf_valid;
@@ -123,7 +123,7 @@ module [HASIM_MODULE] mkDecode ();
 
     function Action markPRFValid(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dst);
       action
-        Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
         
         FUNCP_PHYSICAL_REG_INDEX res = 0;
 

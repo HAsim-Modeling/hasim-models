@@ -49,7 +49,7 @@ module [HASIM_MODULE] mkExecute ();
     //Stats
     Stat stat_mpred <- mkStatCounter(`STATS_EXECUTE_BPRED_MISPREDS);
 
-    Vector#(FUNCP_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
+    Vector#(FUNCP_NUM_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
 
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
 

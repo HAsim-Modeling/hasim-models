@@ -138,7 +138,7 @@ module [HASIM_MODULE] mkFetch ();
       newInFlight.deq();
       let rsp = newInFlight.getResp();
       let tok = rsp.newToken;
-      tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
+      tok.timep_info = TOKEN_TIMEP_INFO { epoch: epoch, scratchpad: 0 };
       port_to_icache.send(tagged Valid tuple2(tok, tagged Inst_mem_ref pc));
       bpQ.send(Valid(pc));
       state <= FETCH_STATE_ITRANS_REQ;
