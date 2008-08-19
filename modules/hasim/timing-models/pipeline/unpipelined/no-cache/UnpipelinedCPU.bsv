@@ -76,7 +76,7 @@ module [HASIM_MODULE] mkPipeline
     //interface:
         ();
 
-    Reg#(File) debug_log <- mkReg(InvalidFile);
+    DEBUG_FILE debugLog <- mkDebugFile("hasim_cpu.out");
 
     //********* State Elements *********//
 
@@ -153,28 +153,6 @@ module [HASIM_MODULE] mkPipeline
 
     //********* Rules *********//
 
-    //count
-    rule count (True);
-
-        if (fpgaCC == 0)
-        begin
-
-            local_ctrl.startModelCC();
-
-            let fd <- $fopen("hasim_cpu.out");
-            if (fd == InvalidFile)
-            begin
-              $display("Error opening logfile!");
-              $finish(1);
-            end
-            debug_log <= fd;
-
-        end
-
-        fpgaCC <= fpgaCC + 1;
-
-    endrule
-
     //process
 
     rule process (local_ctrl.running());
@@ -184,7 +162,7 @@ module [HASIM_MODULE] mkPipeline
             begin
 
                 //Request a Token
-                debug(2, $fdisplay(debug_log, "[%d] Requesting a new Token on model cycle %0d.", fpgaCC, modelCC));
+                debugLog.record($format("[%d] Requesting a new Token on model cycle %0d.", fpgaCC, modelCC));
                 link_to_tok.makeReq(initFuncpReqNewInFlight());
                 link_model_cycle.send(?);
 
@@ -203,7 +181,7 @@ module [HASIM_MODULE] mkPipeline
                 // Set the timing partition information.
                 tok.timep_info = TOKEN_TIMEP_INFO{epoch: 0, scratchpad: 0};
 
-                debug(2, $fdisplay(debug_log, "[%d] TOK Responded with TOKEN %0d.", fpgaCC, tok.index));
+                debugLog.record($format("[%d] TOK Responded with TOKEN %0d.", fpgaCC, tok.index));
 
                 cur_tok <= tok;
 
@@ -215,7 +193,7 @@ module [HASIM_MODULE] mkPipeline
                 // Translate next pc.
                 link_to_itr.makeReq(initFuncpReqDoITranslate(cur_tok, pc));
 
-                debug(2, $fdisplay(debug_log, "[%d] Translating TOKEN %0d at address 0x%h.", fpgaCC, cur_tok.index, pc));
+                debugLog.record($format("[%d] Translating TOKEN %0d at address 0x%h.", fpgaCC, cur_tok.index, pc));
 
                 state <= ITR_RSP;
             
@@ -227,7 +205,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_itr.getResp();
                 link_to_itr.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] ITR Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] ITR Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("ITR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -253,7 +231,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_itr.getResp();
                 link_to_itr.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] ITR Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] ITR Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("ITR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -266,7 +244,7 @@ module [HASIM_MODULE] mkPipeline
                 // Fetch the next instruction
                 link_to_fet.makeReq(initFuncpReqGetInstruction(cur_tok));
 
-                debug(2, $fdisplay(debug_log, "[%d] Fetching TOKEN %0d at address 0x%h.", fpgaCC, cur_tok.index, pc));
+                debugLog.record($format("[%d] Fetching TOKEN %0d at address 0x%h.", fpgaCC, cur_tok.index, pc));
 
                 state <= FET_RSP;
 
@@ -278,7 +256,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_fet.getResp();
                 link_to_fet.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] FET Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] FET Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 // Record the current instruction.
                 cur_inst <= rsp.instruction;
@@ -291,7 +269,7 @@ module [HASIM_MODULE] mkPipeline
             begin
 
                 // Decode the current inst
-                debug(2, $fdisplay(debug_log, "[%d] Decoding TOKEN %0d.", fpgaCC, cur_tok.index));
+                debugLog.record($format("[%d] Decoding TOKEN %0d.", fpgaCC, cur_tok.index));
 
                 link_to_dec.makeReq(initFuncpReqGetDependencies(cur_tok));
 
@@ -307,7 +285,7 @@ module [HASIM_MODULE] mkPipeline
                 // In a more complex processor we would use the dependencies 
                 // to determine if we can issue the instruction.
 
-                debug(2, $fdisplay(debug_log, "[%d] DEC Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] DEC Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("DEC ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -320,7 +298,7 @@ module [HASIM_MODULE] mkPipeline
                 // Execute the instruction
                 link_to_exe.makeReq(initFuncpReqGetResults(cur_tok));
 
-                debug(2, $fdisplay(debug_log, "[%d] Executing TOKEN %0d", fpgaCC, cur_tok.index));
+                debugLog.record($format("[%d] Executing TOKEN %0d", fpgaCC, cur_tok.index));
 
                 state <= EXE_RSP;
 
@@ -335,7 +313,7 @@ module [HASIM_MODULE] mkPipeline
                 let tok = exe_resp.token;
                 let res = exe_resp.result;
 
-                debug(2, $fdisplay(debug_log, "[%d] EXE Responded with TOKEN %0d.", fpgaCC, tok.index));
+                debugLog.record($format("[%d] EXE Responded with TOKEN %0d.", fpgaCC, tok.index));
 
                 if (tok.index != cur_tok.index) $display ("EXE ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
 
@@ -346,21 +324,21 @@ module [HASIM_MODULE] mkPipeline
                     tagged RBranchTaken .addr:
                     begin
 
-                        debug(2, $fdisplay(debug_log, "Branch taken to address %h", addr));
+                        debugLog.record($format("Branch taken to address %h", addr));
                         pc <= addr;
 
                     end
                     tagged RBranchNotTaken .addr:
                     begin
 
-                        debug(2, $fdisplay(debug_log, "Branch not taken"));
+                        debugLog.record($format("Branch not taken"));
                         pc <= pc + 4;
 
                     end
                     tagged RTerminate .pf:
                     begin
 
-                        debug(2, $fdisplay(debug_log, "Terminating Execution"));
+                        debugLog.record($format("Terminating Execution"));
                         local_ctrl.endProgram(pf);
 
                     end
@@ -391,7 +369,7 @@ module [HASIM_MODULE] mkPipeline
                 // Get the physical address(es) of the memory access.
                 link_to_dtr.makeReq(initFuncpReqDoDTranslate(cur_tok));
 
-                debug(2, $fdisplay(debug_log, "[%d] DTranslate for TOKEN %0d", fpgaCC, cur_tok.index));
+                debugLog.record($format("[%d] DTranslate for TOKEN %0d", fpgaCC, cur_tok.index));
 
 
                 state <= DTR_RSP;
@@ -404,7 +382,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_dtr.getResp();
                 link_to_dtr.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] DTranslate responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] DTranslate responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("DTR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -430,7 +408,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_dtr.getResp();
                 link_to_dtr.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] DTranslate responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] DTranslate responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("DTR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -450,7 +428,7 @@ module [HASIM_MODULE] mkPipeline
                 // Request the load(s).
                 link_to_loa.makeReq(initFuncpReqDoLoads(cur_tok));
 
-                debug(2, $fdisplay(debug_log, "[%d] Loads for TOKEN %0d", fpgaCC, cur_tok.index));
+                debugLog.record($format("[%d] Loads for TOKEN %0d", fpgaCC, cur_tok.index));
 
                 state <= LOA_RSP;
 
@@ -462,7 +440,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_loa.getResp();
                 link_to_loa.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] Load ops responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] Load ops responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("LOA ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -475,7 +453,7 @@ module [HASIM_MODULE] mkPipeline
                 // Request the store(s)
                 link_to_sto.makeReq(initFuncpReqDoStores(cur_tok));
 
-                debug(2, $fdisplay(debug_log, "[%d] Stores for TOKEN %0d", fpgaCC, cur_tok.index));
+                debugLog.record($format("[%d] Stores for TOKEN %0d", fpgaCC, cur_tok.index));
 
                 state <= STO_RSP;
             end
@@ -486,7 +464,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_sto.getResp();
                 link_to_sto.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] Store ops responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] Store ops responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("STO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -498,7 +476,7 @@ module [HASIM_MODULE] mkPipeline
                 // Locally commit the token.
                 link_to_lco.makeReq(initFuncpReqCommitResults(cur_tok));
 
-                debug(2, $fdisplay(debug_log, "[%d] Locally committing TOKEN %0d.", fpgaCC, cur_tok.index));
+                debugLog.record($format("[%d] Locally committing TOKEN %0d.", fpgaCC, cur_tok.index));
                 
                 state <= LCO_RSP;
 
@@ -511,7 +489,7 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_lco.getResp();
                 link_to_lco.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] LCO Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] LCO Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("LCO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
 
@@ -526,7 +504,7 @@ module [HASIM_MODULE] mkPipeline
                 
                     // End the model cycle.
                     modelCC <= modelCC + 1;
-                    debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, modelCC));
+                    debugLog.record($format("Committed TOKEN %0d on model cycle %0d.", cur_tok.index, modelCC));
                     event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
                     link_model_commit.send(1);
                     stat_com.incr();
@@ -542,7 +520,7 @@ module [HASIM_MODULE] mkPipeline
                 // Request global commit of stores.
                 link_to_gco.makeReq(initFuncpReqCommitStores(cur_tok));
 
-                debug(2, $fdisplay(debug_log, "[%d] Globally committing TOKEN %0d", fpgaCC, cur_tok.index));
+                debugLog.record($format("[%d] Globally committing TOKEN %0d", fpgaCC, cur_tok.index));
 
                 state <= GCO_RSP;
             end
@@ -553,13 +531,13 @@ module [HASIM_MODULE] mkPipeline
                 let rsp = link_to_gco.getResp();
                 link_to_gco.deq();
 
-                debug(2, $fdisplay(debug_log, "[%d] GCO Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+                debugLog.record($format("[%d] GCO Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
 
                 if (rsp.token.index != cur_tok.index) $display ("GCO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
  
                 // End the model cycle.
                 modelCC <= modelCC + 1;
-                debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, modelCC));
+                debugLog.record($format("Committed TOKEN %0d on model cycle %0d.", cur_tok.index, modelCC));
                 event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
                 link_model_commit.send(1);
                 stat_com.incr();

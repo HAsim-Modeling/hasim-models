@@ -1326,3 +1326,16 @@ Directory modules/hasim/timing-models/core
 * Updated timing models to use new BRAM interface.
 
 Michael P.
+
+----------
+pellauer    Date: Tue Aug 19 12:03:37 EDT 2008  CSN: CSN-hasim-models-53
+                  Tue Aug 19 16:03:37 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           52 
+
+
+* Updated unpipelined CPU to use new DEBUG_FILE.
+
+Michael P.
