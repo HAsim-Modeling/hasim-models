@@ -5,6 +5,8 @@ import hasim_isa::*;
 import Vector::*;
 import FShow::*;
 
+typedef Bit#(1) UNIT;
+
 typedef union tagged {
     void        NotBranch;
     ISA_ADDRESS BranchNotTaken;

@@ -62,7 +62,6 @@ module [HASIM_MODULE] mkMem ();
         outQ.send(x);
         busQ.send(Invalid);
         event_mem.recordEvent(Valid(zeroExtend(tok.index)));
-        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
 
     endaction
@@ -95,7 +94,6 @@ module [HASIM_MODULE] mkMem ();
         let del <- dcache_delQ.receive();
         let sbr <- sb_respQ.receive();
         event_mem.recordEvent(Invalid);
-        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
     endrule
 
@@ -247,7 +245,6 @@ module [HASIM_MODULE] mkMem ();
         outQ.send(Invalid);
         busQ.send(Invalid);
         event_mem.recordEvent(Invalid);
-        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
     endrule
 
@@ -260,7 +257,6 @@ module [HASIM_MODULE] mkMem ();
         outQ.send(Invalid);
         busQ.send(Invalid);
         event_mem.recordEvent(Invalid);
-        debugLog.nextModelCycle();
         state <= MEM_STATE_REQ;
     endrule
 

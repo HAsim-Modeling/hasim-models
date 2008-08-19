@@ -15,8 +15,6 @@ typedef DECODE_BUNDLE ROB_ENTRY;
 
 REWIND_BUNDLE nullRewindBundle = REWIND_BUNDLE{robIndex: 0, prediction: False, mispredict: False, addr: 0, token: ?};
 
-typedef Bit#(`ROB_INDEX_SIZE) ROB_INDEX;
-
 module [HASIM_MODULE] mkRob();
     TIMEP_DEBUG_FILE                                                                 debugLog <- mkTIMEPDebugFile("pipe_rob.out");
 

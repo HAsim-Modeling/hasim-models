@@ -44,9 +44,9 @@ module [HASIM_MODULE] mkDecode ();
     EventRecorder event_dec <- mkEventRecorder(`EVENTS_DECODE_INSTRUCTION_DECODE);
 
     Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
-    Integer numFuncpPhyRegisters = valueof(FUNCP_NUM_PHYSICAL_REGS);
+    Integer numFuncpPhyRegisters = valueof(FUNCP_PHYSICAL_REGS);
 
-    Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prfValid_init = newVector();
+    Vector#(FUNCP_PHYSICAL_REGS,Bool) prfValid_init = newVector();
 
     for (Integer i = 0; i < numIsaArchRegisters; i = i + 1)
         prfValid_init[i] = True;
@@ -57,7 +57,7 @@ module [HASIM_MODULE] mkDecode ();
     Reg#(FUNCP_PHYSICAL_REG_INDEX) numInFlight <- mkReg(0);
     Reg#(Bool)    drainingAfter <- mkReg(False);
 
-    Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
+    Reg#(Vector#(FUNCP_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
 
     function Bool readyToGo(ISA_SRC_MAPPING srcmap);
         Bool rdy = True;
@@ -105,7 +105,7 @@ module [HASIM_MODULE] mkDecode ();
 
     function Action markPRFInvalid(ISA_DST_MAPPING dstmap);
       action
-        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+        Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
         FUNCP_PHYSICAL_REG_INDEX res = 0;
 
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
@@ -113,7 +113,7 @@ module [HASIM_MODULE] mkDecode ();
             if (dstmap[i] matches tagged Valid { .ar, .pr }) begin
                 prf_valid[pr] = False;
                 res = res + 1;
-                debugLog.record($format("PRF: PR %d <= 0 (alloc)", pr));
+                debug.record($format("PRF: PR %d <= 0 (alloc)", pr));
             end
         end
         prfValid <= prf_valid;
@@ -123,7 +123,7 @@ module [HASIM_MODULE] mkDecode ();
 
     function Action markPRFValid(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dst);
       action
-        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+        Vector#(FUNCP_PHYSICAL_REGS,Bool) prf_valid = prfValid;
         
         FUNCP_PHYSICAL_REG_INDEX res = 0;
 
@@ -188,7 +188,6 @@ module [HASIM_MODULE] mkDecode ();
         debugLog.record(fshow("STALL PROPAGATED"));
         inQ.pass();
         outQ.pass();
-        debugLog.nextModelCycle();
         event_dec.recordEvent(Invalid);
         state <= DECODE_STATE_BUS1;
     endrule
@@ -197,7 +196,6 @@ module [HASIM_MODULE] mkDecode ();
         debugLog.record(fshow("BUBBLE"));
         let x <- inQ.receive();
         outQ.send(Invalid);
-        debugLog.nextModelCycle();
         event_dec.recordEvent(Invalid);
         state <= DECODE_STATE_BUS1;
     endrule
@@ -228,7 +226,6 @@ module [HASIM_MODULE] mkDecode ();
             let mtup <- inQ.receive();
             let bundle = makeBundle(fetchbundle, rsp.dstMap);
             outQ.send(Valid(tuple2(tok,bundle)));
-            debugLog.nextModelCycle();
             event_dec.recordEvent(Valid(zeroExtend(tok.index)));
             debugLog.record(fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
             memoDependencies <= Invalid;
@@ -240,7 +237,6 @@ module [HASIM_MODULE] mkDecode ();
             debugLog.record(fshow("STALL ON DEPENDENCY: ") + fshow(tok));
             inQ.pass();
             outQ.send(Invalid);
-            debugLog.nextModelCycle();
             event_dec.recordEvent(Invalid);
         end
         state <= DECODE_STATE_BUS1;

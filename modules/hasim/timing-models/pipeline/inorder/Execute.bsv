@@ -49,7 +49,7 @@ module [HASIM_MODULE] mkExecute ();
     //Stats
     Stat stat_mpred <- mkStatCounter(`STATS_EXECUTE_BPRED_MISPREDS);
 
-    Vector#(FUNCP_NUM_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
+    Vector#(FUNCP_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
 
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
 
@@ -65,7 +65,6 @@ module [HASIM_MODULE] mkExecute ();
         bptrainQ.send(Invalid);
         busQ.send(Valid(bundle.dests));
         event_exe.recordEvent(Invalid);
-        debugLog.nextModelCycle();
     endrule
 
     rule exec (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
@@ -85,7 +84,6 @@ module [HASIM_MODULE] mkExecute ();
            bptrainQ.send(Invalid);
            busQ.send(Invalid);
            event_exe.recordEvent(Invalid);
-           debugLog.nextModelCycle();
         end
     endrule
 
@@ -101,7 +99,6 @@ module [HASIM_MODULE] mkExecute ();
         bptrainQ.send(Invalid);
         busQ.send(Invalid);
         event_exe.recordEvent(Invalid);
-        debugLog.nextModelCycle();
     endrule
 
     rule results (state == EXECUTE_STATE_WORK);
@@ -189,7 +186,6 @@ module [HASIM_MODULE] mkExecute ();
             outQ.send(Valid(tuple2(tok, bundle)));
             busQ.send(Invalid);
             event_exe.recordEvent(Valid(zeroExtend(tok.index)));
-            debugLog.nextModelCycle();
             state <= EXECUTE_STATE_EXEC;
         end
     endrule

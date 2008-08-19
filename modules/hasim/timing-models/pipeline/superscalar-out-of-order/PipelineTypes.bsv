@@ -14,10 +14,10 @@ typedef TAdd#(`ALU_NUM, `MEM_NUM) WRITEBACK_NUM;
 typedef Bit#(TLog#(TAdd#(WRITEBACK_NUM, 1))) WRITEBACK_INDEX;
 typedef Bit#(TLog#(TAdd#(ISA_MAX_DSTS, 1))) ISA_DEST_REGS_INDEX;
 typedef Bit#(TLog#(TAdd#(`FETCH_CREDITS, 1))) FETCH_BUFFER_INDEX;
-typedef TExp#(`LOG_DECODE_CREDITS) DECODE_CREDITS;
+typedef TExp#(`ROB_INDEX_SIZE) DECODE_CREDITS;
 
-typedef Bit#(`LOG_DECODE_CREDITS) ROB_INDEX;
-typedef Bit#(TAdd#(`LOG_DECODE_CREDITS, 1)) ROB_PTR;
+typedef Bit#(`ROB_INDEX_SIZE) ROB_INDEX;
+typedef Bit#(TAdd#(`ROB_INDEX_SIZE, 1)) ROB_PTR;
 
 instance FShow#(TOKEN);
     function Fmt fshow(TOKEN tok);

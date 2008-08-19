@@ -121,7 +121,6 @@ module [HASIM_MODULE] mkFetch ();
 
     rule pass (state == FETCH_STATE_TOKEN && !outQ.canSend);
         outQ.pass();
-        debugLog.nextModelCycle();
         event_fet.recordEvent(Invalid);
         port_to_icache.send(tagged Invalid);
         bpQ.send(Invalid);
@@ -139,7 +138,7 @@ module [HASIM_MODULE] mkFetch ();
       newInFlight.deq();
       let rsp = newInFlight.getResp();
       let tok = rsp.newToken;
-      tok.timep_info = TOKEN_TIMEP_INFO { epoch: epoch, scratchpad: 0 };
+      tok.timep_info = TIMEP_TokInfo { epoch: epoch, scratchpad: 0 };
       port_to_icache.send(tagged Valid tuple2(tok, tagged Inst_mem_ref pc));
       bpQ.send(Valid(pc));
       state <= FETCH_STATE_ITRANS_REQ;
@@ -205,8 +204,7 @@ module [HASIM_MODULE] mkFetch ();
       if (waitForICache)
 	 begin
 	    outQ.send(tagged Invalid);
-        debugLog.nextModelCycle();
-        event_fet.recordEvent(Invalid);
+            event_fet.recordEvent(Invalid);
 	    state <= FETCH_STATE_NEXTPC;
 	 end
       else
@@ -234,7 +232,6 @@ module [HASIM_MODULE] mkFetch ();
         outQ.send(Valid(tuple2(tok,bundle)));
         pc_fifo.deq();
         pred_fifo.deq();
-        debugLog.nextModelCycle();
         event_fet.recordEvent(Valid(zeroExtend(tok.index)));
         state <= FETCH_STATE_NEXTPC;
 

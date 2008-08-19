@@ -42,10 +42,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         let m <- inQ.receive();
         case (m) matches
             tagged Invalid:
-            begin
                 outQ.send(Invalid);
-                debugLog.nextModelCycle();
-            end
             tagged Valid { .tok, .x }:
             case (x) matches
                 tagged Data_read_mem_ref { .pc, .a }:
@@ -54,13 +51,11 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
                         outQ.send(Valid(tuple2(tok,SB_HIT)));
                         debugLog.record(fshow("LOAD HIT ") + fshow(tok));
-                        debugLog.nextModelCycle();
                     end
                     else
                     begin
                         outQ.send(Valid(tuple2(tok,SB_MISS)));
                         debugLog.record(fshow("LOAD MISS ") + fshow(tok));
-                        debugLog.nextModelCycle();
                     end
                 end
                 tagged Data_write_mem_ref { .pc, .a }:
@@ -69,7 +64,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
                         outQ.send(Valid(tuple2(tok,SB_STALL)));
                         debugLog.record(fshow("SB STORE RETRY (SB FULL!) ") + fshow(tok));
-                        debugLog.nextModelCycle();
                     end
                     else
                     begin
@@ -77,7 +71,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         vec[tail] <= Valid(a);
                         outQ.send(Invalid);
                         debugLog.record(fshow("SB STORE ALLOC ") + fshow(tok));
-                        debugLog.nextModelCycle();
                     end
                 end
             endcase

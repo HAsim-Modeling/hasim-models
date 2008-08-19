@@ -69,7 +69,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
         end
         else
         begin
-            debugLog.nextModelCycle();
             nextpcQ.send(Invalid);
             predQ.send(Invalid);
             state <= BP_STATE_TRAIN;
@@ -84,14 +83,12 @@ module [HASIM_MODULE] mkBranchPredictor ();
                 nextpcQ.send(Valid(tgt));
                 predQ.send(Valid(BranchTaken(tgt)));
                 debugLog.record($format("PRED: %h -> taken; tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
-                debugLog.nextModelCycle();
             end
             else
             begin
                 nextpcQ.send(Valid(pc + 4));
                 predQ.send(Valid(BranchNotTaken(tgt)));
                 debugLog.record($format("PRED: %h -> not-taken; taken-tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
-                debugLog.nextModelCycle();
             end
         end
         else
@@ -99,7 +96,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
             nextpcQ.send(Valid(pc + 4));
             predQ.send(Valid(NotBranch));
             debugLog.record($format("PRED: %h -> not-branch", pc));
-            debugLog.nextModelCycle();
         end
         state <= BP_STATE_TRAIN;
     endrule
