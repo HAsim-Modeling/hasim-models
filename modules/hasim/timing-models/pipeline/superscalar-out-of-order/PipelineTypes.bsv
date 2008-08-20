@@ -48,6 +48,8 @@ typedef struct {
     ROB_INDEX epochRob;
     Vector#(ISA_MAX_SRCS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) srcs;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
+    Bool drainBefore;
+    Bool drainAfter;
     TOKEN token;
 } DECODE_BUNDLE deriving (Bits, Eq);
 
@@ -84,6 +86,8 @@ function DECODE_BUNDLE makeDecodeBundle(FETCH_BUNDLE fetch, Vector#(ISA_MAX_SRCS
                          prediction: fetch.prediction,
                          afterResteer: fetch.afterResteer,
                          epochRob: fetch.epochRob,
+			 drainBefore: isaDrainBefore(fetch.inst),
+			 drainAfter: isaDrainAfter(fetch.inst),
                          srcs: srcs,
                          dsts: dsts,
                          token: fetch.token};

@@ -1359,3 +1359,22 @@ We are afraid we may have reverted some of your changes accidentally.
 
 Michael P.
 
+
+----------
+pellauer    Date: Wed Aug 20 16:42:24 EDT 2008  CSN: CSN-hasim-models-59
+                  Wed Aug 20 20:42:24 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ PipelineTypes.bsv         Locally Modified           58 
+ Rob.bsv                   Locally Modified           58 
+
+
+Added support for drainBefore/drainAfter to OOO model. It still runs out of
+tokens, but this does remove the warnings from M5 about executing a halt
+instruction.
+
+Murali should look this over to see if the scheme is reasonable (it's basically
+the same as the one I added to the inorder model).
+
+Michael P.
