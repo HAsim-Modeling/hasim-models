@@ -87,9 +87,9 @@ module [HASIM_MODULE] mkRob();
                 readys[i] = True;
         end
         Bool srcs_ready = fold(\&& , readys);
-	Bool before_ready = !entry.drainBefore || numInFlight.value() == 0;
-	Bool after_ready = !drainingAfter  || numInFlight.value() == 0;
-	return srcs_ready && before_ready && after_ready;
+        Bool before_ready = !entry.drainBefore || numInFlight.value() == 0;
+        Bool after_ready = !drainingAfter  || numInFlight.value() == 0;
+        return srcs_ready && before_ready && after_ready;
     endfunction
 
     function Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Bool) markPrfValidOrInvalid(Bool which, Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) regs);
@@ -247,8 +247,8 @@ module [HASIM_MODULE] mkRob();
                 if(allPrevMemIssued && memPort.canSend())
                 begin
                     debugLog.record($format("issueResp mem") + fshow(entry));
-		    numInFlight.up();
-		    drainingAfter <= entry.drainAfter;
+                    numInFlight.up();
+                    drainingAfter <= entry.drainAfter;
                     memPort.enq(makeMemBundle(entry, issuePtr));
                     robIssued.upd(issueIndex, True);
                 end
@@ -264,8 +264,8 @@ module [HASIM_MODULE] mkRob();
                 if(aluPort.canSend())
                 begin
                     debugLog.record($format("issueResp alu") + fshow(entry));
-		    numInFlight.up();
-		    drainingAfter <= entry.drainAfter;
+                    numInFlight.up();
+                    drainingAfter <= entry.drainAfter;
                     aluPort.enq(makeAluBundle(entry, issuePtr));
                     robIssued.upd(issueIndex, True);
                 end

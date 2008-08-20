@@ -86,8 +86,8 @@ function DECODE_BUNDLE makeDecodeBundle(FETCH_BUNDLE fetch, Vector#(ISA_MAX_SRCS
                          prediction: fetch.prediction,
                          afterResteer: fetch.afterResteer,
                          epochRob: fetch.epochRob,
-			 drainBefore: isaDrainBefore(fetch.inst),
-			 drainAfter: isaDrainAfter(fetch.inst),
+                         drainBefore: isaDrainBefore(fetch.inst),
+                         drainAfter: isaDrainAfter(fetch.inst),
                          srcs: srcs,
                          dsts: dsts,
                          token: fetch.token};
