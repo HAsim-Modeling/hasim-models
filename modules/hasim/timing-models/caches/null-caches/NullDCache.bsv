@@ -7,6 +7,8 @@ import module_local_controller::*;
 import hasim_isa::*;
 import fpga_components::*;
 
+`include "asim/provides/hasim_icache.bsh"
+
 module [HASIM_MODULE] mkDCache();
    
    // incoming port from CPU with speculative stores
