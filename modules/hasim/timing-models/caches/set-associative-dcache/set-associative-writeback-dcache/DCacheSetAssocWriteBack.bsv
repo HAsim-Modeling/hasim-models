@@ -26,7 +26,7 @@ module [HASIM_MODULE] mkDCache();
    Reg#(State) state <- mkReg(HandleReq);
       
    // BRAM for cache tag store
-   BRAM_MULTI_READ#(2, `DCACHE_IDX_BITS, Vector#(`DCACHE_ASSOC, Maybe#(DCACHE_LINE))) dcache_tag_store <- mkMultiReadBramInitialized(Vector::replicate(tagged Invalid));
+   BRAM_MULTI_READ#(2, Bit#(`DCACHE_IDX_BITS), Vector#(`DCACHE_ASSOC, Maybe#(DCACHE_LINE))) dcache_tag_store <- mkBRAMMultiReadInitialized(Vector::replicate(tagged Invalid));
 
    // registers to hold cache request fields
    Reg#(DCACHE_TAG) req_dcache_tag_spec <- mkReg(0);
@@ -139,7 +139,7 @@ module [HASIM_MODULE] mkDCache();
 			 req_tok_spec <= tok_from_cpu_spec;
 			 req_dcache_addr_spec <= ref_addr_spec;
 			 inst_addr_spec <= cpu_addr_spec;
-			 dcache_tag_store.req[0].read(idx);
+			 dcache_tag_store.readPorts[0].readReq(idx);
 			 state <= CheckTag;
 			 req_type <= Read;
 		      end
@@ -161,7 +161,7 @@ module [HASIM_MODULE] mkDCache();
 			 req_tok_comm <= tok_from_cpu_comm;
 			 req_dcache_addr_comm <= ref_addr_comm;
 			 inst_addr_comm <= cpu_addr_comm;
-			 dcache_tag_store.req[0].read(idx);
+			 dcache_tag_store.readPorts[0].readReq(idx);
 			 state <= CheckTag;
 			 req_type <= Write;
 		      end
@@ -182,7 +182,7 @@ module [HASIM_MODULE] mkDCache();
 			  req_dcache_index_spec <= idx_spec;
 			  req_tok_spec <= tok_from_cpu_spec;
 			  req_dcache_addr_spec <= cpu_addr_spec;
-			  dcache_tag_store.req[0].read(idx_spec);
+			  dcache_tag_store.readPorts[0].readReq(idx_spec);
 			  
 			  Tuple3#(DCACHE_TAG, DCACHE_INDEX, DCACHE_LINE_OFFSET) address_tup_comm = unpack(ref_addr_comm);
 			  match {.tag_comm, .idx_comm, .line_offset_comm} = address_tup_comm;
@@ -190,7 +190,7 @@ module [HASIM_MODULE] mkDCache();
 			  req_dcache_index_comm <= idx_comm;
 			  req_tok_comm <= tok_from_cpu_comm;
 			  req_dcache_addr_comm <= cpu_addr_comm;
-			  dcache_tag_store.req[1].read(idx_comm);
+			  dcache_tag_store.readPorts[1].readReq(idx_comm);
 			  
 			  state <= CheckTag;
 			  req_type <= ReadWrite;
@@ -227,8 +227,8 @@ module [HASIM_MODULE] mkDCache();
 	 begin
 	    
 	    // read tags from BRAM
-	    let tagstore_read <- dcache_tag_store.resp[0].read();
-	    let tagstore_write <- dcache_tag_store.resp[1].read();
+	    let tagstore_read <- dcache_tag_store.readPorts[0].readRsp();
+	    let tagstore_write <- dcache_tag_store.readPorts[1].readRsp();
 	    
 	    // check all entries of the requested set
 	    for (Integer w = 0; w < `DCACHE_ASSOC; w = w + 1)
@@ -261,7 +261,7 @@ module [HASIM_MODULE] mkDCache();
 	 begin
 	    
 	    // read tag from BRAM
-	    let tagstore_read <- dcache_tag_store.resp[0].read();
+	    let tagstore_read <- dcache_tag_store.readPorts[0].readRsp();
 	    
 	    // check all entries of the requested set
 	    for (Integer w = 0; w < `DCACHE_ASSOC; w = w + 1) 
@@ -294,7 +294,7 @@ module [HASIM_MODULE] mkDCache();
 	 begin
 	    
 	    // read tag from BRAM
-	    let tagstore_write <- dcache_tag_store.resp[0].read();
+	    let tagstore_write <- dcache_tag_store.readPorts[0].readRsp();
 	    
 	    // check all entries of the requested set
 	    for (Integer w = 0; w < `DCACHE_ASSOC; w = w + 1) 
