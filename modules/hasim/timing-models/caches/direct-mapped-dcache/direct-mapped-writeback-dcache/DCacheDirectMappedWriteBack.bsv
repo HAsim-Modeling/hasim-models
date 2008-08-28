@@ -498,8 +498,8 @@ module [HASIM_MODULE] mkDCache();
 			   hit <= False;
 			   //$display ("Write Miss, tag %x, index %d, flush", req_dcache_tag_comm, req_dcache_index_comm);
 			end
-		  end
-	       stat_dcache_write_misses.incr();
+		     stat_dcache_write_misses.incr();
+		  end	      
 	    end
       endcase
    endrule
@@ -655,6 +655,7 @@ module [HASIM_MODULE] mkDCache();
 			   //$display ("Write Miss, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
 			   state <= Flush;
 			   read <= False;
+			
 			end
 		     stat_dcache_write_misses.incr();
 		  end
