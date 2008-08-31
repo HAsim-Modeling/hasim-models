@@ -1,6 +1,5 @@
 
 import LFSR::*;
-import RegFile::*;
 import Vector::*;
  
 `include "asim/provides/hasim_common.bsh"

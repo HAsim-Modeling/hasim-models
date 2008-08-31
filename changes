@@ -1378,3 +1378,22 @@ Murali should look this over to see if the scheme is reasonable (it's basically
 the same as the one I added to the inorder model).
 
 Michael P.
+
+----------
+mcadler     Date: Sun Aug 31 09:41:57 EDT 2008  CSN: CSN-hasim-models-64
+                  Sun Aug 31 13:41:57 UTC 2008
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/globHistory
+ BranchPred.bsv            Locally Modified           63 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/simple
+ BranchPred.bsv            Locally Modified           63 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ Rob.bsv                   Locally Modified           63 
+
+Directory modules/hasim/timing-models/pipeline/5stage
+ Fetch.bsv                 Locally Modified           63 
+
+Switch from RegFile to LUTRAM.  See platforms check-in.

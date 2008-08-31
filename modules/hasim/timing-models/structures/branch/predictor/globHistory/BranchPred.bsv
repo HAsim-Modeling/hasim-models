@@ -1,7 +1,7 @@
-import hasim_common::*;
-import hasim_isa::*;
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/fpga_components.bsh"
+`include "asim/provides/hasim_isa.bsh"
 
-import RegFile::*;
 import FIFO::*;
 
 typedef Bit#(`GLOBAL_HIST_SIZE) GlobalHist;
@@ -17,8 +17,8 @@ endinterface
 
 module mkBranchPred(BranchPred);
     Reg#(GlobalHist) globalHist <- mkReg(0);
-    RegFile#(BranchTableIndex, Bool) branchTable <- mkRegFileFull();
-    RegFile#(TOKEN_INDEX, GlobalHist) screenShot <- mkRegFileFull();
+    LUTRAM#(BranchTableIndex, Bool) branchTable <- mkLUTRAMU();
+    LUTRAM#(TOKEN_INDEX, GlobalHist) screenShot <- mkLUTRAMU();
     
     FIFO#(Bool) respQ <- mkFIFO();
 

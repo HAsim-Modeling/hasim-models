@@ -4,7 +4,6 @@ import hasim_isa::*;
 import fpga_components::*;
 import module_local_controller::*;
 
-import RegFile::*;
 import Vector::*;
 import Counter::*;
 
@@ -45,10 +44,10 @@ module [HASIM_MODULE] mkRob();
     Reg#(Vector#(DECODE_CREDITS, Bool))                                              robEpoch <- mkReg(replicate(False));
     Reg#(Bool)                                                                    resteerWait <- mkReg(False);
 
-    RegFile#(ROB_INDEX, Bool)                                                         robDone <- mkRegFileFull();
-    RegFile#(ROB_INDEX, Bool)                                                       robIssued <- mkRegFileFull();
-    RegFile#(ROB_INDEX, Bool)                                                       terminate <- mkRegFileFull();
-    RegFile#(ROB_INDEX, Bool)                                                        passFail <- mkRegFileFull();
+    LUTRAM#(ROB_INDEX, Bool)                                                          robDone <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                        robIssued <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                        terminate <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                         passFail <- mkLUTRAMU();
 
     Reg#(REWIND_BUNDLE)                                                          rewindBundle <- mkReg(nullRewindBundle);
 
