@@ -99,6 +99,8 @@ typedef struct {
     ISA_ADDRESS pc;
     Bool prediction;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
+    Bool drainBefore;
+    Bool drainAfter;
     TOKEN token;
 } ALU_BUNDLE deriving (Bits, Eq);
 
@@ -114,6 +116,8 @@ function ALU_BUNDLE makeAluBundle(DECODE_BUNDLE decode, ROB_PTR robPtr);
                       pc: decode.pc,
                       prediction: decode.prediction,
                       dsts: decode.dsts,
+                      drainBefore: decode.drainBefore,
+                      drainAfter: decode.drainAfter,
                       token: decode.token};
 endfunction
 
@@ -162,14 +166,14 @@ function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_RSP_G
     case (res.result) matches
         tagged RBranchTaken .address:
         begin
-            mispredict = !alu.prediction;
+            mispredict = !alu.prediction || alu.drainAfter;
             addr = address;
             terminate = False;
             passFail = False;
         end
         tagged RBranchNotTaken .address:
         begin
-            mispredict = alu.prediction;
+            mispredict = alu.prediction || alu.drainAfter;
             addr = address;
             terminate = False;
             passFail = False;
@@ -183,8 +187,8 @@ function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_RSP_G
         end
         default:
         begin
-            mispredict = False;
-            addr = 0;
+            mispredict = alu.drainAfter;
+            addr = res.instructionAddress + zeroExtend(res.instructionSize);
             terminate = False;
             passFail = False;
         end

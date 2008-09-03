@@ -1412,3 +1412,13 @@ Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
   to keep receiving data from the connection and perform the appropriate action
   only once hasMore is false.
 - Add some debugging messages and comments.
+
+----------
+mcadler     Date: Wed Sep  3 15:52:05 EDT 2008  CSN: CSN-hasim-models-66
+                  Wed Sep  3 19:52:05 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ PipelineTypes.bsv         Locally Modified           64 
+
+Treat drainAfter as a mispredicted branch.
