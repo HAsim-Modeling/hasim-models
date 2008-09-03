@@ -20,7 +20,11 @@ module [HASIM_MODULE] mkCommit();
         begin
             modelCommit.send(1);
             let bundle <- commitPort.pop();
+            
+            // Flag stores in scratchpad
             bundle.token.timep_info.scratchpad = zeroExtend(pack(bundle.isStore));
+
+            debugLog.record($format("TOKEN %0d: commit REQ", bundle.token.index));
             commitResults.makeReq(FUNCP_REQ_COMMIT_RESULTS{token: bundle.token});
         end
         else
@@ -33,15 +37,20 @@ module [HASIM_MODULE] mkCommit();
     rule commitResultsResp(True);
         let resp = commitResults.getResp();
         commitResults.deq();
+
+        debugLog.record($format("TOKEN %0d: commit RESP", resp.token.index));
+
+        // Is token a store?
         if(resp.token.timep_info.scratchpad == 1)
         begin
-            debugLog.record($format("commiting stores"));
+            debugLog.record($format("TOKEN %0d: committing STORES", resp.token.index));
             commitStores.makeReq(FUNCP_REQ_COMMIT_STORES{token: resp.token});
         end
     endrule
 
     rule commitStoresResp(True);
         let resp = commitStores.getResp();
+        debugLog.record($format("TOKEN %0d: STORES done", resp.token.index));
         commitStores.deq();
     endrule
 endmodule

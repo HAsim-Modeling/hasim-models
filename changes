@@ -1397,3 +1397,18 @@ Directory modules/hasim/timing-models/pipeline/5stage
  Fetch.bsv                 Locally Modified           63 
 
 Switch from RegFile to LUTRAM.  See platforms check-in.
+
+----------
+mcadler     Date: Tue Sep  2 22:19:58 EDT 2008  CSN: CSN-hasim-models-65
+                  Wed Sep  3 02:19:58 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ Commit.bsv                Locally Modified           64 
+ Fetch.bsv                 Locally Modified           64 
+ Mem.bsv                   Locally Modified           64 
+
+- The hasMore flag for I & D translate responses was being ignored.  Changed
+  to keep receiving data from the connection and perform the appropriate action
+  only once hasMore is false.
+- Add some debugging messages and comments.

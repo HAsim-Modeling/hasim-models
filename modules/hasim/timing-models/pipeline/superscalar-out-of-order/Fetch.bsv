@@ -78,8 +78,14 @@ module [HASIM_MODULE] mkFetch();
     rule instReq(state == FETCH_STATE_INST_REQ);
         let resp = iTranslate.getResp();
         iTranslate.deq();
-        getInstruction.makeReq(FUNCP_REQ_GET_INSTRUCTION{token: resp.token});
-        state <= FETCH_STATE_INST_RESP;
+
+        // iTranslate may return multiple responses for unaligned references.
+        // Don't act until the last one is received.
+        if (! resp.hasMore)
+        begin
+            getInstruction.makeReq(FUNCP_REQ_GET_INSTRUCTION{token: resp.token});
+            state <= FETCH_STATE_INST_RESP;
+        end
     endrule
 
     rule instResp(state == FETCH_STATE_INST_RESP);
