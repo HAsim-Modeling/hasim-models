@@ -6,7 +6,7 @@ import hasim_isa::*;
 
 `include "funcp_simulated_memory.bsh"
 
-typedef enum { FETCH_STATE_REWIND_REQ, FETCH_STATE_REWIND_RESP, FETCH_STATE_TOKEN_REQ, FETCH_STATE_I_TRANSLATE_REQ, FETCH_STATE_INST_REQ, FETCH_STATE_INST_RESP } FETCH_STATE deriving (Bits, Eq);
+typedef enum { FETCH_STATE_REWIND_REQ, FETCH_STATE_REWIND_RESP, FETCH_STATE_BRANCH_PREDICTOR_RESP, FETCH_STATE_TOKEN_REQ, FETCH_STATE_I_TRANSLATE_REQ, FETCH_STATE_INST_REQ, FETCH_STATE_INST_RESP } FETCH_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch();
     TIMEP_DEBUG_FILE                                                               debugLog <- mkTIMEPDebugFile("pipe_fet.out");
@@ -22,20 +22,20 @@ module [HASIM_MODULE] mkFetch();
 
     Reg#(ISA_ADDRESS)                                                                    pc <- mkReg(`PROGRAM_START_ADDR);
     Reg#(FETCH_STATE)                                                                 state <- mkReg(FETCH_STATE_REWIND_REQ);
-    Reg#(ROB_INDEX)                                                                epochRob <- mkRegU();
+    Reg#(ROB_INDEX)                                                                epochRob <- mkRegU;
     Reg#(Bool)                                                                 afterResteer <- mkReg(False);
     Reg#(TOKEN_TIMEP_EPOCH)                                                           epoch <- mkReg(0);
+    Reg#(Bit#(TLog#(TAdd#(`FETCH_NUM, 1))))                                        numFetch <- mkRegU;
+    Reg#(ISA_ADDRESS)                                                                nextPc <- mkRegU;
 
-    Reg#(Bit#(32))                                                                   fpgaCC <- mkReg(0);
-    rule inc(True);
-        fpgaCC <= fpgaCC + 1;
-    endrule
+    BRANCH_PREDICTOR                                                        branchPredictor <- mkBranchPredictor;
 
     rule rewindReq(state == FETCH_STATE_REWIND_REQ);
         let bundle <- resteerPort.pop();
-        debugLog.record($format("rewindReq %d", fpgaCC) + fshow(bundle));
+        debugLog.record($format("rewindReq") + fshow(bundle));
         if(bundle.mispredict)
         begin
+            branchPredictor.update(pc, bundle.addr);
             pc <= bundle.addr;
             epochRob <= bundle.robIndex;
             afterResteer <= True;
@@ -43,24 +43,37 @@ module [HASIM_MODULE] mkFetch();
             state <= FETCH_STATE_REWIND_RESP;
         end
         else
-            state <= FETCH_STATE_TOKEN_REQ;
+        begin
+            branchPredictor.readReq(pc);
+            state <= FETCH_STATE_BRANCH_PREDICTOR_RESP;
+        end
     endrule
 
     rule rewindResp(state == FETCH_STATE_REWIND_RESP);
-        debugLog.record($format("rewindResp %d", fpgaCC));
+        debugLog.record($format("rewindResp"));
         rewindToToken.deq();
         epoch <= epoch + 1;
+        branchPredictor.readReq(pc);
+        state <= FETCH_STATE_BRANCH_PREDICTOR_RESP;
+    endrule
+
+    rule branchPredictorResp(state == FETCH_STATE_BRANCH_PREDICTOR_RESP);
+        let branchBundle <- branchPredictor.readResp;
+        numFetch <= branchBundle.numFetch;
+        nextPc <= branchBundle.nextPc;
         state <= FETCH_STATE_TOKEN_REQ;
     endrule
 
     rule tokenReq(state == FETCH_STATE_TOKEN_REQ);
-        if(fetchPort.canSend())
+        if(fetchPort.canSend() && numFetch != 0)
         begin
             newInFlight.makeReq(?);
+            numFetch <= numFetch - 1;
             state <= FETCH_STATE_I_TRANSLATE_REQ;
         end
         else
         begin
+            pc <= nextPc;
             debugLog.nextModelCycle();
             state <= FETCH_STATE_REWIND_REQ;
             fetchPort.done();

@@ -26,6 +26,15 @@ instance FShow#(TOKEN);
 endinstance
 
 typedef struct {
+    Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) numFetch;
+    ISA_ADDRESS nextPc;
+} BRANCH_BUNDLE deriving (Bits, Eq);
+
+function BRANCH_BUNDLE makeBranchBundle(Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) numFetch, ISA_ADDRESS nextPc);
+    return BRANCH_BUNDLE{numFetch: numFetch, nextPc: nextPc};
+endfunction
+
+typedef struct {
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;
     Bool prediction;
@@ -143,6 +152,7 @@ endfunction
 
 typedef struct {
     ROB_INDEX robIndex;
+    ISA_ADDRESS pc;
     Bool prediction;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
     Bool mispredict;
@@ -194,6 +204,7 @@ function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_RSP_G
         end
     endcase
     return ALU_WRITEBACK_BUNDLE{robIndex: alu.robIndex,
+                                pc: alu.pc,
                                 prediction: alu.prediction,
                                 dsts: alu.dsts,
                                 mispredict: mispredict,
@@ -250,6 +261,7 @@ endfunction
 
 typedef struct {
     ROB_INDEX robIndex;
+    ISA_ADDRESS pc;
     Bool prediction;
     Bool mispredict;
     ISA_ADDRESS addr;
@@ -264,6 +276,7 @@ endinstance
 
 function REWIND_BUNDLE makeRewindBundle(ALU_WRITEBACK_BUNDLE alu);
     return REWIND_BUNDLE{robIndex: alu.robIndex,
+                         pc: alu.pc,
                          prediction: alu.prediction,
                          mispredict: alu.mispredict,
                          addr: alu.addr,

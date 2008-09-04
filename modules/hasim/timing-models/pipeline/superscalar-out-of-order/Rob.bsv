@@ -13,7 +13,7 @@ typedef enum {ROB_STATE_WRITEBACK_ALU, ROB_STATE_WRITEBACK_MEM, ROB_STATE_ADD, R
 
 typedef DECODE_BUNDLE ROB_ENTRY;
 
-REWIND_BUNDLE nullRewindBundle = REWIND_BUNDLE{robIndex: 0, prediction: False, mispredict: False, addr: 0, token: ?};
+REWIND_BUNDLE nullRewindBundle = REWIND_BUNDLE{robIndex: 0, pc: 0, prediction: False, mispredict: False, addr: 0, token: ?};
 
 module [HASIM_MODULE] mkRob();
     TIMEP_DEBUG_FILE                                                                 debugLog <- mkTIMEPDebugFile("pipe_rob.out");
@@ -133,7 +133,7 @@ module [HASIM_MODULE] mkRob();
             state <= ROB_STATE_WRITEBACK_MEM;
             debugLog.record($format("writebackAlu resteer ") + fshow(rewindBundle));
             resteerPort.enq(rewindBundle);
-            rewindBundle <= REWIND_BUNDLE{robIndex: 0, prediction: False, mispredict: False, addr: 0, token: ?};
+            rewindBundle <= nullRewindBundle;
         end
     endrule
 

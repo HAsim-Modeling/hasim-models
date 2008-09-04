@@ -7,7 +7,7 @@
 %attributes hasim
 
 %public Pipeline.bsv
-%private BandwidthPort.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Rob.bsv Alu.bsv Mem.bsv GetResults.bsv Commit.bsv
+%private BranchPredictor.bsv BandwidthPort.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Rob.bsv Alu.bsv Mem.bsv GetResults.bsv Commit.bsv
 
 %param SYNTH_BOUNDARY mkPipeline "Name of synthesis boundary"
 %param FETCH_CREDITS 32 "Fetch Buffer Credits"
