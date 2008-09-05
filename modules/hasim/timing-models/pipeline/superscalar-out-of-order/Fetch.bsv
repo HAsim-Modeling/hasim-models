@@ -27,6 +27,7 @@ module [HASIM_MODULE] mkFetch();
     Reg#(TOKEN_TIMEP_EPOCH)                                                           epoch <- mkReg(0);
     Reg#(Bit#(TLog#(TAdd#(`FETCH_NUM, 1))))                                        numFetch <- mkRegU;
     Reg#(ISA_ADDRESS)                                                                nextPc <- mkRegU;
+    Reg#(Bool)                                                                 predictTaken <- mkRegU;
 
     BRANCH_PREDICTOR                                                        branchPredictor <- mkBranchPredictor;
 
@@ -61,6 +62,7 @@ module [HASIM_MODULE] mkFetch();
         let branchBundle <- branchPredictor.readResp;
         numFetch <= branchBundle.numFetch;
         nextPc <= branchBundle.nextPc;
+        predictTaken <= branchBundle.predictTaken;
         state <= FETCH_STATE_TOKEN_REQ;
     endrule
 
@@ -104,7 +106,7 @@ module [HASIM_MODULE] mkFetch();
     rule instResp(state == FETCH_STATE_INST_RESP);
         let resp = getInstruction.getResp();
         getInstruction.deq();
-        let bundle = FETCH_BUNDLE{token: resp.token, inst: resp.instruction, pc: pc, prediction: False, epochRob: epochRob, afterResteer: afterResteer};
+        let bundle = makeFetchBundle(resp.instruction, pc, numFetch == 1? predictTaken: False, afterResteer, epochRob, resp.token);
         debugLog.record($format("instResp ") + fshow(bundle));
         fetchPort.enq(bundle);
         pc <= pc + 4;

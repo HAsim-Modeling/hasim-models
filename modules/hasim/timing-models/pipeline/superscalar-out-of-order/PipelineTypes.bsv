@@ -28,10 +28,11 @@ endinstance
 typedef struct {
     Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) numFetch;
     ISA_ADDRESS nextPc;
+    Bool predictTaken;
 } BRANCH_BUNDLE deriving (Bits, Eq);
 
-function BRANCH_BUNDLE makeBranchBundle(Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) numFetch, ISA_ADDRESS nextPc);
-    return BRANCH_BUNDLE{numFetch: numFetch, nextPc: nextPc};
+function BRANCH_BUNDLE makeBranchBundle(Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) numFetch, ISA_ADDRESS nextPc, Bool predictTaken);
+    return BRANCH_BUNDLE{numFetch: numFetch, nextPc: nextPc, predictTaken: predictTaken};
 endfunction
 
 typedef struct {
@@ -42,6 +43,10 @@ typedef struct {
     ROB_INDEX epochRob;
     TOKEN token;
 } FETCH_BUNDLE deriving (Bits, Eq);
+
+function FETCH_BUNDLE makeFetchBundle(ISA_INSTRUCTION inst, ISA_ADDRESS pc, Bool prediction, Bool afterResteer, ROB_INDEX epochRob, TOKEN token);
+    return FETCH_BUNDLE{inst: inst, pc: pc, prediction: prediction, afterResteer: afterResteer, epochRob: epochRob, token: token};
+endfunction
 
 instance FShow#(FETCH_BUNDLE);
     function Fmt fshow(FETCH_BUNDLE b);

@@ -53,8 +53,6 @@ module [HASIM_MODULE] mkRob();
 
     Reg#(Bool)                                                                  allPrevIssued <- mkReg(False);
     Reg#(Bool)                                                               allPrevMemIssued <- mkReg(False);
-    Reg#(Bool)                                                                  drainingAfter <- mkReg(False);
-    Counter#(`ROB_INDEX_SIZE)                                                     numInFlight <- mkCounter(0);
 
     Vector#(0, Port_Control) inports  = newVector();
     Vector#(0, Port_Control) outports = newVector();
@@ -85,10 +83,7 @@ module [HASIM_MODULE] mkRob();
             else
                 readys[i] = True;
         end
-        Bool srcs_ready = fold(\&& , readys);
-        Bool before_ready = !entry.drainBefore || numInFlight.value() == 0;
-        Bool after_ready = !drainingAfter  || numInFlight.value() == 0;
-        return srcs_ready && before_ready && after_ready;
+        return fold(\&& , readys) && (!entry.drainBefore || issuePtr == commitPtr);
     endfunction
 
     function Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Bool) markPrfValidOrInvalid(Bool which, Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) regs);
@@ -125,7 +120,6 @@ module [HASIM_MODULE] mkRob();
             terminate.upd(bundle.robIndex, bundle.terminate);
             passFail.upd(bundle.robIndex, bundle.passFail);
             robDone.upd(bundle.robIndex, True);
-            numInFlight.down();
         end
         else
         begin
@@ -146,7 +140,6 @@ module [HASIM_MODULE] mkRob();
                 prfValids <= markPrfValidOrInvalid(True, bundle.dsts);
 
             robDone.upd(bundle.robIndex, True);
-            numInFlight.down();
         end
         else
         begin
@@ -204,7 +197,7 @@ module [HASIM_MODULE] mkRob();
         commitPort.enq(makeCommitBundle(entry));
         if(terminate.sub(commitIndex))
             localController.endProgram(passFail.sub(commitIndex));
-        robValid[commitPtr] <= !resteerWait;
+        robValid[commitIndex] <= !resteerWait;
         commitPtr <= commitPtr + 1;
         state <= ROB_STATE_COMMIT_REQ;
     endrule
@@ -246,8 +239,6 @@ module [HASIM_MODULE] mkRob();
                 if(allPrevMemIssued && memPort.canSend())
                 begin
                     debugLog.record($format("issueResp mem") + fshow(entry));
-                    numInFlight.up();
-                    drainingAfter <= entry.drainAfter;
                     memPort.enq(makeMemBundle(entry, issuePtr));
                     robIssued.upd(issueIndex, True);
                 end
@@ -263,8 +254,6 @@ module [HASIM_MODULE] mkRob();
                 if(aluPort.canSend())
                 begin
                     debugLog.record($format("issueResp alu") + fshow(entry));
-                    numInFlight.up();
-                    drainingAfter <= entry.drainAfter;
                     aluPort.enq(makeAluBundle(entry, issuePtr));
                     robIssued.upd(issueIndex, True);
                 end
