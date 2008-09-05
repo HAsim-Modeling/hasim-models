@@ -25,7 +25,8 @@ module [HASIM_MODULE] mkFetch();
     Reg#(ROB_INDEX)                                                                epochRob <- mkRegU;
     Reg#(Bool)                                                                 afterResteer <- mkReg(False);
     Reg#(TOKEN_TIMEP_EPOCH)                                                           epoch <- mkReg(0);
-    Reg#(Bit#(TLog#(TAdd#(`FETCH_NUM, 1))))                                        numFetch <- mkRegU;
+    Reg#(FETCH_INDEX)                                                              numFetch <- mkRegU;
+    Reg#(FETCH_INDEX)                                                             numFetch2 <- mkRegU;
     Reg#(ISA_ADDRESS)                                                                nextPc <- mkRegU;
     Reg#(Bool)                                                                 predictTaken <- mkRegU;
 
@@ -36,7 +37,7 @@ module [HASIM_MODULE] mkFetch();
         debugLog.record($format("rewindReq") + fshow(bundle));
         if(bundle.mispredict)
         begin
-            branchPredictor.update(pc, bundle.addr);
+            branchPredictor.update(pc, bundle.addr, !bundle.prediction, bundle.numFetch);
             pc <= bundle.addr;
             epochRob <= bundle.robIndex;
             afterResteer <= True;
@@ -61,6 +62,7 @@ module [HASIM_MODULE] mkFetch();
     rule branchPredictorResp(state == FETCH_STATE_BRANCH_PREDICTOR_RESP);
         let branchBundle <- branchPredictor.readResp;
         numFetch <= branchBundle.numFetch;
+        numFetch2 <= branchBundle.numFetch;
         nextPc <= branchBundle.nextPc;
         predictTaken <= branchBundle.predictTaken;
         state <= FETCH_STATE_TOKEN_REQ;
@@ -106,7 +108,7 @@ module [HASIM_MODULE] mkFetch();
     rule instResp(state == FETCH_STATE_INST_RESP);
         let resp = getInstruction.getResp();
         getInstruction.deq();
-        let bundle = makeFetchBundle(resp.instruction, pc, numFetch == 1? predictTaken: False, afterResteer, epochRob, resp.token);
+        let bundle = makeFetchBundle(resp.instruction, pc, numFetch == 1? predictTaken: False, numFetch2, afterResteer, epochRob, resp.token);
         debugLog.record($format("instResp ") + fshow(bundle));
         fetchPort.enq(bundle);
         pc <= pc + 4;

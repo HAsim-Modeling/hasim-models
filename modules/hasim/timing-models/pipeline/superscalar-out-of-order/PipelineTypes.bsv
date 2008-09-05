@@ -15,6 +15,7 @@ typedef Bit#(TLog#(TAdd#(WRITEBACK_NUM, 1))) WRITEBACK_INDEX;
 typedef Bit#(TLog#(TAdd#(ISA_MAX_DSTS, 1))) ISA_DEST_REGS_INDEX;
 typedef Bit#(TLog#(TAdd#(`FETCH_CREDITS, 1))) FETCH_BUFFER_INDEX;
 typedef TExp#(`ROB_INDEX_SIZE) DECODE_CREDITS;
+typedef Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) FETCH_INDEX;
 
 typedef Bit#(`ROB_INDEX_SIZE) ROB_INDEX;
 typedef Bit#(TAdd#(`ROB_INDEX_SIZE, 1)) ROB_PTR;
@@ -26,12 +27,12 @@ instance FShow#(TOKEN);
 endinstance
 
 typedef struct {
-    Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) numFetch;
+    FETCH_INDEX numFetch;
     ISA_ADDRESS nextPc;
     Bool predictTaken;
 } BRANCH_BUNDLE deriving (Bits, Eq);
 
-function BRANCH_BUNDLE makeBranchBundle(Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) numFetch, ISA_ADDRESS nextPc, Bool predictTaken);
+function BRANCH_BUNDLE makeBranchBundle(FETCH_INDEX numFetch, ISA_ADDRESS nextPc, Bool predictTaken);
     return BRANCH_BUNDLE{numFetch: numFetch, nextPc: nextPc, predictTaken: predictTaken};
 endfunction
 
@@ -39,13 +40,14 @@ typedef struct {
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;
     Bool prediction;
+    FETCH_INDEX numFetch;
     Bool afterResteer;
     ROB_INDEX epochRob;
     TOKEN token;
 } FETCH_BUNDLE deriving (Bits, Eq);
 
-function FETCH_BUNDLE makeFetchBundle(ISA_INSTRUCTION inst, ISA_ADDRESS pc, Bool prediction, Bool afterResteer, ROB_INDEX epochRob, TOKEN token);
-    return FETCH_BUNDLE{inst: inst, pc: pc, prediction: prediction, afterResteer: afterResteer, epochRob: epochRob, token: token};
+function FETCH_BUNDLE makeFetchBundle(ISA_INSTRUCTION inst, ISA_ADDRESS pc, Bool prediction, FETCH_INDEX numFetch, Bool afterResteer, ROB_INDEX epochRob, TOKEN token);
+    return FETCH_BUNDLE{inst: inst, pc: pc, prediction: prediction, numFetch: numFetch, afterResteer: afterResteer, epochRob: epochRob, token: token};
 endfunction
 
 instance FShow#(FETCH_BUNDLE);
@@ -58,6 +60,7 @@ typedef struct {
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;
     Bool prediction;
+    FETCH_INDEX numFetch;
     Bool afterResteer;
     ROB_INDEX epochRob;
     Vector#(ISA_MAX_SRCS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) srcs;
@@ -98,6 +101,7 @@ function DECODE_BUNDLE makeDecodeBundle(FETCH_BUNDLE fetch, Vector#(ISA_MAX_SRCS
     return DECODE_BUNDLE{inst: fetch.inst,
                          pc: fetch.pc,
                          prediction: fetch.prediction,
+                         numFetch: fetch.numFetch,
                          afterResteer: fetch.afterResteer,
                          epochRob: fetch.epochRob,
                          drainBefore: isaDrainBefore(fetch.inst),
@@ -112,6 +116,7 @@ typedef struct {
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;
     Bool prediction;
+    FETCH_INDEX numFetch;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
     Bool drainBefore;
     Bool drainAfter;
@@ -129,6 +134,7 @@ function ALU_BUNDLE makeAluBundle(DECODE_BUNDLE decode, ROB_PTR robPtr);
                       inst: decode.inst,
                       pc: decode.pc,
                       prediction: decode.prediction,
+                      numFetch: decode.numFetch,
                       dsts: decode.dsts,
                       drainBefore: decode.drainBefore,
                       drainAfter: decode.drainAfter,
@@ -159,6 +165,7 @@ typedef struct {
     ROB_INDEX robIndex;
     ISA_ADDRESS pc;
     Bool prediction;
+    FETCH_INDEX numFetch;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
     Bool mispredict;
     ISA_ADDRESS addr;
@@ -211,6 +218,7 @@ function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_RSP_G
     return ALU_WRITEBACK_BUNDLE{robIndex: alu.robIndex,
                                 pc: alu.pc,
                                 prediction: alu.prediction,
+                                numFetch: alu.numFetch,
                                 dsts: alu.dsts,
                                 mispredict: mispredict,
                                 addr: addr,
@@ -268,6 +276,7 @@ typedef struct {
     ROB_INDEX robIndex;
     ISA_ADDRESS pc;
     Bool prediction;
+    FETCH_INDEX numFetch;
     Bool mispredict;
     ISA_ADDRESS addr;
     TOKEN token;
@@ -283,6 +292,7 @@ function REWIND_BUNDLE makeRewindBundle(ALU_WRITEBACK_BUNDLE alu);
     return REWIND_BUNDLE{robIndex: alu.robIndex,
                          pc: alu.pc,
                          prediction: alu.prediction,
+                         numFetch: alu.numFetch,
                          mispredict: alu.mispredict,
                          addr: alu.addr,
                          token: alu.token};
