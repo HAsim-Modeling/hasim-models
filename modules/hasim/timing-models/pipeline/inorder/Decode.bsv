@@ -7,6 +7,7 @@ import module_local_controller::*;
 //import PipelineTypes::*;
 import FShow::*;
 import Vector::*;
+import Counter::*;
 
 `include "asim/dict/EVENTS_DECODE.bsh"
 
@@ -54,7 +55,7 @@ module [HASIM_MODULE] mkDecode ();
     for (Integer i = numIsaArchRegisters; i < numFuncpPhyRegisters; i = i + 1)
         prfValid_init[i] = False;
 
-    Reg#(FUNCP_PHYSICAL_REG_INDEX) numInFlight <- mkReg(0);
+    Counter#(TOKEN_INDEX_SIZE) numInstrsInFlight <- mkCounter(0);
     Reg#(Bool)    drainingAfter <- mkReg(False);
 
     Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
@@ -72,71 +73,50 @@ module [HASIM_MODULE] mkDecode ();
     function Bool readyDrainBefore(ISA_INSTRUCTION inst);
     
         if (isaDrainBefore(inst))
-        begin
-        
-            return numInFlight == 0;
-        
-        end
+            return numInstrsInFlight.value() == 0;
         else
-        begin
-        
             return True;
-        
-        end
     
     endfunction
     
     function Bool readyDrainAfter();
     
         if (drainingAfter)
-        begin
-        
-            return numInFlight == 0;
-        
-        end
+            return numInstrsInFlight.value() == 0;
         else
-        begin
-        
             return True;
-        
-        end
     
     endfunction
 
     function Action markPRFInvalid(ISA_DST_MAPPING dstmap);
       action
         Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
-        FUNCP_PHYSICAL_REG_INDEX res = 0;
 
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
             if (dstmap[i] matches tagged Valid { .ar, .pr }) begin
                 prf_valid[pr] = False;
-                res = res + 1;
                 debugLog.record($format("PRF: PR %d <= 0 (alloc)", pr));
             end
         end
         prfValid <= prf_valid;
-        numInFlight <= numInFlight + res;
+        numInstrsInFlight.up();
       endaction
     endfunction
 
     function Action markPRFValid(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dst);
       action
         Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
-        
-        FUNCP_PHYSICAL_REG_INDEX res = 0;
 
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
             if (dst[i] matches tagged Valid .pr) begin
                 prf_valid[pr] = True;
-                res = res + 1;
                 debugLog.record($format("PRF: PR %d <= 1 (free)", pr));
             end
         end
         prfValid <= prf_valid;
-        numInFlight <= numInFlight - res;
+        numInstrsInFlight.down();
       endaction
     endfunction
 

@@ -1422,3 +1422,15 @@ Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
  PipelineTypes.bsv         Locally Modified           64 
 
 Treat drainAfter as a mispredicted branch.
+
+----------
+mcadler     Date: Thu Sep 11 16:37:21 EDT 2008  CSN: CSN-hasim-models-70
+                  Thu Sep 11 20:37:21 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Decode.bsv                Locally Modified           69 
+
+Drain-before wasn't waiting for stores because the in flight counter was counting
+registers, not instructions.  Stores write no registers.  Changed the counter to
+count instructions.
