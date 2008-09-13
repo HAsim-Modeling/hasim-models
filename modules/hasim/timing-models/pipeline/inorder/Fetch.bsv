@@ -1,3 +1,21 @@
+//
+// Copyright (C) 2008 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
 import hasim_common::*;
 import soft_connections::*;
 import hasim_modellib::*;
@@ -27,7 +45,7 @@ module [HASIM_MODULE] mkFetch ();
     StallPort_Send#(Tuple2#(TOKEN,FETCH_BUNDLE))   outQ <- mkStallPort_Send("fet2dec");
     Port_Receive#(Tuple2#(TOKEN,ISA_ADDRESS))      rewindQ <- mkPort_Receive  ("rewind", 1);
 
-    Port_Send#(ISA_ADDRESS)    bpQ     <- mkPort_Send("bp_req");
+    Port_Send#(Tuple2#(TOKEN,ISA_ADDRESS)) bpQ <- mkPort_Send("bp_req");
     Port_Receive#(ISA_ADDRESS) nextpcQ <- mkPort_Receive("bp_reply_pc", 1);
     Port_Receive#(BRANCH_ATTR) predQ   <- mkPort_Receive("bp_reply_pred", 0);
 
@@ -140,7 +158,7 @@ module [HASIM_MODULE] mkFetch ();
       let tok = rsp.newToken;
       tok.timep_info = TOKEN_TIMEP_INFO { epoch: epoch, scratchpad: 0 };
       port_to_icache.send(tagged Valid tuple2(tok, tagged Inst_mem_ref pc));
-      bpQ.send(Valid(pc));
+      bpQ.send(tagged Valid tuple2(tok, pc));
       state <= FETCH_STATE_ITRANS_REQ;
    endrule
 

@@ -1,3 +1,21 @@
+//
+// Copyright (C) 2008 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
 import hasim_common::*;
 import soft_connections::*;
 import hasim_modellib::*;
@@ -23,7 +41,7 @@ module [HASIM_MODULE] mkExecute ();
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("exe2mem");
 
     Port_Send#(Tuple2#(TOKEN, ISA_ADDRESS))      rewindQ <- mkPort_Send("rewind");
-    Port_Send#(Tuple2#(ISA_ADDRESS,BRANCH_ATTR)) bptrainQ <- mkPort_Send("bp_train");
+    Port_Send#(BRANCH_PRED_TRAIN)               bptrainQ <- mkPort_Send("bp_train");
 
     Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("exe_bus");
 
@@ -52,6 +70,50 @@ module [HASIM_MODULE] mkExecute ();
     Vector#(FUNCP_NUM_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
 
     function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
+
+    //
+    // nonBranchPred is used for handling branch prediction / rewind feedback
+    // processing for all non-branch instructions.
+    //
+    function Action nonBranchPred(TOKEN tok,
+                                  FUNCP_RSP_GET_RESULTS rsp,
+                                  BRANCH_ATTR branchAttr);
+    action
+        let tgt = rsp.instructionAddress + zeroExtend(rsp.instructionSize);
+
+        BRANCH_PRED_TRAIN train;
+        train.token = tok;
+        train.branchPC = rsp.instructionAddress;
+        train.exeResult = tagged NotBranch;
+
+        if (branchAttr matches tagged NotBranch)
+        begin
+            rewindQ.send(Invalid);
+            bptrainQ.send(Invalid);
+        end
+        else if (branchAttr matches tagged BranchNotTaken .pred_tgt &&&
+                 tgt == pred_tgt)
+        begin
+            // Treated non-branch instruction as a branch but got the right answer.
+            // Train BP but no need to rewind
+            debugLog.record(fshow("NON-BRANCH PREDICTED NOT TAKEN BRANCH: ") + fshow(tok));
+            rewindQ.send(Invalid);
+
+            train.predCorrect = True;
+            bptrainQ.send(tagged Valid train);
+        end
+        else
+        begin
+            debugLog.record(fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok));
+            stat_mpred.incr();
+            epoch <= epoch + 1;
+            rewindQ.send(Valid(tuple2(tok, tgt)));
+
+            train.predCorrect = False;
+            bptrainQ.send(tagged Valid train);
+        end
+    endaction
+    endfunction
 
     rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .bundle } &&& !good_epoch(tok));
         debugLog.record(fshow("FLUSH: ") + fshow(tok));
@@ -113,42 +175,59 @@ module [HASIM_MODULE] mkExecute ();
         begin
             let bundle = bndl;
             let pc = bundle.pc;
+
+            BRANCH_PRED_TRAIN train;
+            train.token = tok;
+            train.branchPC = pc;
+
             case (res) matches
               tagged RBranchTaken .addr:
                 begin
+                    train.exeResult = BranchTaken(addr);
+
                     if (bundle.branchAttr matches tagged BranchTaken .tgt &&& tgt == addr)
                     begin
                         rewindQ.send(Invalid);
-                        bptrainQ.send(Invalid);
+
+                        train.predCorrect = True;
+                        bptrainQ.send(tagged Valid train);
                     end
                     else
                     begin
                         stat_mpred.incr();
                         epoch <= epoch + 1;
                         rewindQ.send(Valid(tuple2(tok,addr)));
-                        bptrainQ.send(Valid(tuple2(pc,BranchTaken(addr))));
+
+                        train.predCorrect = False;
+                        bptrainQ.send(tagged Valid train);
                     end
                     debugLog.record(fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch));
                 end
               tagged RBranchNotTaken .addr:
                 begin
+                    train.exeResult = tagged BranchNotTaken addr;
+
                     case (bundle.branchAttr) matches
                         tagged BranchNotTaken .tgt:
                             begin
                                 rewindQ.send(Invalid);
-                                bptrainQ.send(Invalid);
+
+                                train.predCorrect = True;
+                                bptrainQ.send(tagged Valid train);
                             end
                         tagged BranchTaken .tgt:
                             begin
                                 stat_mpred.incr();
                                 epoch <= epoch + 1;
                                 rewindQ.send(Valid(tuple2(tok,addr)));
-                                bptrainQ.send(Invalid);
+
+                                train.predCorrect = False;
+                                bptrainQ.send(tagged Valid train);
                             end
                         tagged NotBranch:
                             begin
                                 rewindQ.send(Invalid);
-                                bptrainQ.send(Invalid); // XXX
+                                bptrainQ.send(Invalid);
                             end
                     endcase
                     debugLog.record(fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
@@ -157,24 +236,12 @@ module [HASIM_MODULE] mkExecute ();
                 begin
                     debugLog.record(fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea));
                     bundle.effAddr = ea;
-                    rewindQ.send(Invalid);
-                    bptrainQ.send(Invalid);
+
+                    nonBranchPred(tok, rsp, bundle.branchAttr);
                 end
               tagged RNop:
                 begin
-                    if (bundle.branchAttr matches tagged NotBranch)
-                    begin
-                        rewindQ.send(Invalid);
-                        bptrainQ.send(Invalid);
-                    end
-                    else
-                    begin
-                        debugLog.record(fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok));
-                        stat_mpred.incr();
-                        epoch <= epoch + 1; // XXX
-                        rewindQ.send(Valid(tuple2(tok,pc+4)));
-                        bptrainQ.send(Valid(tuple2(pc,NotBranch)));
-                    end
+                    nonBranchPred(tok, rsp, bundle.branchAttr);
                 end
               tagged RTerminate .pf:
                 begin

@@ -12,9 +12,13 @@ Class=Asim::Model
 DefaultAttributes=hasim inorder
 model=Inorder pipeline
 
-
-
-
 [Inorder pipeline]
 File=modules/hasim/timing-models/pipeline/inorder/inorder.awb
 Packagehint=hasim-models
+
+[2 bit Branch Predictor]
+File=modules/hasim/timing-models/structures/branch/predictor/2bit/BranchPred.awb
+Packagehint=hasim-models
+
+[Inorder pipeline/Requires]
+hasim_branch_pred=2 bit Branch Predictor

@@ -1434,3 +1434,40 @@ Directory modules/hasim/timing-models/pipeline/inorder
 Drain-before wasn't waiting for stores because the in flight counter was counting
 registers, not instructions.  Stores write no registers.  Changed the counter to
 count instructions.
+
+----------
+mcadler     Date: Sat Sep 13 08:50:42 EDT 2008  CSN: CSN-hasim-models-71
+                  Sat Sep 13 12:50:42 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Execute.bsv               Locally Modified           69 
+ Pipeline.bsv              Locally Modified           69 
+ BranchPredictor.bsv       Locally Modified           69 
+ Mem.bsv                   Locally Modified           69 
+ inorder.awb               Locally Modified           69 
+ StoreBuffer.bsv           Locally Modified           69 
+ PipelineTypes.bsv         Locally Modified           69 
+ WriteBack.bsv             Locally Modified           69 
+ Decode.bsv                Locally Modified           70 
+ Fetch.bsv                 Locally Modified           69 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ dcache_types.awb          Locally Modified           69 
+ icache_types.awb          Locally Modified           69 
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified           69 
+
+- Add branch predictor:
+  - Feedback from EXE now indicates whether prediction was right
+  - BranchPredictor module now talks to a real predictor using standard
+    interface.
+  - Configured inorder model to use 2-bit predictor.
+  - Still using private BTB.  Changed BTB to drop its entry when it
+    causes a taken prediction for a non-branch instruction. (Caused by
+    an alias.)
+
+- Increased I and D cache index sizes from 8 to 10 bits.  Reduced miss
+  penalty from 20 to 10 cycles.  Trying to get more activity in the
+  model and there were a lot of misses given the lack of a 2nd level cache.

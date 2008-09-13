@@ -3,6 +3,7 @@
 %name Inorder pipeline
 %desc Inorder pipeline
 %provides hasim_pipeline
+%requires hasim_branch_pred
 
 %attributes hasim pipeline inorder
 
