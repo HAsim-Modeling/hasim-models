@@ -61,6 +61,7 @@ module [HASIM_MODULE] mkFetch();
 
     rule branchPredictorResp(state == FETCH_STATE_BRANCH_PREDICTOR_RESP);
         let branchBundle <- branchPredictor.readResp;
+        debugLog.record($format("branchPredResp ") + fshow(branchBundle));
         numFetch <= branchBundle.numFetch;
         numFetch2 <= branchBundle.numFetch;
         nextPc <= branchBundle.nextPc;
@@ -77,7 +78,10 @@ module [HASIM_MODULE] mkFetch();
         end
         else
         begin
-            pc <= nextPc;
+            if (numFetch == 0)
+            begin
+                pc <= nextPc;
+            end
             debugLog.nextModelCycle();
             state <= FETCH_STATE_REWIND_REQ;
             fetchPort.done();

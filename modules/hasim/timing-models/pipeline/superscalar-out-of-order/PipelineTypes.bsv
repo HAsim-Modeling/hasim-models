@@ -36,6 +36,12 @@ function BRANCH_BUNDLE makeBranchBundle(FETCH_INDEX numFetch, ISA_ADDRESS nextPc
     return BRANCH_BUNDLE{numFetch: numFetch, nextPc: nextPc, predictTaken: predictTaken};
 endfunction
 
+instance FShow#(BRANCH_BUNDLE);
+    function Fmt fshow(BRANCH_BUNDLE b);
+        return $format("BRANCH: numFetch: %d nextPc: 0x%x predictTaken: %b", b.numFetch, b.nextPc, b.predictTaken);
+    endfunction
+endinstance
+
 typedef struct {
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;

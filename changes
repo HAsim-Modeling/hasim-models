@@ -1471,3 +1471,20 @@ Directory config/pm/hasim-models/pipeline/inorder
 - Increased I and D cache index sizes from 8 to 10 bits.  Reduced miss
   penalty from 20 to 10 cycles.  Trying to get more activity in the
   model and there were a lot of misses given the lack of a 2nd level cache.
+
+----------
+mcadler     Date: Fri Sep 26 15:42:03 EDT 2008  CSN: CSN-hasim-models-72
+                  Fri Sep 26 19:42:03 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ Fetch.bsv                 Locally Modified           71 
+ PipelineTypes.bsv         Locally Modified           71 
+
+Front end next PC logic assumed a full bundle of instructions is fetched
+on each cycle and blindly took the next PC from the branch predictor.  When
+a full bundle was not fetched instructions were skipped.  All I did was
+ignore the branch predictor's idea of the next PC when a full bundle isn't
+fetched.  The predictor interface is as broken as ever and IPC of the
+modeled machine is still abysmal.  memory_tests_aligned now runs correctly,
+though IPC is 0.09.
