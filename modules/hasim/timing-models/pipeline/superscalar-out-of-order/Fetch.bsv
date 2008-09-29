@@ -13,7 +13,7 @@ module [HASIM_MODULE] mkFetch();
     TIMEP_DEBUG_FILE                                                               debugLog <- mkTIMEPDebugFile("pipe_fet.out");
 
     PORT_CREDIT_SEND#(FETCH_BUNDLE, `FETCH_NUM, LOG_FETCH_CREDITS)                fetchPort <- mkPortCreditSend("fetch");
-    PORT_CREDIT_RECEIVE#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)    predictUpdatePort <- mkPortCreditReceive("predictUpdate", `ALU_NUM);
+    PORT_CREDIT_RECEIVE#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)    predictUpdatePort <- mkPortCreditReceive("predictUpdate");
 
     PORT_RECEIVE#(REWIND_BUNDLE)                                                resteerPort <- mkPortReceive("resteer");
 

@@ -143,7 +143,7 @@ module [HASIM_MODULE] mkPortCreditSend#(String str)
     endmethod
 endmodule
 
-module [HASIM_MODULE] mkPortCreditReceive#(String str, Bit#(logCredit) initCredit)
+module [HASIM_MODULE] mkPortCreditReceive#(String str)
     (PORT_CREDIT_RECEIVE#(dataT, bandwidth, logCredit))
     provisos(Transmittable#(dataT),
              Transmittable#(Bit#(logCredit)),
