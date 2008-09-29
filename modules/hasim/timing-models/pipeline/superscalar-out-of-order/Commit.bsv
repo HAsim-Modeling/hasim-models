@@ -8,7 +8,7 @@ import hasim_modellib::*;
 module [HASIM_MODULE] mkCommit();
     TIMEP_DEBUG_FILE                                                            debugLog <- mkTIMEPDebugFile("pipe_com.out");
 
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(COMMIT_BUNDLE, `COMMIT_NUM, `COMMIT_NUM)   commitPort <- mkPortBandwidthCreditReceive("commit", `COMMIT_NUM);
+    PORT_CREDIT_RECEIVE#(COMMIT_BUNDLE, `COMMIT_NUM, LOG_COMMIT_NUM)          commitPort <- mkPortCreditReceive("commit", `COMMIT_NUM);
 
     Connection_Client#(FUNCP_REQ_COMMIT_RESULTS, FUNCP_RSP_COMMIT_RESULTS) commitResults <- mkConnection_Client("funcp_commitResults");
     Connection_Client#(FUNCP_REQ_COMMIT_STORES, FUNCP_RSP_COMMIT_STORES)    commitStores <- mkConnection_Client("funcp_commitStores");

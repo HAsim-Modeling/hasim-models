@@ -16,3 +16,9 @@ model=Hasim superscalar out-of-order CPU
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/superscalar-out-of-order.awb
 Packagehint=hasim-models
 
+[2 bit Branch Predictor]
+File=modules/hasim/timing-models/structures/branch/predictor/2bit/BranchPred.awb
+Packagehint=hasim-models
+
+[Hasim superscalar out-of-order CPU/Requires]
+hasim_branch_pred=2 bit Branch Predictor

@@ -10,15 +10,22 @@ import funcp_interface::*;
 import FShow::*;
 import Vector::*;
 
+typedef TLog#(TAdd#(`FETCH_CREDITS, 1)) LOG_FETCH_CREDITS;
+typedef TAdd#(`ROB_INDEX_SIZE, 1) LOG_DECODE_CREDITS;
+typedef TLog#(TAdd#(`ALU_CREDITS, 1)) LOG_ALU_CREDITS;
+typedef TLog#(TAdd#(`ALU_NUM, 1)) LOG_ALU_NUM;
+typedef TLog#(TAdd#(`MEM_CREDITS, 1)) LOG_MEM_CREDITS;
+typedef TLog#(TAdd#(`MEM_NUM, 1)) LOG_MEM_NUM;
+typedef TLog#(TAdd#(`COMMIT_NUM, 1)) LOG_COMMIT_NUM;
+
 typedef TAdd#(`ALU_NUM, `MEM_NUM) WRITEBACK_NUM;
 typedef Bit#(TLog#(TAdd#(WRITEBACK_NUM, 1))) WRITEBACK_INDEX;
 typedef Bit#(TLog#(TAdd#(ISA_MAX_DSTS, 1))) ISA_DEST_REGS_INDEX;
-typedef Bit#(TLog#(TAdd#(`FETCH_CREDITS, 1))) FETCH_BUFFER_INDEX;
+typedef Bit#(LOG_FETCH_CREDITS) FETCH_BUFFER_INDEX;
 typedef TExp#(`ROB_INDEX_SIZE) DECODE_CREDITS;
-typedef Bit#(TLog#(TAdd#(`FETCH_NUM, 1))) FETCH_INDEX;
 
 typedef Bit#(`ROB_INDEX_SIZE) ROB_INDEX;
-typedef Bit#(TAdd#(`ROB_INDEX_SIZE, 1)) ROB_PTR;
+typedef Bit#(LOG_DECODE_CREDITS) ROB_PTR;
 
 instance FShow#(TOKEN);
     function Fmt fshow(TOKEN tok);
@@ -26,47 +33,31 @@ instance FShow#(TOKEN);
     endfunction
 endinstance
 
-typedef struct {
-    FETCH_INDEX numFetch;
-    ISA_ADDRESS nextPc;
-    Bool predictTaken;
-} BRANCH_BUNDLE deriving (Bits, Eq);
-
-function BRANCH_BUNDLE makeBranchBundle(FETCH_INDEX numFetch, ISA_ADDRESS nextPc, Bool predictTaken);
-    return BRANCH_BUNDLE{numFetch: numFetch, nextPc: nextPc, predictTaken: predictTaken};
-endfunction
-
-instance FShow#(BRANCH_BUNDLE);
-    function Fmt fshow(BRANCH_BUNDLE b);
-        return $format("BRANCH: numFetch: %d nextPc: 0x%x predictTaken: %b", b.numFetch, b.nextPc, b.predictTaken);
-    endfunction
-endinstance
+typedef enum {PRED_TYPE_BRANCH_IMM, PRED_TYPE_BRANCH_REG, PRED_TYPE_JUMP_IMM, PRED_TYPE_JUMP_REG, PRED_TYPE_RET, PRED_TYPE_TARGET, PRED_TYPE_NONE} PRED_TYPE deriving (Bits, Eq); 
 
 typedef struct {
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;
+    PRED_TYPE predType;
     Bool prediction;
-    FETCH_INDEX numFetch;
+    ISA_ADDRESS predPc;
     Bool afterResteer;
     ROB_INDEX epochRob;
     TOKEN token;
 } FETCH_BUNDLE deriving (Bits, Eq);
 
-function FETCH_BUNDLE makeFetchBundle(ISA_INSTRUCTION inst, ISA_ADDRESS pc, Bool prediction, FETCH_INDEX numFetch, Bool afterResteer, ROB_INDEX epochRob, TOKEN token);
-    return FETCH_BUNDLE{inst: inst, pc: pc, prediction: prediction, numFetch: numFetch, afterResteer: afterResteer, epochRob: epochRob, token: token};
-endfunction
-
 instance FShow#(FETCH_BUNDLE);
     function Fmt fshow(FETCH_BUNDLE b);
-        return $format("FETCH: pc: 0x%x prediction: %b afterResteer: %b resteerEpoch: %d ", b.pc, b.prediction, b.afterResteer, b.epochRob) + fshow(b.token);
+        return $format("FETCH: pc: 0x%x predType: %d prediction: %b predPc: 0x%x afterResteer: %b resteerEpoch: %d ", b.pc, b.predType, b.prediction, b.predPc, b.afterResteer, b.epochRob) + fshow(b.token);
     endfunction
 endinstance
 
 typedef struct {
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;
+    PRED_TYPE predType;
     Bool prediction;
-    FETCH_INDEX numFetch;
+    ISA_ADDRESS predPc;
     Bool afterResteer;
     ROB_INDEX epochRob;
     Vector#(ISA_MAX_SRCS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) srcs;
@@ -106,8 +97,9 @@ endinstance
 function DECODE_BUNDLE makeDecodeBundle(FETCH_BUNDLE fetch, Vector#(ISA_MAX_SRCS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) srcs, Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts);
     return DECODE_BUNDLE{inst: fetch.inst,
                          pc: fetch.pc,
+                         predType: fetch.predType,
                          prediction: fetch.prediction,
-                         numFetch: fetch.numFetch,
+                         predPc: fetch.predPc,
                          afterResteer: fetch.afterResteer,
                          epochRob: fetch.epochRob,
                          drainBefore: isaDrainBefore(fetch.inst),
@@ -121,8 +113,9 @@ typedef struct {
     ROB_INDEX robIndex;
     ISA_INSTRUCTION inst;
     ISA_ADDRESS pc;
+    PRED_TYPE predType;
     Bool prediction;
-    FETCH_INDEX numFetch;
+    ISA_ADDRESS predPc;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
     Bool drainBefore;
     Bool drainAfter;
@@ -138,9 +131,10 @@ endinstance
 function ALU_BUNDLE makeAluBundle(DECODE_BUNDLE decode, ROB_PTR robPtr);
     return ALU_BUNDLE{robIndex: truncate(robPtr),
                       inst: decode.inst,
+                      predType: decode.predType,
                       pc: decode.pc,
+                      predPc: decode.predPc,
                       prediction: decode.prediction,
-                      numFetch: decode.numFetch,
                       dsts: decode.dsts,
                       drainBefore: decode.drainBefore,
                       drainAfter: decode.drainAfter,
@@ -170,8 +164,9 @@ endfunction
 typedef struct {
     ROB_INDEX robIndex;
     ISA_ADDRESS pc;
+    PRED_TYPE predType;
     Bool prediction;
-    FETCH_INDEX numFetch;
+    ISA_ADDRESS predPc;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
     Bool mispredict;
     ISA_ADDRESS addr;
@@ -223,8 +218,9 @@ function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_RSP_G
     endcase
     return ALU_WRITEBACK_BUNDLE{robIndex: alu.robIndex,
                                 pc: alu.pc,
+                                predType: alu.predType,
                                 prediction: alu.prediction,
-                                numFetch: alu.numFetch,
+                                predPc: alu.predPc,
                                 dsts: alu.dsts,
                                 mispredict: mispredict,
                                 addr: addr,
@@ -279,10 +275,33 @@ function MEM_WRITEBACK_BUNDLE makeMemWritebackBundle(MEM_ADDRESS_BUNDLE mem);
 endfunction
 
 typedef struct {
-    ROB_INDEX robIndex;
+    PRED_TYPE predType;
+    Bool pred;
+    Bool actual;
+    ISA_ADDRESS predPc;
     ISA_ADDRESS pc;
-    Bool prediction;
-    FETCH_INDEX numFetch;
+    ISA_ADDRESS actualAddr;
+    TOKEN token;
+} PREDICT_UPDATE_BUNDLE deriving (Bits, Eq);
+
+instance FShow#(PREDICT_UPDATE_BUNDLE);
+    function Fmt fshow(PREDICT_UPDATE_BUNDLE b);
+        return $format("predType: %d pred: %b actual: %b predPc: 0x%x actualAddr: 0x%x pc: 0x%x", b.predType, b.pred, b.actual, b.predPc, b.actualAddr, b.pc) + fshow(b.token);
+    endfunction
+endinstance
+
+function PREDICT_UPDATE_BUNDLE makePredictUpdateBundle(ALU_WRITEBACK_BUNDLE alu);
+    return PREDICT_UPDATE_BUNDLE{predType: alu.predType,
+                                 pred: alu.prediction,
+                                 actual: alu.mispredict? !alu.prediction: alu.prediction,
+                                 predPc: alu.predPc,
+                                 actualAddr: alu.addr,
+                                 pc: alu.pc,
+                                 token: alu.token};
+endfunction
+
+typedef struct {
+    ROB_INDEX robIndex;
     Bool mispredict;
     ISA_ADDRESS addr;
     TOKEN token;
@@ -296,9 +315,6 @@ endinstance
 
 function REWIND_BUNDLE makeRewindBundle(ALU_WRITEBACK_BUNDLE alu);
     return REWIND_BUNDLE{robIndex: alu.robIndex,
-                         pc: alu.pc,
-                         prediction: alu.prediction,
-                         numFetch: alu.numFetch,
                          mispredict: alu.mispredict,
                          addr: alu.addr,
                          token: alu.token};

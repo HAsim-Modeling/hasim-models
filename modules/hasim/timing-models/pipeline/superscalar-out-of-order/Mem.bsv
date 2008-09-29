@@ -13,8 +13,8 @@ typedef enum {MEM_ADDRESS_STATE_FILL, MEM_ADDRESS_STATE_ADDRESS_REQ, MEM_ADDRESS
 module [HASIM_MODULE] mkMemAddress();
     TIMEP_DEBUG_FILE                                                              debugLog <- mkTIMEPDebugFile("pipe_mem_addr.out");
 
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(MEM_BUNDLE, `MEM_NUM, `MEM_CREDITS)             memPort <- mkPortBandwidthCreditReceive("mem", `MEM_CREDITS);
-    PORT_BANDWIDTH_CREDIT_SEND#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortBandwidthCreditSend("memAddress");
+    PORT_CREDIT_RECEIVE#(MEM_BUNDLE, `MEM_NUM, `MEM_CREDITS)             memPort <- mkPortCreditReceive("mem", `MEM_CREDITS);
+    PORT_CREDIT_SEND#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortCreditSend("memAddress");
 
     Connection_Client#(FUNCP_REQ_GET_RESULTS, FUNCP_RSP_GET_RESULTS)            getResults <- mkConnection_Client("funcp_getResults1");
 
@@ -65,8 +65,8 @@ typedef enum {MEM_STATE_FILL, MEM_STATE_D_TRANSLATE_REQ, MEM_STATE_MEM_REQ, MEM_
 module [HASIM_MODULE] mkMem();
     TIMEP_DEBUG_FILE                                                                 debugLog <- mkTIMEPDebugFile("pipe_mem.out");
 
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortBandwidthCreditReceive("memAddress", `MEM_CREDITS);
-    PORT_BANDWIDTH_CREDIT_SEND#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, `MEM_NUM)    memWritebackPort <- mkPortBandwidthCreditSend("memWriteback");
+    PORT_CREDIT_RECEIVE#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS) memAddressPort <- mkPortCreditReceive("memAddress", `MEM_CREDITS);
+    PORT_CREDIT_SEND#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, `MEM_NUM)    memWritebackPort <- mkPortCreditSend("memWriteback");
 
     Connection_Client#(FUNCP_REQ_DO_DTRANSLATE, FUNCP_RSP_DO_DTRANSLATE)         doDTranslate <- mkConnection_Client("funcp_doDTranslate");
     Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS)                        doLoads <- mkConnection_Client("funcp_doLoads");

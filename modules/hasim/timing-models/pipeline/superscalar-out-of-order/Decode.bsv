@@ -12,8 +12,8 @@ typedef enum {DECODE_STATE_FILL, DECODE_STATE_REQ_DEPENDENCIES, DECODE_STATE_RES
 module [HASIM_MODULE] mkDecode();
     TIMEP_DEBUG_FILE                                                                  debugLog <- mkTIMEPDebugFile("pipe_dec.out");
 
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(FETCH_BUNDLE, `FETCH_NUM, `FETCH_CREDITS)         fetchPort <- mkPortBandwidthCreditReceive("fetch", fromInteger(`FETCH_CREDITS));
-    PORT_BANDWIDTH_CREDIT_SEND#(DECODE_BUNDLE, `DECODE_NUM, DECODE_CREDITS)         decodePort <- mkPortBandwidthCreditSend("decode");
+    PORT_CREDIT_RECEIVE#(FETCH_BUNDLE, `FETCH_NUM, LOG_FETCH_CREDITS)                fetchPort <- mkPortCreditReceive("fetch", fromInteger(`FETCH_CREDITS));
+    PORT_CREDIT_SEND#(DECODE_BUNDLE, `DECODE_NUM, LOG_DECODE_CREDITS)               decodePort <- mkPortCreditSend("decode");
 
     Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES, FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
 

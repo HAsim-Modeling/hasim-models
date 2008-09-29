@@ -11,52 +11,59 @@ import Counter::*;
 
 typedef enum {ROB_STATE_WRITEBACK_ALU, ROB_STATE_WRITEBACK_MEM, ROB_STATE_ADD, ROB_STATE_COMMIT_REQ, ROB_STATE_COMMIT_RESP, ROB_STATE_ISSUE_REQ, ROB_STATE_ISSUE_RESP} ROB_STATE deriving (Bits, Eq);
 
+typedef Bit#(3) TIME_STAMP;
+typedef enum {ALU, MEM} WRITE_TYPE deriving (Bits, Eq);
+
 typedef DECODE_BUNDLE ROB_ENTRY;
 
-REWIND_BUNDLE nullRewindBundle = REWIND_BUNDLE{robIndex: 0, pc: 0, prediction: False, numFetch: 0, mispredict: False, addr: 0, token: ?};
+REWIND_BUNDLE nullRewindBundle = REWIND_BUNDLE{robIndex: 0, mispredict: False, addr: 0, token: ?};
 
 module [HASIM_MODULE] mkRob();
-    TIMEP_DEBUG_FILE                                                                 debugLog <- mkTIMEPDebugFile("pipe_rob.out");
+    TIMEP_DEBUG_FILE                                                             debugLog <- mkTIMEPDebugFile("pipe_rob.out");
 
-    PORT_BANDWIDTH_CREDIT_SEND#(COMMIT_BUNDLE, `COMMIT_NUM, `COMMIT_NUM)           commitPort <- mkPortBandwidthCreditSend("commit");
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(ALU_WRITEBACK_BUNDLE, `ALU_NUM, `ALU_NUM) aluWritebackPort <- mkPortBandwidthCreditReceive("aluWriteback", `ALU_NUM);
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, `MEM_NUM) memWritebackPort <- mkPortBandwidthCreditReceive("memWriteback", `MEM_NUM);
-    PORT_BANDWIDTH_CREDIT_RECEIVE#(DECODE_BUNDLE, `DECODE_NUM, DECODE_CREDITS)     decodePort <- mkPortBandwidthCreditReceive("decode", fromInteger(valueOf(DECODE_CREDITS)));
-    PORT_BANDWIDTH_CREDIT_SEND#(MEM_BUNDLE, `MEM_NUM, `MEM_CREDITS)                   memPort <- mkPortBandwidthCreditSend("mem");
-    PORT_BANDWIDTH_CREDIT_SEND#(ALU_BUNDLE, `ALU_NUM, `ALU_CREDITS)                   aluPort <- mkPortBandwidthCreditSend("alu");
+    PORT_CREDIT_SEND#(COMMIT_BUNDLE, `COMMIT_NUM, LOG_COMMIT_NUM)              commitPort <- mkPortCreditSend("commit");
+    PORT_CREDIT_RECEIVE#(ALU_WRITEBACK_BUNDLE, `ALU_NUM, LOG_ALU_NUM)    aluWritebackPort <- mkPortCreditReceive("aluWriteback", `ALU_NUM);
+    PORT_CREDIT_RECEIVE#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, LOG_MEM_NUM)    memWritebackPort <- mkPortCreditReceive("memWriteback", `MEM_NUM);
+    PORT_CREDIT_RECEIVE#(DECODE_BUNDLE, `DECODE_NUM, LOG_DECODE_CREDITS)       decodePort <- mkPortCreditReceive("decode", fromInteger(valueOf(DECODE_CREDITS)));
+    PORT_CREDIT_SEND#(MEM_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)                      memPort <- mkPortCreditSend("mem");
+    PORT_CREDIT_SEND#(ALU_BUNDLE, `ALU_NUM, LOG_ALU_CREDITS)                      aluPort <- mkPortCreditSend("alu");
+    PORT_CREDIT_SEND#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)     predictUpdatePort <- mkPortCreditSend("predictUpdate");
 
-    PORT_SEND#(REWIND_BUNDLE)                                                     resteerPort <- mkPortSend("resteer", nullRewindBundle);
+    PORT_SEND#(REWIND_BUNDLE)                                                 resteerPort <- mkPortSend("resteer", nullRewindBundle);
 
-    Connection_Send#(Bool)                                                         modelCycle <- mkConnection_Send("model_cycle");
+    Connection_Send#(Bool)                                                     modelCycle <- mkConnection_Send("model_cycle");
 
-    BRAM#(ROB_INDEX, ROB_ENTRY)                                                           rob <- mkBRAM();
+    BRAM#(ROB_INDEX, ROB_ENTRY)                                                       rob <- mkBRAM();
 
     function prfInit(i) = (i < valueOf(TExp#(SizeOf#(ISA_REG_INDEX))));
-    Reg#(Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Bool))                   prfValids <- mkReg(genWith(prfInit));
+    Reg#(Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Bool))               prfValids <- mkReg(genWith(prfInit));
+    Reg#(Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), TIME_STAMP))    writeTimeStamp <- mkReg(replicate(1));
+    Reg#(Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Maybe#(WRITE_TYPE))) writeType <- mkReg(replicate(tagged Valid ALU));
+    Reg#(TIME_STAMP)                                                            timeStamp <- mkReg(0);
 
-    Reg#(ROB_STATE)                                                                     state <- mkReg(ROB_STATE_WRITEBACK_ALU);
+    Reg#(ROB_STATE)                                                                 state <- mkReg(ROB_STATE_WRITEBACK_ALU);
 
-    Reg#(ROB_PTR)                                                                   commitPtr <- mkReg(0);
-    Reg#(ROB_PTR)                                                                      addPtr <- mkReg(0);
-    Reg#(ROB_PTR)                                                                    issuePtr <- mkReg(0);
+    Reg#(ROB_PTR)                                                               commitPtr <- mkReg(0);
+    Reg#(ROB_PTR)                                                                  addPtr <- mkReg(0);
+    Reg#(ROB_PTR)                                                                issuePtr <- mkReg(0);
 
-    Reg#(Vector#(DECODE_CREDITS, Bool))                                              robValid <- mkReg(replicate(True));
-    Reg#(Vector#(DECODE_CREDITS, Bool))                                              robEpoch <- mkReg(replicate(False));
-    Reg#(Bool)                                                                    resteerWait <- mkReg(False);
+    Reg#(Vector#(DECODE_CREDITS, Bool))                                          robValid <- mkReg(replicate(True));
+    Reg#(Vector#(DECODE_CREDITS, Bool))                                          robEpoch <- mkReg(replicate(False));
+    Reg#(Bool)                                                                resteerWait <- mkReg(False);
 
-    LUTRAM#(ROB_INDEX, Bool)                                                          robDone <- mkLUTRAMU();
-    LUTRAM#(ROB_INDEX, Bool)                                                        robIssued <- mkLUTRAMU();
-    LUTRAM#(ROB_INDEX, Bool)                                                        terminate <- mkLUTRAMU();
-    LUTRAM#(ROB_INDEX, Bool)                                                         passFail <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                      robDone <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                    robIssued <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                    terminate <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                     passFail <- mkLUTRAMU();
 
-    Reg#(REWIND_BUNDLE)                                                          rewindBundle <- mkReg(nullRewindBundle);
+    Reg#(REWIND_BUNDLE)                                                      rewindBundle <- mkReg(nullRewindBundle);
 
-    Reg#(Bool)                                                                  allPrevIssued <- mkReg(False);
-    Reg#(Bool)                                                               allPrevMemIssued <- mkReg(False);
+    Reg#(Bool)                                                              allPrevIssued <- mkReg(False);
+    Reg#(Bool)                                                           allPrevMemIssued <- mkReg(False);
 
     Vector#(0, Port_Control) inports  = newVector();
     Vector#(0, Port_Control) outports = newVector();
-    LocalController                                                           localController <- mkLocalController(inports, outports);
+    LocalController                                                       localController <- mkLocalController(inports, outports);
 
     ROB_INDEX commitIndex = truncate(commitPtr);
     ROB_INDEX addIndex = truncate(addPtr);
@@ -79,7 +86,7 @@ module [HASIM_MODULE] mkRob();
         for(Integer i = 0; i < valueOf(ISA_MAX_SRCS); i = i + 1)
         begin
             if(entry.srcs[i] matches tagged Valid .src)
-                readys[i] = prfValids[src];
+                readys[i] = (isValid(writeType[src]) && (validValue(writeType[src]) == ALU && (timeStamp - writeTimeStamp[src]) > 1) || prfValids[src]);
             else
                 readys[i] = True;
         end
@@ -96,11 +103,29 @@ module [HASIM_MODULE] mkRob();
         return newPrfValids;
     endfunction
 
+    function Action markWriteType(Maybe#(WRITE_TYPE) _writeType, Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) regs);
+    action
+        Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Maybe#(WRITE_TYPE)) newWriteType = writeType;
+        Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), TIME_STAMP)    newWriteTimeStamp = writeTimeStamp;
+        for(Integer i = 0; i < valueOf(ISA_MAX_DSTS); i = i + 1)
+        begin
+            if(regs[i] matches tagged Valid .idx)
+            begin
+                newWriteType[idx] = _writeType;
+                newWriteTimeStamp[idx] = timeStamp;
+            end
+        end
+        writeType <= newWriteType;
+        writeTimeStamp <= newWriteTimeStamp;
+    endaction
+    endfunction
+
     rule writebackAlu(state == ROB_STATE_WRITEBACK_ALU);
         if(aluWritebackPort.canReceive())
         begin
             let bundle <- aluWritebackPort.pop();
             debugLog.record($format("writebackAlu ") + fshow(bundle) + $format(" robValid[%d]: %b", bundle.robIndex, robValid[bundle.robIndex]));
+            predictUpdatePort.enq(makePredictUpdateBundle(bundle));
             if(robValid[bundle.robIndex])
             begin
                 prfValids <= markPrfValidOrInvalid(True, bundle.dsts);
@@ -123,6 +148,7 @@ module [HASIM_MODULE] mkRob();
         end
         else
         begin
+            predictUpdatePort.done;
             aluWritebackPort.done(`ALU_NUM);
             state <= ROB_STATE_WRITEBACK_MEM;
             debugLog.record($format("writebackAlu resteer ") + fshow(rewindBundle));
@@ -161,6 +187,7 @@ module [HASIM_MODULE] mkRob();
                 robDone.upd(addIndex, False);
                 rob.write(addIndex, entry);
                 prfValids <= markPrfValidOrInvalid(False, entry.dsts);
+                markWriteType(Invalid, entry.dsts);
                 terminate.upd(addIndex, False);
                 addPtr <= addPtr + 1;
             end
@@ -205,7 +232,9 @@ module [HASIM_MODULE] mkRob();
     rule issueReq(state == ROB_STATE_ISSUE_REQ);
         if((!memPort.canSend() && !aluPort.canSend()) || issuePtr == addPtr || !allPrevIssued)
         begin
+            modelCycle.send(?);
             debugLog.nextModelCycle();
+            timeStamp <= timeStamp + 1;
             memPort.done();
             aluPort.done();
             state <= ROB_STATE_WRITEBACK_ALU;
@@ -222,7 +251,6 @@ module [HASIM_MODULE] mkRob();
         begin
             rob.readReq(issueIndex);
             state <= ROB_STATE_ISSUE_RESP;
-            modelCycle.send(?);
         end
     endrule
 
@@ -240,6 +268,7 @@ module [HASIM_MODULE] mkRob();
                 begin
                     debugLog.record($format("issueResp mem") + fshow(entry));
                     memPort.enq(makeMemBundle(entry, issuePtr));
+                    markWriteType(tagged Valid MEM, entry.dsts);
                     robIssued.upd(issueIndex, True);
                 end
                 else
@@ -255,6 +284,7 @@ module [HASIM_MODULE] mkRob();
                 begin
                     debugLog.record($format("issueResp alu") + fshow(entry));
                     aluPort.enq(makeAluBundle(entry, issuePtr));
+                    markWriteType(tagged Valid ALU, entry.dsts);
                     robIssued.upd(issueIndex, True);
                 end
                 else
