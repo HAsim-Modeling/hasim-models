@@ -7,8 +7,8 @@ import funcp_interface::*;
 typedef enum {ALU_REQ, MEM_REQ} GET_RESULTS_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkGetResults();
-    PORT_CREDIT_RECEIVE#(FUNCP_REQ_GET_RESULTS, `ALU_NUM, LOG_ALU_NUM)    aluIn <- mkPortCreditReceive("aluGetResultsReq");
-    PORT_CREDIT_RECEIVE#(FUNCP_REQ_GET_RESULTS, `MEM_NUM, LOG_MEM_NUM)    memIn <- mkPortCreditReceive("memGetResultsReq");
+    PORT_NO_STALL_RECEIVE#(FUNCP_REQ_GET_RESULTS, `ALU_NUM)    aluIn <- mkPortNoStallReceive("aluGetResultsReq");
+    PORT_NO_STALL_RECEIVE#(FUNCP_REQ_GET_RESULTS, `MEM_NUM)    memIn <- mkPortNoStallReceive("memGetResultsReq");
 
     Connection_Send#(FUNCP_RSP_GET_RESULTS)                              aluOut <- mkConnection_Send("aluGetResultsResp");
     Connection_Send#(FUNCP_RSP_GET_RESULTS)                              memOut <- mkConnection_Send("memGetResultsResp");
@@ -26,7 +26,7 @@ module [HASIM_MODULE] mkGetResults();
         end
         else
         begin
-            aluIn.done(`ALU_NUM);
+            aluIn.done;
             state <= MEM_REQ;
         end
     endrule
@@ -40,7 +40,7 @@ module [HASIM_MODULE] mkGetResults();
         end
         else
         begin
-            memIn.done(`MEM_NUM);
+            memIn.done;
             state <= ALU_REQ;
         end
     endrule

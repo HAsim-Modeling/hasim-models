@@ -22,14 +22,14 @@ module [HASIM_MODULE] mkRob();
     TIMEP_DEBUG_FILE                                                             debugLog <- mkTIMEPDebugFile("pipe_rob.out");
 
     PORT_CREDIT_SEND#(COMMIT_BUNDLE, `COMMIT_NUM, LOG_COMMIT_NUM)              commitPort <- mkPortCreditSend("commit");
-    PORT_CREDIT_RECEIVE#(ALU_WRITEBACK_BUNDLE, `ALU_NUM, LOG_ALU_NUM)    aluWritebackPort <- mkPortCreditReceive("aluWriteback");
-    PORT_CREDIT_RECEIVE#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, LOG_MEM_NUM)    memWritebackPort <- mkPortCreditReceive("memWriteback");
+    PORT_NO_STALL_RECEIVE#(ALU_WRITEBACK_BUNDLE, `ALU_NUM)               aluWritebackPort <- mkPortNoStallReceive("aluWriteback");
+    PORT_NO_STALL_RECEIVE#(MEM_WRITEBACK_BUNDLE, `MEM_NUM)               memWritebackPort <- mkPortNoStallReceive("memWriteback");
     PORT_CREDIT_RECEIVE#(DECODE_BUNDLE, `DECODE_NUM, LOG_DECODE_CREDITS)       decodePort <- mkPortCreditReceive("decode");
     PORT_CREDIT_SEND#(MEM_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)                      memPort <- mkPortCreditSend("mem");
     PORT_CREDIT_SEND#(ALU_BUNDLE, `ALU_NUM, LOG_ALU_CREDITS)                      aluPort <- mkPortCreditSend("alu");
     PORT_CREDIT_SEND#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)     predictUpdatePort <- mkPortCreditSend("predictUpdate");
 
-    PORT_SEND#(REWIND_BUNDLE)                                                 resteerPort <- mkPortSend("resteer", nullRewindBundle);
+    PORT_CREDIT_SEND#(REWIND_BUNDLE, 1, 1)                                    resteerPort <- mkPortCreditSend("resteer");
 
     Connection_Send#(Bool)                                                     modelCycle <- mkConnection_Send("model_cycle");
 
@@ -149,10 +149,10 @@ module [HASIM_MODULE] mkRob();
         else
         begin
             predictUpdatePort.done;
-            aluWritebackPort.done(`ALU_NUM);
+            aluWritebackPort.done;
             state <= ROB_STATE_WRITEBACK_MEM;
             debugLog.record($format("writebackAlu resteer ") + fshow(rewindBundle));
-            resteerPort.enq(rewindBundle);
+            resteerPort.send(rewindBundle);
             rewindBundle <= nullRewindBundle;
         end
     endrule
@@ -169,7 +169,7 @@ module [HASIM_MODULE] mkRob();
         end
         else
         begin
-            memWritebackPort.done(`MEM_NUM);
+            memWritebackPort.done;
             state <= ROB_STATE_ADD;
         end
     endrule

@@ -13,9 +13,8 @@ module [HASIM_MODULE] mkFetch();
     TIMEP_DEBUG_FILE                                                               debugLog <- mkTIMEPDebugFile("pipe_fet.out");
 
     PORT_CREDIT_SEND#(FETCH_BUNDLE, `FETCH_NUM, LOG_FETCH_CREDITS)                fetchPort <- mkPortCreditSend("fetch");
-    PORT_CREDIT_RECEIVE#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)    predictUpdatePort <- mkPortCreditReceive("predictUpdate");
-
-    PORT_RECEIVE#(REWIND_BUNDLE)                                                resteerPort <- mkPortReceive("resteer");
+    PORT_NO_STALL_RECEIVE#(PREDICT_UPDATE_BUNDLE, `ALU_NUM)               predictUpdatePort <- mkPortNoStallReceive("predictUpdate");
+    PORT_NO_STALL_RECEIVE#(REWIND_BUNDLE, 1)                                    resteerPort <- mkPortNoStallReceive("resteer");
 
     Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT, FUNCP_RSP_NEW_IN_FLIGHT)        newInFlight <- mkConnection_Client("funcp_newInFlight");
     Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, FUNCP_RSP_DO_ITRANSLATE)         iTranslate <- mkConnection_Client("funcp_doITranslate");
@@ -30,11 +29,6 @@ module [HASIM_MODULE] mkFetch();
 
     BranchPred                                                                   branchPred <- mkBranchPred;
 
-    Reg#(Bit#(32))                                                                   fpgaCC <- mkReg(0);
-    rule inc(True);
-        fpgaCC <= fpgaCC + 1;
-    endrule
-
     function Action makeFetchBundle(TOKEN token, ISA_INSTRUCTION inst, ISA_ADDRESS _pc, PRED_TYPE predType, Bool prediction, ISA_ADDRESS predPc, ROB_INDEX _epochRob, Bool _afterResteer);
     action
         getInstruction.deq;
@@ -42,6 +36,7 @@ module [HASIM_MODULE] mkFetch();
         fetchPort.enq(bundle);
         debugLog.record($format("instResp ") + fshow(bundle));
         afterResteer <= False;
+        pc <= predPc;
         state <= FETCH_STATE_TOKEN_REQ;
     endaction
     endfunction
@@ -58,9 +53,9 @@ module [HASIM_MODULE] mkFetch();
         end
         else
         begin
-            predictUpdatePort.done(`ALU_NUM);
-            let bundle <- resteerPort.pop();
-            debugLog.record($format("rewindReq %d", fpgaCC) + fshow(bundle));
+            predictUpdatePort.done;
+            let bundle <- resteerPort.receive();
+            debugLog.record($format("rewindReq ") + fshow(bundle));
             if(bundle.mispredict)
             begin
                 pc <= bundle.addr;
@@ -75,7 +70,7 @@ module [HASIM_MODULE] mkFetch();
     endrule
 
     rule rewindResp(state == FETCH_STATE_REWIND_RESP);
-        debugLog.record($format("rewindResp %d", fpgaCC));
+        debugLog.record($format("rewindResp "));
         rewindToToken.deq();
         epoch <= epoch + 1;
         state <= FETCH_STATE_TOKEN_REQ;
@@ -130,10 +125,7 @@ module [HASIM_MODULE] mkFetch();
             state <= FETCH_STATE_JUMP_IMM;
         end
         else
-        begin
-            makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_NONE, False, 0, epochRob, afterResteer);
-            pc <= pc + 4;
-        end
+            makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_NONE, False, pc + 4, epochRob, afterResteer);
     endrule
 
     rule branchImm(state == FETCH_STATE_BRANCH_IMM);
@@ -141,13 +133,11 @@ module [HASIM_MODULE] mkFetch();
         let pred <- branchPred.getPredResp;
         let predPc = pred? predPcBranchImm(pc, resp.instruction): pc + 4;
         makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_BRANCH_IMM, pred, predPc, epochRob, afterResteer);
-        pc <= predPc;
     endrule
 
     rule jumpImm(state == FETCH_STATE_JUMP_IMM);
         let resp = getInstruction.getResp;
         let predPc = predPcJumpImm(pc, resp.instruction);
         makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_JUMP_IMM, False, predPc, epochRob, afterResteer);
-        pc <= predPc;
     endrule
 endmodule

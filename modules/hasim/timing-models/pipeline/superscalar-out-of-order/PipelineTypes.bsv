@@ -336,4 +336,16 @@ function COMMIT_BUNDLE makeCommitBundle(DECODE_BUNDLE decode);
                          isStore: isaIsStore(decode.inst)
                         };
 endfunction
+
+function Vector#(n, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) extractPhysReg(Vector#(n, Maybe#(Tuple2#(ISA_REG_INDEX, FUNCP_PHYSICAL_REG_INDEX))) regMap);
+    Vector#(n, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) regs = newVector();
+    for(Integer i = 0; i < valueOf(n); i = i + 1)
+    begin
+        case (regMap[i]) matches
+            tagged Valid {.ar, .pr}: regs[i] = tagged Valid pr;
+            tagged Invalid: regs[i] = tagged Invalid;
+        endcase
+    end
+    return regs;
+endfunction
 `endif
