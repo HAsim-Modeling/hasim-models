@@ -1488,3 +1488,13 @@ ignore the branch predictor's idea of the next PC when a full bundle isn't
 fetched.  The predictor interface is as broken as ever and IPC of the
 modeled machine is still abysmal.  memory_tests_aligned now runs correctly,
 though IPC is 0.09.
+
+----------
+mcadler     Date: Mon Oct  6 18:36:26 EDT 2008  CSN: CSN-hasim-models-78
+                  Mon Oct  6 22:36:26 UTC 2008
+
+
+Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
+ single-issue-out-of-order.apm Locally Added               0 
+
+Add single issue OOO submodel.
