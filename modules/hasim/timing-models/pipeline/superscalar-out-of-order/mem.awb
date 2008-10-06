@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Hasim mem
+%desc Hasim mem
+%provides hasim_mem
+
+%attributes hasim
+
+%public mem.bsv
+
+%AWB_END

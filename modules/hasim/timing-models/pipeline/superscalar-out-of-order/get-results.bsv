@@ -1,8 +1,12 @@
-import hasim_common::*;
-import hasim_modellib::*;
-import hasim_isa::*;
+import FShow::*;
 
-import funcp_interface::*;
+`include "hasim_common.bsh"
+`include "hasim_modellib.bsh"
+`include "hasim_isa.bsh"
+`include "soft_connections.bsh"
+`include "funcp_interface.bsh"
+
+`include "hasim_pipeline_types.bsh"
 
 typedef enum {ALU_REQ, MEM_REQ} GET_RESULTS_STATE deriving (Bits, Eq);
 

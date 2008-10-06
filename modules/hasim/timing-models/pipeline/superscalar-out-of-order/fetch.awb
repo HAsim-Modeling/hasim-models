@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Hasim fetch
+%desc Hasim fetch
+%provides hasim_fetch
+
+%attributes hasim
+
+%public fetch.bsv
+
+%AWB_END

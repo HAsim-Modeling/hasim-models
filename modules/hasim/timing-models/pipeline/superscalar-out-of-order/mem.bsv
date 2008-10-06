@@ -1,12 +1,14 @@
-import hasim_common::*;
-import hasim_modellib::*;
-import hasim_isa::*;
+import FShow::*;
 
-import funcp_interface::*;
+`include "hasim_common.bsh"
+`include "hasim_modellib.bsh"
+`include "hasim_isa.bsh"
+`include "soft_connections.bsh"
+`include "funcp_interface.bsh"
+
+`include "hasim_pipeline_types.bsh"
 
 import FIFOF::*;
-
-`include "PipelineTypes.bsv"
 
 typedef enum {MEM_ADDRESS_STATE_ADDRESS_REQ, MEM_ADDRESS_STATE_ADDRESS_RESP} MEM_ADDRESS_STATE deriving (Bits, Eq);
  
@@ -14,13 +16,12 @@ module [HASIM_MODULE] mkMemAddress();
     TIMEP_DEBUG_FILE                                                              debugLog <- mkTIMEPDebugFile("pipe_mem_addr.out");
 
     PORT_FIFO_RECEIVE#(MEM_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)                      memFifo <- mkPortFifoReceive("mem", True, `MEM_CREDITS);
-    PORT_CREDIT_SEND#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS)           memAddressPort <- mkPortCreditSend("memAddress");
+    PORT_CREDIT_SEND#(MEM_ADDRESS_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)        memAddressPort <- mkPortCreditSend("memAddress");
 
     PORT_CREDIT_SEND#(FUNCP_REQ_GET_RESULTS, `MEM_NUM, LOG_MEM_NUM)          getResultsReq <- mkPortCreditSend("memGetResultsReq");
     Connection_Receive#(FUNCP_RSP_GET_RESULTS)                              getResultsResp <- mkConnection_Receive("memGetResultsResp");
 
     Reg#(MEM_ADDRESS_STATE)                                                          state <- mkReg(MEM_ADDRESS_STATE_ADDRESS_REQ);
-    Reg#(Bit#(TLog#(TAdd#(`MEM_CREDITS, 1))))                                   memCredits <- mkReg(`MEM_CREDITS);
 
     rule addressReq(state == MEM_ADDRESS_STATE_ADDRESS_REQ);
         if(memFifo.canReceive() && memAddressPort.canSend())
@@ -45,7 +46,6 @@ module [HASIM_MODULE] mkMemAddress();
         debugLog.record($format("writeback resp") + fshow(memFifo.first));
         memAddressPort.enq(makeMemAddressBundle(memFifo.first(), res));
         memFifo.deq();
-        memCredits <= memCredits + 1;
         state <= MEM_ADDRESS_STATE_ADDRESS_REQ;
     endrule
 endmodule
@@ -53,17 +53,16 @@ endmodule
 typedef enum {MEM_STATE_D_TRANSLATE_REQ, MEM_STATE_MEM_REQ, MEM_STATE_MEM_RESP} MEM_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkMem();
-    TIMEP_DEBUG_FILE                                                       debugLog <- mkTIMEPDebugFile("pipe_mem.out");
+    TIMEP_DEBUG_FILE                                                            debugLog <- mkTIMEPDebugFile("pipe_mem.out");
 
-    PORT_FIFO_RECEIVE#(MEM_ADDRESS_BUNDLE, `MEM_NUM, `MEM_CREDITS)   memAddressFifo <- mkPortFifoReceive("memAddress", True, `MEM_CREDITS);
-    PORT_CREDIT_SEND#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, `MEM_NUM)    memWritebackPort <- mkPortCreditSend("memWriteback");
+    PORT_FIFO_RECEIVE#(MEM_ADDRESS_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)     memAddressFifo <- mkPortFifoReceive("memAddress", True, `MEM_CREDITS);
+    PORT_CREDIT_SEND#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)  memWritebackPort <- mkPortCreditSend("memWriteback");
 
-    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE, FUNCP_RSP_DO_DTRANSLATE)         doDTranslate <- mkConnection_Client("funcp_doDTranslate");
-    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS)                        doLoads <- mkConnection_Client("funcp_doLoads");
-    Connection_Client#(FUNCP_REQ_DO_STORES, FUNCP_RSP_DO_STORES)                     doStores <- mkConnection_Client("funcp_doSpeculativeStores");
+    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE, FUNCP_RSP_DO_DTRANSLATE)    doDTranslate <- mkConnection_Client("funcp_doDTranslate");
+    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS)                   doLoads <- mkConnection_Client("funcp_doLoads");
+    Connection_Client#(FUNCP_REQ_DO_STORES, FUNCP_RSP_DO_STORES)                doStores <- mkConnection_Client("funcp_doSpeculativeStores");
 
-    Reg#(MEM_STATE)                                                                     state <- mkReg(MEM_STATE_D_TRANSLATE_REQ);
-    Reg#(Bit#(TLog#(TAdd#(`MEM_CREDITS, 1))))                                      memCredits <- mkReg(`MEM_CREDITS);
+    Reg#(MEM_STATE)                                                                state <- mkReg(MEM_STATE_D_TRANSLATE_REQ);
 
     rule dTranslate(state == MEM_STATE_D_TRANSLATE_REQ);
         if(memAddressFifo.canReceive() && memWritebackPort.canSend())
@@ -74,6 +73,7 @@ module [HASIM_MODULE] mkMem();
         end
         else
         begin
+            debugLog.record($format("end cycle"));
             memAddressFifo.done;
             debugLog.nextModelCycle();
             memWritebackPort.done();
@@ -110,14 +110,19 @@ module [HASIM_MODULE] mkMem();
         debugLog.record($format("TOKEN %0d: memResp", memAddressFifo.first().token.index));
 
         if(isaIsLoad(memAddressFifo.first().inst))
+        begin
             doLoads.deq();
+            debugLog.record($format("loads deq"));
+        end
         else
+        begin
             doStores.deq();
+            debugLog.record($format("stores deq"));
+        end
 
         memWritebackPort.enq(makeMemWritebackBundle(memAddressFifo.first()));
         memAddressFifo.deq();
 
         state <= MEM_STATE_D_TRANSLATE_REQ;
-        memCredits <= memCredits + 1;
     endrule
 endmodule

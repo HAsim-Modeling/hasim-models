@@ -1,16 +1,13 @@
 %AWB_START
 
-%name Hasim superscalar out-of-order CPU
-%desc Hasim superscalar out-of-order CPU
-%requires hasim_branch_pred
-%provides hasim_pipeline
+%name Hasim pipeline types
+%desc Hasim pipeline types
+%provides hasim_pipeline_types
 
 %attributes hasim
 
-%public Pipeline.bsv
-%private CreditPort.bsv PipelineTypes.bsv Fetch.bsv Decode.bsv Rob.bsv Alu.bsv Mem.bsv GetResults.bsv Commit.bsv
+%public pipeline-6-stage-types.bsv
 
-%param SYNTH_BOUNDARY mkPipeline "Name of synthesis boundary"
 %param FETCH_CREDITS 32 "Fetch Buffer Credits"
 %param FETCH_NUM 4 "Fetch Bandwidth"
 %param ROB_INDEX_SIZE 5 "ROB index size"
@@ -20,6 +17,5 @@
 %param MEM_CREDITS 2 "Mem unit credits"
 %param ALU_NUM 4 "ALU unit issue bandwidth"
 %param ALU_CREDITS 8 "ALU unit credits"
-%param INORDER_ISSUE 0 "Bool: Inorder issue"
 
 %AWB_END

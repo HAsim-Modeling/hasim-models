@@ -1,14 +1,13 @@
 `ifndef PIPELINE_TYPES_BSV
-`define PIPELINE_TYPES_BSV
-
-import hasim_common::*;
-import hasim_modellib::*;
-import hasim_isa::*;
-
-import funcp_interface::*;
-
+`define PIPELINE_TYPE_BSV
 import FShow::*;
 import Vector::*;
+
+`include "hasim_common.bsh"
+`include "hasim_modellib.bsh"
+`include "hasim_isa.bsh"
+`include "soft_connections.bsh"
+`include "funcp_interface.bsh"
 
 typedef TLog#(TAdd#(`FETCH_CREDITS, 1)) LOG_FETCH_CREDITS;
 typedef TAdd#(`ROB_INDEX_SIZE, 1) LOG_DECODE_CREDITS;
@@ -259,6 +258,7 @@ endfunction
 typedef struct {
     ROB_INDEX robIndex;
     Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts;
+    Bool isStore;
     TOKEN token;
 } MEM_WRITEBACK_BUNDLE deriving (Bits, Eq);
 
@@ -271,6 +271,7 @@ endinstance
 function MEM_WRITEBACK_BUNDLE makeMemWritebackBundle(MEM_ADDRESS_BUNDLE mem);
     return MEM_WRITEBACK_BUNDLE{robIndex: mem.robIndex,
                                 dsts: mem.dsts,
+                                isStore: isaIsStore(mem.inst),
                                 token: mem.token};
 endfunction
 

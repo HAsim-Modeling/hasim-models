@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Hasim commit
+%desc Hasim commit
+%provides hasim_commit
+
+%attributes hasim
+
+%public commit.bsv
+
+%AWB_END

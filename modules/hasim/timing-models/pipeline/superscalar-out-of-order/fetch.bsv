@@ -1,11 +1,14 @@
-import hasim_common::*;
-import hasim_modellib::*;
-import hasim_isa::*;
+import FShow::*;
 
+`include "hasim_common.bsh"
+`include "hasim_modellib.bsh"
+`include "hasim_isa.bsh"
+`include "soft_connections.bsh"
+`include "funcp_interface.bsh"
 `include "hasim_branch_pred.bsh"
-`include "PipelineTypes.bsv"
-
 `include "funcp_simulated_memory.bsh"
+
+`include "hasim_pipeline_types.bsh"
 
 typedef enum { FETCH_STATE_PREDICT_UPDATE, FETCH_STATE_REWIND_RESP, FETCH_STATE_TOKEN_REQ, FETCH_STATE_I_TRANSLATE_REQ, FETCH_STATE_INST_REQ, FETCH_STATE_INST_RESP, FETCH_STATE_BRANCH_IMM, FETCH_STATE_JUMP_IMM } FETCH_STATE deriving (Bits, Eq);
 
@@ -45,11 +48,12 @@ module [HASIM_MODULE] mkFetch();
         if(predictUpdatePort.canReceive)
         begin
             let bundle <- predictUpdatePort.pop;
+            debugLog.record($format("predict update received") + fshow(bundle));
             if(bundle.predType == PRED_TYPE_BRANCH_IMM)
             begin
                 debugLog.record($format("Branch Imm upd ") + fshow(bundle));
                 branchPred.upd(bundle.token, bundle.pc, bundle.pred, bundle.actual);
-             end
+            end
         end
         else
         begin
@@ -58,6 +62,7 @@ module [HASIM_MODULE] mkFetch();
             debugLog.record($format("rewindReq ") + fshow(bundle));
             if(bundle.mispredict)
             begin
+                debugLog.record($format("rewindReq sent"));
                 pc <= bundle.addr;
                 epochRob <= bundle.robIndex;
                 afterResteer <= True;
@@ -79,11 +84,13 @@ module [HASIM_MODULE] mkFetch();
     rule tokenReq(state == FETCH_STATE_TOKEN_REQ);
         if(fetchPort.canSend())
         begin
+            debugLog.record($format("new token req"));
             newInFlight.makeReq(?);
             state <= FETCH_STATE_I_TRANSLATE_REQ;
         end
         else
         begin
+            debugLog.record($format("end cycle"));
             debugLog.nextModelCycle();
             state <= FETCH_STATE_PREDICT_UPDATE;
             fetchPort.done();
@@ -91,6 +98,7 @@ module [HASIM_MODULE] mkFetch();
     endrule
 
     rule iTranslateReq(state == FETCH_STATE_I_TRANSLATE_REQ);
+        debugLog.record($format("iTranslate req"));
         let resp = newInFlight.getResp();
         resp.newToken.timep_info.epoch = epoch;
         newInFlight.deq();
@@ -99,6 +107,7 @@ module [HASIM_MODULE] mkFetch();
     endrule
 
     rule instReq(state == FETCH_STATE_INST_REQ);
+        debugLog.record($format("iTranslate resp"));
         let resp = iTranslate.getResp();
         iTranslate.deq();
 
@@ -106,6 +115,7 @@ module [HASIM_MODULE] mkFetch();
         // Don't act until the last one is received.
         if (! resp.hasMore)
         begin
+            debugLog.record($format("inst req"));
             getInstruction.makeReq(FUNCP_REQ_GET_INSTRUCTION{token: resp.token});
             state <= FETCH_STATE_INST_RESP;
         end
@@ -113,6 +123,7 @@ module [HASIM_MODULE] mkFetch();
 
     rule instResp(state == FETCH_STATE_INST_RESP);
         let resp = getInstruction.getResp;
+        debugLog.record($format("inst resp"));
         if(isBranchImm(resp.instruction))
         begin
             branchPred.getPredReq(resp.token, pc);
@@ -129,6 +140,7 @@ module [HASIM_MODULE] mkFetch();
     endrule
 
     rule branchImm(state == FETCH_STATE_BRANCH_IMM);
+        debugLog.record($format("branch imm resp"));
         let resp = getInstruction.getResp;
         let pred <- branchPred.getPredResp;
         let predPc = pred? predPcBranchImm(pc, resp.instruction): pc + 4;
@@ -136,6 +148,7 @@ module [HASIM_MODULE] mkFetch();
     endrule
 
     rule jumpImm(state == FETCH_STATE_JUMP_IMM);
+        debugLog.record($format("jump imm resp"));
         let resp = getInstruction.getResp;
         let predPc = predPcJumpImm(pc, resp.instruction);
         makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_JUMP_IMM, False, predPc, epochRob, afterResteer);

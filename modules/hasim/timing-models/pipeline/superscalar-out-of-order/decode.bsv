@@ -1,11 +1,14 @@
-import hasim_common::*;
-import hasim_modellib::*;
-import hasim_isa::*;
-
 import FIFOF::*;
 import Vector::*;
+import FShow::*;
 
-`include "PipelineTypes.bsv"
+`include "hasim_common.bsh"
+`include "hasim_modellib.bsh"
+`include "hasim_isa.bsh"
+`include "soft_connections.bsh"
+`include "funcp_interface.bsh"
+
+`include "hasim_pipeline_types.bsh"
 
 typedef enum {DECODE_STATE_REQ_DEPENDENCIES, DECODE_STATE_RESP_DEPENDENCIES} DECODE_STATE deriving (Bits, Eq);
 
@@ -22,11 +25,13 @@ module [HASIM_MODULE] mkDecode();
     rule reqDependencies(state == DECODE_STATE_REQ_DEPENDENCIES);
         if(fetchBuffer.canReceive() && decodePort.canSend())
         begin
+            debugLog.record($format("dep req: ") + fshow(fetchBuffer.first.token));
             getDependencies.makeReq(FUNCP_REQ_GET_DEPENDENCIES{token: fetchBuffer.first().token});
             state <= DECODE_STATE_RESP_DEPENDENCIES;
         end
         else
         begin
+            debugLog.record($format("end cycle"));
             fetchBuffer.done;
             debugLog.nextModelCycle();
             decodePort.done;

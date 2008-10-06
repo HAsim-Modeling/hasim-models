@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Hasim ALU
+%desc Hasim ALU
+%provides hasim_alu
+
+%attributes hasim
+
+%public alu.bsv
+
+%AWB_END

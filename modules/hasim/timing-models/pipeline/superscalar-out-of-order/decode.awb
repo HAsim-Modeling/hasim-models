@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Hasim decode
+%desc Hasim decode
+%provides hasim_decode
+
+%attributes hasim
+
+%public decode.bsv
+
+%AWB_END

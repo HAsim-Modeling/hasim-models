@@ -1,9 +1,13 @@
-import hasim_common::*;
-import hasim_modellib::*;
+import FShow::*;
 
-`include "PipelineTypes.bsv"
-
+`include "hasim_common.bsh"
+`include "hasim_modellib.bsh"
+`include "hasim_isa.bsh"
+`include "soft_connections.bsh"
+`include "funcp_interface.bsh"
 `include "hasim_controller.bsh"
+
+`include "hasim_pipeline_types.bsh"
 
 module [HASIM_MODULE] mkCommit();
     TIMEP_DEBUG_FILE                                                            debugLog <- mkTIMEPDebugFile("pipe_com.out");
@@ -29,6 +33,7 @@ module [HASIM_MODULE] mkCommit();
         end
         else
         begin
+            debugLog.record($format("end cycle"));
             debugLog.nextModelCycle();
             commitPort.done;
         end
