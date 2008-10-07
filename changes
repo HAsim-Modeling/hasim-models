@@ -1498,3 +1498,23 @@ Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
  single-issue-out-of-order.apm Locally Added               0 
 
 Add single issue OOO submodel.
+
+----------
+mcadler     Date: Mon Oct  6 22:57:17 EDT 2008  CSN: CSN-hasim-models-79
+                  Tue Oct  7 02:57:17 UTC 2008
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ direct_mapped_write_back_dcache.awb Locally Modified           77 
+ DCacheDirectMappedWriteBack.bsv Locally Modified           77 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ direct_mapped_icache.awb  Locally Modified           77 
+ ICacheDirectMapped.bsv    Locally Modified           77 
+
+Add dynamic parameters to put the L1 caches in always-hit mode.  Params are:
+  ICACHE_ALWAYS_HIT and
+  DCACHE_ALWAYS_HIT
+
+We'll have to change the names once there is a cache hierarchy, along with
+a number of other structural changes.

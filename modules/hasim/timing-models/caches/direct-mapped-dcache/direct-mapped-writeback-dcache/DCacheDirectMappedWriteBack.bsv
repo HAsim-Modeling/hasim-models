@@ -11,6 +11,7 @@ import fpga_components::*;
 `include "asim/provides/hasim_dcache_types.bsh"
 `include "asim/provides/hasim_dcache_memory.bsh"
 `include "asim/provides/hasim_icache.bsh"
+`include "asim/dict/PARAMS_HASIM_DCACHE.bsh"
 `include "asim/dict/STATS_DIRECT_MAPPED_DCACHE_WRITEBACK.bsh"
 
 typedef enum {HandleReq, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite, Flush} State deriving (Eq, Bits);
@@ -19,6 +20,12 @@ typedef Tuple2#(DCACHE_DIRTY_BIT, DCACHE_TAG) DCACHE_LINE;
 
 module [HASIM_MODULE] mkDCache();
    
+   // ***** Dynamic parameters *****
+   PARAMETER_NODE paramNode <- mkDynamicParameterNode();
+
+   Param#(1) alwaysHitParam <- mkDynamicParameter(`PARAMS_HASIM_DCACHE_DCACHE_ALWAYS_HIT, paramNode);
+   function Bool alwaysClaimHit() = (alwaysHitParam == 1);
+
    // initialize cache memory
    let cachememory <- mkDCacheMemory();
    
@@ -90,7 +97,57 @@ module [HASIM_MODULE] mkDCache();
    Stat stat_dcache_write_misses <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_WRITE_MISSES);
      
    // rules
-   rule handlereq (state == HandleReq);
+
+    
+    //
+    // Handle requests while in the always hit mode (set by dynamic param)
+    //
+    rule handle_always_hit (alwaysClaimHit());
+
+        // read message from CPU speculative port
+        let msg_from_cpu_spec <- port_from_cpu_spec.receive();
+
+        // read message from CPU commit port
+        let msg_from_cpu_comm <- port_from_cpu_comm.receive();
+
+        // read message from memory port
+        let msg_from_mem <- port_from_memory.receive();     
+
+        // Read request
+        if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec} &&&
+            req_from_cpu_spec matches tagged Data_read_mem_ref {.cpu_addr_spec, .ref_addr_spec})
+        begin
+            port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Hit cpu_addr_spec));
+            stat_dcache_read_hits.incr();
+        end
+        else
+        begin
+            port_to_cpu_imm_spec.send(tagged Invalid);
+        end
+
+        // Write request
+        if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm} &&&
+            req_from_cpu_comm matches tagged Data_write_mem_ref {.cpu_addr_comm, .ref_addr_comm})
+        begin
+            port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Hit cpu_addr_comm));
+            stat_dcache_write_hits.incr();
+        end
+        else
+        begin
+            port_to_cpu_imm_comm.send(tagged Invalid);
+        end
+
+        port_to_memory.send(tagged Invalid);
+        port_to_cpu_del_spec.send(tagged Invalid);
+        port_to_cpu_del_comm.send(tagged Invalid);
+
+    endrule
+    
+
+   //
+   // Normal request entry path
+   //
+   rule handlereq (state == HandleReq && ! alwaysClaimHit());
       
       // read message from CPU speculative port
       let msg_from_cpu_spec <- port_from_cpu_spec.receive();
@@ -663,31 +720,3 @@ module [HASIM_MODULE] mkDCache();
       endcase
    endrule
 endmodule
-
-	       
-		     
-		     
-	       
-	 
-	       
-	       
- 
-		     
-	 
-		     
-	    
-							      
-
-								       
-															       
-																	       
-									  
-																		    
-												
-												
-												
-							     
-   
-  
-   
-	 

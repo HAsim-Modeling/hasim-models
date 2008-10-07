@@ -11,6 +11,7 @@ import fpga_components::*;
 `include "asim/provides/hasim_icache_types.bsh"
 `include "asim/provides/hasim_icache_memory.bsh"
 `include "asim/dict/STATS_ICACHE.bsh"
+`include "asim/dict/PARAMS_HASIM_ICACHE.bsh"
 
 typedef ISA_ADDRESS INST_ADDRESS;
 typedef ISA_ADDRESS DATA_ADDRESS;
@@ -49,6 +50,12 @@ typedef enum {HandleReq, HandleRead, HandleStall} State deriving (Eq, Bits);
  
 module [HASIM_MODULE] mkICache();
    
+   // ***** Dynamic parameters *****
+   PARAMETER_NODE paramNode <- mkDynamicParameterNode();
+
+   Param#(1) alwaysHitParam <- mkDynamicParameter(`PARAMS_HASIM_ICACHE_ICACHE_ALWAYS_HIT, paramNode);
+   function Bool alwaysClaimHit() = (alwaysHitParam == 1);
+
    // FSM register
    Reg#(State) state <- mkReg(HandleReq);
    
@@ -117,15 +124,27 @@ module [HASIM_MODULE] mkICache();
 		  // standard read request
 		  tagged Inst_mem_ref .addr:
 		     begin
-			Tuple3#(ICACHE_TAG, ICACHE_INDEX, ICACHE_LINE_OFFSET) address_tup = unpack(addr);
-			match {.tag, .idx, .line_offset} = address_tup;
-			req_icache_tag <= tag;
-			req_icache_index <= idx;
-			req_tok <= tok_from_cpu;
-			req_addr <= addr;
-			// make the read request from BRAM tag store
-			icache_tag_store.readReq(idx);
-			state <= HandleRead;
+                        if (! alwaysClaimHit())
+                          begin
+                              // Look up address in cache
+			      Tuple3#(ICACHE_TAG, ICACHE_INDEX, ICACHE_LINE_OFFSET) address_tup = unpack(addr);
+		              match {.tag, .idx, .line_offset} = address_tup;
+			      req_icache_tag <= tag;
+			      req_icache_index <= idx;
+			      req_tok <= tok_from_cpu;
+			      req_addr <= addr;
+			      // make the read request from BRAM tag store
+			      icache_tag_store.readReq(idx);
+			      state <= HandleRead;
+                          end
+                          else
+                          begin
+                              // Always hit (requested by dynamic parameter)
+		              port_to_memory.send(tagged Invalid);
+		              port_to_cpu_imm.send(tagged Valid tuple2(tok_from_cpu, tagged Hit addr));
+		              port_to_cpu_del.send(tagged Invalid);
+		              stat_icache_hits.incr();
+                          end
 		     end
 		  // no current implementation of other request types
 	       endcase
