@@ -1518,3 +1518,14 @@ Add dynamic parameters to put the L1 caches in always-hit mode.  Params are:
 
 We'll have to change the names once there is a cache hierarchy, along with
 a number of other structural changes.
+
+----------
+mcadler     Date: Tue Oct 14 22:28:05 EDT 2008  CSN: CSN-hasim-models-80
+                  Wed Oct 15 02:28:05 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Mem.bsv                   Locally Modified           78 
+
+DTranslate pipe was ignoring the hasMore bit coming back from the functional
+partition.

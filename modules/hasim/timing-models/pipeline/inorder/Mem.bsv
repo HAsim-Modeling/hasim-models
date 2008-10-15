@@ -224,13 +224,13 @@ module [HASIM_MODULE] mkMem ();
     rule funcp1 (state == MEM_STATE_FUNCP1 &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         if (bundle.isLoad)
         begin
-            debugLog.record(fshow("FUNCP-REQ LOAD ") + fshow(tok));
+            debugLog.record(fshow("FUNCP-REQ LOAD DTRANS ") + fshow(tok));
             doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
             state <= MEM_STATE_FUNCP2;
         end
         else if (bundle.isStore)
         begin
-            debugLog.record(fshow("FUNCP-REQ STORE ") + fshow(tok));
+            debugLog.record(fshow("FUNCP-REQ STORE DTRANS") + fshow(tok));
             doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
             state <= MEM_STATE_FUNCP2;
         end
@@ -241,11 +241,23 @@ module [HASIM_MODULE] mkMem ();
     rule funcp2 (state == MEM_STATE_FUNCP2 &&& inQ.peek() matches tagged Valid { .tok, .bundle });
         let rsp = doDTranslate.getResp();
         doDTranslate.deq();
-        if (bundle.isLoad)
-            doLoads.makeReq(initFuncpReqDoLoads(rsp.token));
-        else if (bundle.isStore)
-            doStores.makeReq(initFuncpReqDoStores(rsp.token));
-        state <= MEM_STATE_FUNCP3;
+        // Wait for all translation responses.  Stay in this state if more are
+        // coming.  Otherwise, do the operation.
+        if (! rsp.hasMore)
+        begin
+            if (bundle.isLoad)
+            begin
+                debugLog.record(fshow("FUNCP-REQ LOAD ") + fshow(tok));
+                doLoads.makeReq(initFuncpReqDoLoads(rsp.token));
+            end
+            else if (bundle.isStore)
+            begin
+                debugLog.record(fshow("FUNCP-REQ STORE ") + fshow(tok));
+                doStores.makeReq(initFuncpReqDoStores(rsp.token));
+            end
+
+            state <= MEM_STATE_FUNCP3;
+        end
     endrule
 
     rule funcp3 (state == MEM_STATE_FUNCP3 &&& inQ.peek() matches tagged Valid { .tok, .bundle });
