@@ -67,7 +67,7 @@ module [HASIM_MODULE] mkMem();
     rule dTranslate(state == MEM_STATE_D_TRANSLATE_REQ);
         if(memAddressFifo.canReceive() && memWritebackPort.canSend())
         begin
-            debugLog.record($format("TOKEN %0d: doDTranslate request", memAddressFifo.first().token.index));
+            debugLog.record($format(fshow(memAddressFifo.first().token) + $format(": doDTranslate request")));
             doDTranslate.makeReq(FUNCP_REQ_DO_DTRANSLATE{token: memAddressFifo.first().token});
             state <= MEM_STATE_MEM_REQ;
         end
@@ -84,7 +84,7 @@ module [HASIM_MODULE] mkMem();
         let resp = doDTranslate.getResp();
         doDTranslate.deq();
 
-        debugLog.record($format("TOKEN %0d: doDTranslate response (PA 0x%h%s)", resp.token.index, resp.physicalAddress, (resp.hasMore ? ", hasMore" : "")));
+        debugLog.record(fshow(resp.token) + $format(": doDTranslate response (PA 0x%h%s)", resp.physicalAddress, (resp.hasMore ? ", hasMore" : "")));
 
         // Has the translation completed or is it multi-part?  If multi-part
         // then stay in the current state and get the rest.  If the translation
@@ -93,13 +93,13 @@ module [HASIM_MODULE] mkMem();
         begin
             if(isaIsLoad(memAddressFifo.first().inst))
             begin
-                debugLog.record($format("TOKEN %0d: memReq LOAD", memAddressFifo.first().token.index));
-                doLoads.makeReq(FUNCP_REQ_DO_LOADS{token: memAddressFifo.first().token});
+                debugLog.record($format(fshow(resp.token.index) + $format(": memReq LOAD")));
+                doLoads.makeReq(FUNCP_REQ_DO_LOADS{token: resp.token});
             end
             else
             begin
-                debugLog.record($format("TOKEN %0d: memReq STORE", memAddressFifo.first().token.index));
-                doStores.makeReq(FUNCP_REQ_DO_STORES{token: memAddressFifo.first().token});
+                debugLog.record($format(fshow(resp.token) + $format(": memReq STORE")));
+                doStores.makeReq(FUNCP_REQ_DO_STORES{token: resp.token});
             end
 
             state <= MEM_STATE_MEM_RESP;
@@ -107,20 +107,26 @@ module [HASIM_MODULE] mkMem();
     endrule
 
     rule memResp(state == MEM_STATE_MEM_RESP);
-        debugLog.record($format("TOKEN %0d: memResp", memAddressFifo.first().token.index));
+        TOKEN resp_token;
 
         if(isaIsLoad(memAddressFifo.first().inst))
         begin
+            let resp = doLoads.getResp();
             doLoads.deq();
+            resp_token = resp.token;
             debugLog.record($format("loads deq"));
         end
         else
         begin
+            let resp = doStores.getResp();
             doStores.deq();
+            resp_token = resp.token;
             debugLog.record($format("stores deq"));
         end
 
-        memWritebackPort.enq(makeMemWritebackBundle(memAddressFifo.first()));
+        debugLog.record($format(fshow(resp_token) + $format(": memResp")));
+
+        memWritebackPort.enq(makeMemWritebackBundle(memAddressFifo.first(), resp_token));
         memAddressFifo.deq();
 
         state <= MEM_STATE_D_TRANSLATE_REQ;

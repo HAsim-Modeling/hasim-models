@@ -50,7 +50,7 @@ module [HASIM_MODULE] mkExecute ();
 
     Reg#(EXECUTE_STATE) state <- mkReg(EXECUTE_STATE_EXEC);
 
-    Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
+    Reg#(TOKEN_EPOCH) epoch <- mkReg(initEpoch(0, 0));
 
     //Local Controller
     Vector#(1, Port_Control) inports  = newVector();
@@ -69,7 +69,7 @@ module [HASIM_MODULE] mkExecute ();
 
     Vector#(FUNCP_NUM_PHYSICAL_REGS, Reg#(Bool)) prfValid = newVector();
 
-    function Bool good_epoch (TOKEN tok) = tok.timep_info.epoch == epoch;
+    function Bool good_epoch (TOKEN tok) = tokEpoch(tok) == epoch;
 
     //
     // nonBranchPred is used for handling branch prediction / rewind feedback
@@ -106,7 +106,7 @@ module [HASIM_MODULE] mkExecute ();
         begin
             debugLog.record(fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok));
             stat_mpred.incr();
-            epoch <= epoch + 1;
+            epoch.branch <= epoch.branch + 1;
             rewindQ.send(Valid(tuple2(tok, tgt)));
 
             train.predCorrect = False;
@@ -116,20 +116,48 @@ module [HASIM_MODULE] mkExecute ();
     endfunction
 
     rule flush (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .bundle } &&& !good_epoch(tok));
-        debugLog.record(fshow("FLUSH: ") + fshow(tok));
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
-        let x <- inQ.receive();
+        
+        debugLog.record(fshow("FLUSH: ") + fshow(tok));
+
+        if (tokFaultEpoch(tok) != epoch.fault)
+        begin
+            //
+            // New fault epoch.  Fault handler just before commit forced a fault
+            // (rewind).  Update the epoch completely since execute may have
+            // requested rewinds after the fault for mispredicted branches.
+            // These requests would have been ignored, causing the branchEpoch
+            // counter here to be out of sync.
+            //
+            // To handle the new fault epoch this cycle is treated as a bubble.
+            // The incoming token remains in decode and will be executed next
+            // cycle, now that it will appear to be on the good path.
+            //
+            epoch <= tokEpoch(tok);
+            inQ.pass();
+            busQ.send(Invalid);
+        end
+        else
+        begin
+            //
+            // Bad path due to branch.  Drop the incoming token.
+            //
+            let x <- inQ.receive();
+            busQ.send(Valid(bundle.dests));
+        end
+
         if (outQ.canSend)
             outQ.send(Invalid);
         else
             outQ.pass();
         rewindQ.send(Invalid);
         bptrainQ.send(Invalid);
-        busQ.send(Valid(bundle.dests));
         event_exe.recordEvent(Invalid);
     endrule
 
     rule exec (state == EXECUTE_STATE_EXEC &&& inQ.peek() matches tagged Valid { .tok, .* } &&& good_epoch(tok));
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         if (outQ.canSend)
         begin
@@ -150,6 +178,7 @@ module [HASIM_MODULE] mkExecute ();
     endrule
 
     rule bubble (state == EXECUTE_STATE_EXEC &&& inQ.peek() == Invalid);
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         debugLog.record(fshow("BUBBLE"));
         let x <- inQ.receive();
@@ -195,13 +224,13 @@ module [HASIM_MODULE] mkExecute ();
                     else
                     begin
                         stat_mpred.incr();
-                        epoch <= epoch + 1;
+                        epoch.branch <= epoch.branch + 1;
                         rewindQ.send(Valid(tuple2(tok,addr)));
 
                         train.predCorrect = False;
                         bptrainQ.send(tagged Valid train);
                     end
-                    debugLog.record(fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch));
+                    debugLog.record(fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch.branch));
                 end
               tagged RBranchNotTaken .addr:
                 begin
@@ -218,7 +247,7 @@ module [HASIM_MODULE] mkExecute ();
                         tagged BranchTaken .tgt:
                             begin
                                 stat_mpred.incr();
-                                epoch <= epoch + 1;
+                                epoch.branch <= epoch.branch + 1;
                                 rewindQ.send(Valid(tuple2(tok,addr)));
 
                                 train.predCorrect = False;

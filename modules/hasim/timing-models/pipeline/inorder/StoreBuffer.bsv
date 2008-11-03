@@ -44,6 +44,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     Bool full  = head == tail + 1;
 
     rule dealloc (state == SB_STATE_DEALLOC);
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         let m <- deallocQ.receive();
         if (m matches tagged Valid .tok)

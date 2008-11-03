@@ -75,17 +75,16 @@ module [HASIM_MODULE] mkMem ();
 
     function Action finishCycle(TOKEN tok, BUNDLE bundle);
     action
-
         let x <- inQ.receive();
-        outQ.send(x);
+        outQ.send(tagged Valid tuple2(tok, bundle));
         busQ.send(Invalid);
         event_mem.recordEvent(Valid(zeroExtend(tok.index)));
         state <= MEM_STATE_REQ;
-
     endaction
     endfunction
 
     rule stall (state == MEM_STATE_REQ && !outQ.canSend);
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         debugLog.record(fshow("STALL PROPOGATED"));
         inQ.pass();
@@ -97,6 +96,7 @@ module [HASIM_MODULE] mkMem ();
     endrule
 
     rule bubble (state == MEM_STATE_REQ && outQ.canSend && !isValid(inQ.peek));
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         debugLog.record(fshow("BUBBLE"));
         let x <- inQ.receive();
@@ -116,6 +116,7 @@ module [HASIM_MODULE] mkMem ();
     endrule
 
     rule storebuf_req (state == MEM_STATE_REQ &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         if (bundle.isLoad)
         begin
@@ -261,11 +262,22 @@ module [HASIM_MODULE] mkMem ();
     endrule
 
     rule funcp3 (state == MEM_STATE_FUNCP3 &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+        let out_tok = tok;
+
         if (bundle.isLoad)
+        begin
+            let rsp = doLoads.getResp();
+            out_tok = rsp.token;
             doLoads.deq();
+        end
         else if (bundle.isStore)
+        begin
+            let rsp = doStores.getResp();
+            out_tok = rsp.token;
             doStores.deq();
-        finishCycle(tok, bundle);
+        end
+
+        finishCycle(out_tok, bundle);
     endrule
 
     rule sb_stall (state == MEM_STATE_SB_STALL &&& inQ.peek() matches tagged Valid { .tok, .bundle });

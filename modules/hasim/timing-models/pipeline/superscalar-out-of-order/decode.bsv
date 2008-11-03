@@ -43,7 +43,7 @@ module [HASIM_MODULE] mkDecode();
         getDependencies.deq();
         fetchBuffer.deq();
         let fetchBundle = fetchBuffer.first();
-        let decodeBundle = makeDecodeBundle(fetchBundle, extractPhysReg(resp.srcMap), extractPhysReg(resp.dstMap));
+        let decodeBundle = makeDecodeBundle(resp.token, fetchBundle, extractPhysReg(resp.srcMap), extractPhysReg(resp.dstMap));
         debugLog.record($format("respDependencies ") + fshow(decodeBundle));
         decodePort.enq(decodeBundle);
         state <= DECODE_STATE_REQ_DEPENDENCIES;

@@ -31,19 +31,33 @@ import FShow::*;
 import FIFO::*;
 import Vector::*;
 
-typedef enum { FETCH_STATE_NEXTPC, FETCH_STATE_REWIND, FETCH_STATE_REW_RESP, FETCH_STATE_TOKEN, FETCH_STATE_ICACHE_REQ, FETCH_STATE_ITRANS_REQ, FETCH_STATE_INST_REQ, FETCH_STATE_SEND, FETCH_STATE_PASS } FETCH_STATE deriving (Bits, Eq);
+typedef enum
+{
+    FETCH_STATE_NEXTPC,
+    FETCH_STATE_REWIND,
+    FETCH_STATE_FAULT_RESP,
+    FETCH_STATE_REW_RESP,
+    FETCH_STATE_TOKEN,
+    FETCH_STATE_ICACHE_REQ,
+    FETCH_STATE_ITRANS_REQ,
+    FETCH_STATE_INST_REQ,
+    FETCH_STATE_SEND,
+    FETCH_STATE_PASS
+}
+FETCH_STATE
+    deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkFetch ();
 
     TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_fetch.out");
 
     Reg#(ISA_ADDRESS)          pc <- mkReg(`PROGRAM_START_ADDR);
-    Reg#(TOKEN_TIMEP_EPOCH) epoch <- mkReg(0);
     FIFO#(BRANCH_ATTR)  pred_fifo <- mkFIFO1;
     FIFO#(ISA_ADDRESS)    pc_fifo <- mkFIFO1;
 
     StallPort_Send#(Tuple2#(TOKEN,FETCH_BUNDLE))   outQ <- mkStallPort_Send("fet2dec");
     Port_Receive#(Tuple2#(TOKEN,ISA_ADDRESS))      rewindQ <- mkPort_Receive  ("rewind", 1);
+    Port_Receive#(TOKEN)                           faultQ <- mkPort_Receive  ("fault", 1);
 
     Port_Send#(Tuple2#(TOKEN,ISA_ADDRESS)) bpQ <- mkPort_Send("bp_req");
     Port_Receive#(ISA_ADDRESS) nextpcQ <- mkPort_Receive("bp_reply_pc", 1);
@@ -63,6 +77,9 @@ module [HASIM_MODULE] mkFetch ();
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
                        FUNCP_RSP_REWIND_TO_TOKEN)    rewindToToken  <- mkConnection_Client("funcp_rewindToToken");
 
+    Connection_Client#(FUNCP_REQ_HANDLE_FAULT,
+                       FUNCP_RSP_HANDLE_FAULT)          handleFault <- mkConnection_Client("funcp_handleFault");
+
     Reg#(FETCH_STATE) state <- mkReg(FETCH_STATE_NEXTPC);
 
     Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache");
@@ -71,15 +88,17 @@ module [HASIM_MODULE] mkFetch ();
     Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed))   port_from_icache_delayed   <- mkPort_Receive("icache_to_cpu_delayed", 0);
 
     Reg#(Bool) waitForICache <- mkReg(False);
+    Reg#(TOKEN_FAULT_EPOCH) faultEpoch <- mkReg(0);
 
     //Local Controller
-    Vector#(5, Port_Control) inports  = newVector();
+    Vector#(6, Port_Control) inports  = newVector();
     Vector#(3, Port_Control) outports = newVector();
     inports[0]  = rewindQ.ctrl;
     inports[1]  = port_from_icache_immediate.ctrl;
     inports[2]  = port_from_icache_delayed.ctrl;
     inports[3]  = nextpcQ.ctrl;
     inports[4]  = predQ.ctrl;
+    inports[5]  = faultQ.ctrl;
     outports[0] = outQ.ctrl;
     outports[1] = port_to_icache.ctrl;
     outports[2] = bpQ.ctrl;
@@ -95,6 +114,7 @@ module [HASIM_MODULE] mkFetch ();
     Stat stat_imisses  <- mkStatCounter(`STATS_FETCH_ICACHE_MISSES);
 
     rule nextpc (state == FETCH_STATE_NEXTPC);
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         stat_cycles.incr();
         model_cycle.send(?);
@@ -104,18 +124,42 @@ module [HASIM_MODULE] mkFetch ();
         state <= FETCH_STATE_REWIND;
     endrule
 
-    rule rewind (state == FETCH_STATE_REWIND);
-        let x <- rewindQ.receive();
-        if (x matches tagged Valid { .tok, .a })
+    //
+    // rewindAndFault --
+    //     Receive rewind messages from execute stage and fault messages from
+    //     writeback and rewind, if necessary.  Fault has higher priority than
+    //     branch misprediction (rewind).
+    //
+    rule rewindAndFault (state == FETCH_STATE_REWIND);
+        let rewind <- rewindQ.receive();
+        let fault <- faultQ.receive();
+
+        if (fault matches tagged Valid { .tok })
+        begin
+            debugLog.record(fshow("FAULT: ") + fshow(tok));
+            handleFault.makeReq(initFuncpReqHandleFault(tok));
+            faultEpoch <= faultEpoch + 1;
+            state <= FETCH_STATE_FAULT_RESP;
+        end
+        else if (rewind matches tagged Valid { .tok, .a } &&&
+                 tokFaultEpoch(tok) == faultEpoch)
         begin
             debugLog.record(fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", a));
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             pc <= a;
-            epoch <= epoch + 1;
             state <= FETCH_STATE_REW_RESP;
         end
         else
             state <= FETCH_STATE_TOKEN;
+    endrule
+
+    rule faultResp (state == FETCH_STATE_FAULT_RESP);
+        let rsp = handleFault.getResp();
+        handleFault.deq();
+
+        pc <= rsp.nextInstructionAddress;
+
+        state <= FETCH_STATE_TOKEN;
     endrule
 
     rule rewindResp (state == FETCH_STATE_REW_RESP);
@@ -156,7 +200,6 @@ module [HASIM_MODULE] mkFetch ();
       newInFlight.deq();
       let rsp = newInFlight.getResp();
       let tok = rsp.newToken;
-      tok.timep_info = TOKEN_TIMEP_INFO { epoch: epoch, scratchpad: 0 };
       port_to_icache.send(tagged Valid tuple2(tok, tagged Inst_mem_ref pc));
       bpQ.send(tagged Valid tuple2(tok, pc));
       state <= FETCH_STATE_ITRANS_REQ;

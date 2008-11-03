@@ -33,6 +33,7 @@ module [HASIM_MODULE] mkIssue();
     PORT_CREDIT_SEND#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)      predictUpdatePort <- mkPortCreditSend("predictUpdate");
 
     PORT_CREDIT_SEND#(REWIND_BUNDLE, 1, 1)                                     resteerPort <- mkPortCreditSend("resteer");
+    PORT_CREDIT_SEND#(FAULT_BUNDLE, 1, 1)                                        faultPort <- mkPortCreditSend("fault");
 
     Connection_Send#(Bool)                                                      modelCycle <- mkConnection_Send("model_cycle");
 
@@ -55,11 +56,13 @@ module [HASIM_MODULE] mkIssue();
     Reg#(Bool)                                                                 resteerWait <- mkReg(False);
 
     LUTRAM#(ROB_INDEX, Bool)                                                       robDone <- mkLUTRAMU();
+    LUTRAM#(ROB_INDEX, Bool)                                                     robPoison <- mkLUTRAMU();
     LUTRAM#(ROB_INDEX, Bool)                                                     robIssued <- mkLUTRAMU();
     LUTRAM#(ROB_INDEX, Bool)                                                     terminate <- mkLUTRAMU();
     LUTRAM#(ROB_INDEX, Bool)                                                      passFail <- mkLUTRAMU();
 
     Reg#(REWIND_BUNDLE)                                                       rewindBundle <- mkReg(nullRewindBundle);
+    Reg#(FAULT_BUNDLE)                                                         faultBundle <- mkReg(makeNoFaultBundle());
 
     Reg#(Bool)                                                               allPrevIssued <- mkReg(False);
     Reg#(Bool)                                                            allPrevMemIssued <- mkReg(False);
@@ -149,6 +152,7 @@ module [HASIM_MODULE] mkIssue();
 
             terminate.upd(bundle.robIndex, bundle.terminate);
             passFail.upd(bundle.robIndex, bundle.passFail);
+            robPoison.upd(bundle.robIndex, tokIsPoisoned(bundle.token));
             robDone.upd(bundle.robIndex, True);
         end
         else
@@ -170,6 +174,7 @@ module [HASIM_MODULE] mkIssue();
             if(robValid[bundle.robIndex])
                 prfValids <= markPrfValidOrInvalid(True, bundle.dsts);
 
+            robPoison.upd(bundle.robIndex, tokIsPoisoned(bundle.token));
             robDone.upd(bundle.robIndex, True);
         end
         else
@@ -192,6 +197,7 @@ module [HASIM_MODULE] mkIssue();
                 robValid <= markValidOrInvalid(True, robValid, addIndex);
                 robIssued.upd(addIndex, False);
                 robDone.upd(addIndex, False);
+                robPoison.upd(addIndex, tokIsPoisoned(entry.token));
                 rob.write(addIndex, entry);
                 prfValids <= markPrfValidOrInvalid(False, entry.dsts);
                 markWriteType(Invalid, entry.dsts);
@@ -217,10 +223,12 @@ module [HASIM_MODULE] mkIssue();
             issuePtr <= commitPtr;
             allPrevIssued <= True;
             allPrevMemIssued <= True;
+            faultPort.send(faultBundle);
+            faultBundle <= makeNoFaultBundle();
         end
         else if(!robValid[commitIndex])
         begin
-            debugLog.record($format("robInValid ") + fshow(commitIndex));
+            debugLog.record($format("robInValid %d", commitIndex));
             commitPtr <= commitPtr + 1;
         end
         else
@@ -234,13 +242,37 @@ module [HASIM_MODULE] mkIssue();
     rule commitResp(state == ROB_STATE_COMMIT_RESP);
         let entry <- rob.readRsp();
         debugLog.record($format("commitResp ") + fshow(entry) + $format(" commitPtr: %d robValid: %b addPtr: %d credits: %d", commitPtr, robValid, addPtr, credits));
-        commitPort.enq(makeCommitBundle(entry));
+
         if(terminate.sub(commitIndex))
         begin
             debugLog.record($format("terminate"));
             localController.endProgram(passFail.sub(commitIndex));
         end
-        robValid[commitIndex] <= !resteerWait;
+
+        if (robPoison.sub(commitIndex))
+        begin
+            debugLog.record($format("robFault %d", commitIndex));
+
+            let newRobValid = markValidOrInvalid(False, robValid, commitIndex);
+            robValid <= newRobValid;
+
+            let newRobEpoch = markValidOrInvalid(False, robEpoch, commitIndex);
+            newRobEpoch[commitIndex] = True;
+            robEpoch <= newRobEpoch;
+
+            // Set the poison bit in the token sent back to the front end.
+            // It was never updated in the ROB itself.
+            let tok = entry.token;
+            tok.poison = True;
+            faultBundle <= makeFaultBundle(tok, True, commitIndex);
+            resteerWait <= True;
+        end
+        else
+        begin
+            commitPort.enq(makeCommitBundle(entry));
+            robValid[commitIndex] <= !resteerWait;
+        end
+
         commitPtr <= commitPtr + 1;
         state <= ROB_STATE_COMMIT_REQ;
     endrule
@@ -263,7 +295,7 @@ module [HASIM_MODULE] mkIssue();
         end
         else if(!robValid[issueIndex])
         begin
-            debugLog.record($format("issue robInvalid ") + fshow(issueIndex));
+            debugLog.record($format("issue robInvalid %d", issueIndex));
             robIssued.upd(issueIndex, True);
             robDone.upd(issueIndex, True);
             issuePtr <= issuePtr + 1;

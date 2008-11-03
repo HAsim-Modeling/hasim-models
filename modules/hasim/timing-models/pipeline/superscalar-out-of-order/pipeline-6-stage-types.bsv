@@ -28,7 +28,15 @@ typedef Bit#(LOG_DECODE_CREDITS) ROB_PTR;
 
 instance FShow#(TOKEN);
     function Fmt fshow(TOKEN tok);
-        return $format("TOKEN: %d", tok.index);
+        Fmt s = $format("TOKEN: %0d", tok.index);
+        if (tokIsPoisoned(tok))
+            s = s + fshow(" POISON");
+
+        // For some reason the following line keeps "POISON" from appearing
+        // improperly when the token is the last object printed.
+        s = s + fshow("");
+
+        return s;
     endfunction
 endinstance
 
@@ -93,7 +101,7 @@ instance FShow#(DECODE_BUNDLE);
     endfunction
 endinstance
 
-function DECODE_BUNDLE makeDecodeBundle(FETCH_BUNDLE fetch, Vector#(ISA_MAX_SRCS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) srcs, Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts);
+function DECODE_BUNDLE makeDecodeBundle(TOKEN tok, FETCH_BUNDLE fetch, Vector#(ISA_MAX_SRCS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) srcs, Vector#(ISA_MAX_DSTS, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dsts);
     return DECODE_BUNDLE{inst: fetch.inst,
                          pc: fetch.pc,
                          predType: fetch.predType,
@@ -105,7 +113,7 @@ function DECODE_BUNDLE makeDecodeBundle(FETCH_BUNDLE fetch, Vector#(ISA_MAX_SRCS
                          drainAfter: isaDrainAfter(fetch.inst),
                          srcs: srcs,
                          dsts: dsts,
-                         token: fetch.token};
+                         token: tok};
 endfunction
 
 typedef struct {
@@ -225,7 +233,7 @@ function ALU_WRITEBACK_BUNDLE makeAluWritebackBundle(ALU_BUNDLE alu, FUNCP_RSP_G
                                 addr: addr,
                                 terminate: terminate,
                                 passFail: passFail,
-                                token: alu.token};
+                                token: res.token};
 endfunction
 
 typedef struct {
@@ -268,11 +276,11 @@ instance FShow#(MEM_WRITEBACK_BUNDLE);
     endfunction
 endinstance
 
-function MEM_WRITEBACK_BUNDLE makeMemWritebackBundle(MEM_ADDRESS_BUNDLE mem);
+function MEM_WRITEBACK_BUNDLE makeMemWritebackBundle(MEM_ADDRESS_BUNDLE mem, TOKEN tok);
     return MEM_WRITEBACK_BUNDLE{robIndex: mem.robIndex,
                                 dsts: mem.dsts,
                                 isStore: isaIsStore(mem.inst),
-                                token: mem.token};
+                                token: tok};
 endfunction
 
 typedef struct {
@@ -328,7 +336,7 @@ typedef struct {
 
 instance FShow#(COMMIT_BUNDLE);
     function Fmt fshow(COMMIT_BUNDLE b);
-        return $format("COMMIT: isStore: % b", b.isStore) + fshow(b.token);
+        return $format("COMMIT: isStore: %b ", b.isStore) + fshow(b.token);
     endfunction
 endinstance
 
@@ -336,6 +344,33 @@ function COMMIT_BUNDLE makeCommitBundle(DECODE_BUNDLE decode);
     return COMMIT_BUNDLE{token: decode.token,
                          isStore: isaIsStore(decode.inst)
                         };
+endfunction
+
+//
+// FAULT bundle (from COMMIT bundle)
+//
+typedef struct {
+    Bool fault;
+    ROB_INDEX robIndex;
+    TOKEN token;
+} FAULT_BUNDLE deriving (Bits, Eq);
+
+instance FShow#(FAULT_BUNDLE);
+    function Fmt fshow(FAULT_BUNDLE b);
+        return $format("FAULT: fault: %d robIndex: %d ", b.fault, b.robIndex) + fshow(b.token);
+    endfunction
+endinstance
+
+function FAULT_BUNDLE makeFaultBundle(TOKEN tok, Bool fault, ROB_INDEX rob_index);
+    return FAULT_BUNDLE{fault: fault,
+                        robIndex: rob_index,
+                        token: tok};
+endfunction
+
+function FAULT_BUNDLE makeNoFaultBundle();
+    return FAULT_BUNDLE{fault: False,
+                        robIndex: ?,
+                        token: ?};
 endfunction
 
 function Vector#(n, Maybe#(FUNCP_PHYSICAL_REG_INDEX)) extractPhysReg(Vector#(n, Maybe#(Tuple2#(ISA_REG_INDEX, FUNCP_PHYSICAL_REG_INDEX))) regMap);

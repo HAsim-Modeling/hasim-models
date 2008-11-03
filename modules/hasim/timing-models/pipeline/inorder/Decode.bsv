@@ -157,6 +157,7 @@ module [HASIM_MODULE] mkDecode ();
     endfunction
 
     rule bus1 (state == DECODE_STATE_BUS1);
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         let mpregs <- busQ[0].receive();
         if (mpregs matches tagged Valid .pregs)

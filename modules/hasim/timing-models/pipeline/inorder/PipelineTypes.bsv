@@ -84,6 +84,14 @@ endinstance
 
 instance FShow#(TOKEN);
     function Fmt fshow (TOKEN tok);
-        return $format("TOK:%d", tok.index);
+        Fmt s = $format("TOK:%d", tok.index);
+        if (tokIsPoisoned(tok))
+            s = s + fshow(" POISON");
+
+        // For some reason the following line keeps "POISON" from appearing
+        // improperly when the token is the last object printed.
+        s = s + fshow("");
+
+        return s;
     endfunction
 endinstance

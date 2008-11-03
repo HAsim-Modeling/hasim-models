@@ -1529,3 +1529,51 @@ Directory modules/hasim/timing-models/pipeline/inorder
 
 DTranslate pipe was ignoring the hasMore bit coming back from the functional
 partition.
+
+----------
+mcadler     Date: Mon Nov  3 08:35:29 EST 2008  CSN: CSN-hasim-models-81
+                  Mon Nov  3 13:35:29 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ StoreBuffer.bsv           Locally Modified           80 
+ Fetch.bsv                 Locally Modified           80 
+ PipelineTypes.bsv         Locally Modified           80 
+ Execute.bsv               Locally Modified           80 
+ BranchPredictor.bsv       Locally Modified           80 
+ WriteBack.bsv             Locally Modified           80 
+ Mem.bsv                   Locally Modified           80 
+ Decode.bsv                Locally Modified           80 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified           80 
+ pipeline-6-stage-types.bsv Locally Modified           80 
+ mem.bsv                   Locally Modified           80 
+ rob.bsv                   Locally Modified           80 
+ decode.bsv                Locally Modified           80 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           80 
+
+- Honor the new poison bit in the token that may be set by the functional
+  partition.  To do this:
+
+  - Pass updated token all the way through the pipeline.  Many models assumed
+    the token would not change after being allocated and kept passing an old
+    instance to each functional phase.
+  - Superscalar model still caches the decoded token in the ROB, but keeps
+    a poison bit on the side.  This is to avoid having to read-modify-write the
+    ROB to update the token in ROB BRAM.
+
+- Check the poison bit before commit.  If set send a message back to the front
+  end to handle the fault.  Fault is handled by a new functional interface
+  that does a rewind, increments the fault epoch (another new token bit)
+  and returns the restart PC.
+
+- Rewrote the unpipelined model to initiate the next functional request in
+  the same FPGA cycle as the previous functional response is received.  Saves
+  about 7 FPGA cycles per simulated instruction.  Also restructured the model
+  to use Bluespec rules instead of one bit case statement.  The goal is to
+  be a reference implementation of the minimal timing/functional interface.
+
+- Clean up some debugging output.  E.g. simulated cycle now printed for in-order.

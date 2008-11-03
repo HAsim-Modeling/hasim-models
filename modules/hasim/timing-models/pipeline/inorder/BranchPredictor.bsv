@@ -70,6 +70,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
     rule train (state == BP_STATE_TRAIN);
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         let x <- trainQ.receive();
         if (x matches tagged Valid .bpt)

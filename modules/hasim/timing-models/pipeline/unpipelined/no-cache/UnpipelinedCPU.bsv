@@ -1,18 +1,23 @@
 //
-// INTEL CONFIDENTIAL
-// Copyright (c) 2008 Intel Corp.  Recipient is granted a non-sublicensable 
-// copyright license under Intel copyrights to copy and distribute this code 
-// internally only. This code is provided "AS IS" with no support and with no 
-// warranties of any kind, including warranties of MERCHANTABILITY,
-// FITNESS FOR ANY PARTICULAR PURPOSE or INTELLECTUAL PROPERTY INFRINGEMENT. 
-// By making any use of this code, Recipient agrees that no other licenses 
-// to any Intel patents, trade secrets, copyrights or other intellectual 
-// property rights are granted herein, and no other licenses shall arise by 
-// estoppel, implication or by operation of law. Recipient accepts all risks 
-// of use.
+// Copyright (C) 2008 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
 import Vector::*;
+import FIFO::*;
 
 //HASim library imports
 `include "asim/provides/hasim_common.bsh"
@@ -40,63 +45,23 @@ import Vector::*;
 //                                                                         //
 //*************************************************************************//
 
-// CPU state
-
-// Current interaction of the CPU and the functional partition.
-
-typedef enum 
-{ 
-    TOK_REQ, 
-    TOK_RSP,
-    ITR_REQ, 
-    ITR_RSP,
-    ITR_RSP2,
-    FET_REQ,
-    FET_RSP,
-    DEC_REQ,
-    DEC_RSP,
-    EXE_REQ,
-    EXE_RSP,
-    DTR_REQ,
-    DTR_RSP,
-    DTR_RSP2,
-    LOA_REQ,
-    LOA_RSP,
-    STO_REQ,
-    STO_RSP,
-    LCO_REQ,
-    LCO_RSP,
-    GCO_REQ,
-    GCO_RSP
-}
-    CPU_STATE
-        deriving (Eq, Bits);
 
 module [HASIM_MODULE] mkPipeline
     //interface:
         ();
 
-    DEBUG_FILE debugLog <- mkDebugFile("hasim_cpu.out");
+    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_cpu.out");
 
     //********* State Elements *********//
 
-    //The current state
-    Reg#(CPU_STATE) state <- mkReg(TOK_REQ);
+    // Time to fetch new token
+    Reg#(Bool) nextToken <- mkReg(True);
 
-    //Current TOKEN (response from TOK stage)
-    Reg#(TOKEN) cur_tok <- mkRegU();
-
-    //Current instruction (response from FET stage)
-    Reg#(ISA_INSTRUCTION)  cur_inst <- mkRegU();
-
-    //The Program Counter
+    // The Program Counter
     Reg#(ISA_ADDRESS) pc <- mkReg(`PROGRAM_START_ADDR);
 
-    //The actual Clock Cycle, for debugging messages
-    Reg#(Bit#(32)) fpgaCC <- mkReg(0);
-
-    //The simulation Clock Cycle, or "tick"
-    Reg#(Bit#(32)) modelCC <- mkReg(0);
+    // Pipe from any stage that flows to local commit
+    FIFO#(TOKEN) commitQ <- mkFIFO();
 
     //********* Connections *********//
 
@@ -134,16 +99,19 @@ module [HASIM_MODULE] mkPipeline
     Connection_Client#(FUNCP_REQ_COMMIT_STORES,
                        FUNCP_RSP_COMMIT_STORES)       link_to_gco <- mkConnection_Client("funcp_commitStores");
 
-    //For killing. UNUSED
+    Connection_Client#(FUNCP_REQ_HANDLE_FAULT, 
+                       FUNCP_RSP_HANDLE_FAULT)   link_handleFault <- mkConnection_Client("funcp_handleFault");
+
+    // For killing. UNUSED
 
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, 
                        FUNCP_RSP_REWIND_TO_TOKEN)     link_rewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
 
-    //Events
+    // Events
     EventRecorder event_com <- mkEventRecorder(`EVENTS_CPU_INSTRUCTION_COMMIT);
 
-    //Stats
+    // Stats
     Stat stat_com <- mkStatCounter(`STATS_CPU_INSTRUCTION_COMMIT);
 
     Vector#(0, Port_Control) inports = newVector();
@@ -153,402 +121,268 @@ module [HASIM_MODULE] mkPipeline
 
     //********* Rules *********//
 
-    //process
+    //
+    // endModelCycle --
+    //     Invoked by any rule that is completely done with a token.
+    //
+    function Action endModelCycle(TOKEN tok);
+    action
+        debugLog.record($format("Model cycle complete.", tok.index));
 
-    rule process (local_ctrl.running());
+        // Sample event & statistic (commit)
+        event_com.recordEvent(tagged Valid zeroExtend(tok.index));
+        stat_com.incr();
 
-        case (state)
-            TOK_REQ:
+        // Commit counter for heartbeat
+        link_model_commit.send(1);
+        
+        // Request a new token
+        nextToken <= True;
+    endaction
+    endfunction
+
+
+    //
+    // Whether an instruction is a load or store is stored in token scratchpad
+    // memory.  These are accessor functions...
+    //
+    function Bool tokIsLoad(TOKEN tok) = unpack(tok.timep_info.scratchpad[0]);
+    function Bool tokIsStore(TOKEN tok) = unpack(tok.timep_info.scratchpad[1]);
+
+
+    rule tok_req (nextToken);
+        // Request a Token
+        debugLog.record($format("Requesting a new token"));
+        link_to_tok.makeReq(initFuncpReqNewInFlight());
+
+        // Debug and heartbeat cycle counters
+        debugLog.nextModelCycle();
+        link_model_cycle.send(?);
+
+        nextToken <= False;
+    endrule
+
+    rule tok_rsp_itr_req (True);
+        // Get the response from tok_req
+        let rsp = link_to_tok.getResp();
+        link_to_tok.deq();
+
+        let tok = rsp.newToken;
+        debugLog.record($format("TOKEN %d: TOK Responded", tok.index));
+
+        // Translate next pc.
+        link_to_itr.makeReq(initFuncpReqDoITranslate(tok, pc));
+        debugLog.record($format("TOKEN %d: Translating at address 0x%h", tok.index, pc));
+    endrule
+
+    rule itr_rsp_fet_req (True);
+        // Get the ITrans response started by tok_rsp_itr_req
+        let rsp = link_to_itr.getResp();
+        link_to_itr.deq();
+
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: ITR Responded, hasMore: %d", tok.index, rsp.hasMore));
+
+        if (! rsp.hasMore)
+        begin
+            // Fetch the next instruction
+            link_to_fet.makeReq(initFuncpReqGetInstruction(tok));
+            debugLog.record($format("TOKEN %d: Fetching at address 0x%h", tok.index, pc));
+        end
+    endrule
+
+    rule fet_rsp_dec_req (True);
+        // Get the instruction response
+        let rsp = link_to_fet.getResp();
+        link_to_fet.deq();
+
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: FET Responded", tok.index));
+
+        // Record load and store properties for the instruction in the token
+        tok.timep_info.scratchpad[0] = pack(isaIsLoad(rsp.instruction));
+        tok.timep_info.scratchpad[1] = pack(isaIsStore(rsp.instruction));
+
+        // Decode the current inst
+        link_to_dec.makeReq(initFuncpReqGetDependencies(tok));
+        debugLog.record($format("TOKEN %d: Decoding", tok.index));
+    endrule
+
+    rule dec_rsp_exe_req (True);
+        // Get the decode response
+        let rsp = link_to_dec.getResp();
+        link_to_dec.deq();
+
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: DEC Responded", tok.index));
+
+        // In a more complex processor we would use the dependencies 
+        // to determine if we can issue the instruction.
+
+        // Execute the instruction
+        link_to_exe.makeReq(initFuncpReqGetResults(tok));
+        debugLog.record($format("TOKEN %d: Executing", tok.index));
+    endrule
+
+    rule exe_rsp (True);
+        // Get the execution result
+        let exe_resp = link_to_exe.getResp();
+        link_to_exe.deq();
+
+        let tok = exe_resp.token;
+        let res = exe_resp.result;
+
+        debugLog.record($format("TOKEN %d: EXE Responded", tok.index));
+
+        // If it was a branch we must update the PC.
+        case (res) matches
+            tagged RBranchTaken .addr:
             begin
-
-                //Request a Token
-                debugLog.record($format("[%d] Requesting a new Token on model cycle %0d.", fpgaCC, modelCC));
-                link_to_tok.makeReq(initFuncpReqNewInFlight());
-                link_model_cycle.send(?);
-
-                state <= TOK_RSP;
-
+                debugLog.record($format("Branch taken to address %h", addr));
+                pc <= addr;
             end
-            TOK_RSP:
+
+            tagged RBranchNotTaken .addr:
             begin
-
-                //Get the response
-                let rsp = link_to_tok.getResp();
-                link_to_tok.deq();
-
-                let tok = rsp.newToken;
-                
-                // Set the timing partition information.
-                tok.timep_info = TOKEN_TIMEP_INFO{epoch: 0, scratchpad: 0};
-
-                debugLog.record($format("[%d] TOK Responded with TOKEN %0d.", fpgaCC, tok.index));
-
-                cur_tok <= tok;
-
-                state <= ITR_REQ;
+                debugLog.record($format("Branch not taken"));
+                pc <= pc + 4;
             end
-            ITR_REQ:
+
+            tagged RTerminate .pf:
             begin
-
-                // Translate next pc.
-                link_to_itr.makeReq(initFuncpReqDoITranslate(cur_tok, pc));
-
-                debugLog.record($format("[%d] Translating TOKEN %0d at address 0x%h.", fpgaCC, cur_tok.index, pc));
-
-                state <= ITR_RSP;
-            
+                debugLog.record($format("Terminating Execution"));
+                local_ctrl.endProgram(pf);
             end
-            ITR_RSP:
+
+            default:
             begin
-
-                // Get the ITrans response.
-                let rsp = link_to_itr.getResp();
-                link_to_itr.deq();
-
-                debugLog.record($format("[%d] ITR Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                if (rsp.token.index != cur_tok.index) $display ("ITR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
-
-                if (rsp.hasMore)
-                begin
-
-                   // The instruction crossed a physical word. We have to get the second address serially.
-                   state <= ITR_RSP2;
-
-                end
-                else
-                begin
-                
-                    state <= FET_REQ;
-
-                end
-
+                pc <= pc + 4;
             end
-            ITR_RSP2:
+        endcase
+
+        if (tokIsLoad(tok) || tokIsStore(tok))
+        begin
+            // Memory ops require more work.
+            debugLog.record($format("TOKEN %d: DTranslate", tok.index));
+
+            // Get the physical address(es) of the memory access.
+            link_to_dtr.makeReq(initFuncpReqDoDTranslate(tok));
+        end
+        else
+        begin
+            // Everything else should just be committed.
+            commitQ.enq(tok);
+        end
+    endrule
+
+    rule dtr_rsp_mem_req (True);
+        // Get the response from dTranslate
+        let rsp = link_to_dtr.getResp();
+        link_to_dtr.deq();
+
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: DTR Responded, hasMore: %d", tok.index, rsp.hasMore));
+
+        if (! rsp.hasMore)
+        begin
+            if (tokIsLoad(tok))
             begin
-
-                // Get the second ITrans response.
-                let rsp = link_to_itr.getResp();
-                link_to_itr.deq();
-
-                debugLog.record($format("[%d] ITR Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                if (rsp.token.index != cur_tok.index) $display ("ITR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
-
-                state <= FET_REQ;
-
-            end
-            FET_REQ:
-            begin
-
-                // Fetch the next instruction
-                link_to_fet.makeReq(initFuncpReqGetInstruction(cur_tok));
-
-                debugLog.record($format("[%d] Fetching TOKEN %0d at address 0x%h.", fpgaCC, cur_tok.index, pc));
-
-                state <= FET_RSP;
-
-            end
-            FET_RSP:
-            begin
-
-                // Get the instruction response
-                let rsp = link_to_fet.getResp();
-                link_to_fet.deq();
-
-                debugLog.record($format("[%d] FET Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                // Record the current instruction.
-                cur_inst <= rsp.instruction;
-                
-                if (rsp.token.index != cur_tok.index) $display ("FET ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
-
-                state <= DEC_REQ;
-            end
-            DEC_REQ:
-            begin
-
-                // Decode the current inst
-                debugLog.record($format("[%d] Decoding TOKEN %0d.", fpgaCC, cur_tok.index));
-
-                link_to_dec.makeReq(initFuncpReqGetDependencies(cur_tok));
-
-                state <= DEC_RSP;
-            end
-            DEC_RSP:
-            begin
-
-                //Get the response
-                let rsp = link_to_dec.getResp();
-                link_to_dec.deq();
-                
-                // In a more complex processor we would use the dependencies 
-                // to determine if we can issue the instruction.
-
-                debugLog.record($format("[%d] DEC Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                if (rsp.token.index != cur_tok.index) $display ("DEC ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
-
-                state <= EXE_REQ;
-                
-            end
-            EXE_REQ:
-            begin
-
-                // Execute the instruction
-                link_to_exe.makeReq(initFuncpReqGetResults(cur_tok));
-
-                debugLog.record($format("[%d] Executing TOKEN %0d", fpgaCC, cur_tok.index));
-
-                state <= EXE_RSP;
-
-            end
-            EXE_RSP:
-            begin
-
-                //Get the execution result
-                let exe_resp = link_to_exe.getResp();
-                link_to_exe.deq();
-
-                let tok = exe_resp.token;
-                let res = exe_resp.result;
-
-                debugLog.record($format("[%d] EXE Responded with TOKEN %0d.", fpgaCC, tok.index));
-
-                if (tok.index != cur_tok.index) $display ("EXE ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-
-                // If it was a branch we must update the PC.
-
-                case (res) matches
-
-                    tagged RBranchTaken .addr:
-                    begin
-
-                        debugLog.record($format("Branch taken to address %h", addr));
-                        pc <= addr;
-
-                    end
-                    tagged RBranchNotTaken .addr:
-                    begin
-
-                        debugLog.record($format("Branch not taken"));
-                        pc <= pc + 4;
-
-                    end
-                    tagged RTerminate .pf:
-                    begin
-
-                        debugLog.record($format("Terminating Execution"));
-                        local_ctrl.endProgram(pf);
-
-                    end
-                    default:
-                    begin
-
-                       pc <= pc + 4;
-
-                    end
-
-                endcase
-
-                if (isaIsLoad(cur_inst) || isaIsStore(cur_inst))
-                begin
-                    // Memory ops require more work.
-                    state <= DTR_REQ;
-                end
-                else
-                begin
-                    // Everything else should just be committed.
-                    state <= LCO_REQ;
-                end
-
-            end
-            DTR_REQ:
-            begin
-
-                // Get the physical address(es) of the memory access.
-                link_to_dtr.makeReq(initFuncpReqDoDTranslate(cur_tok));
-
-                debugLog.record($format("[%d] DTranslate for TOKEN %0d", fpgaCC, cur_tok.index));
-
-
-                state <= DTR_RSP;
-
-            end
-            DTR_RSP:
-            begin
-
-                // Get the response
-                let rsp = link_to_dtr.getResp();
-                link_to_dtr.deq();
-
-                debugLog.record($format("[%d] DTranslate responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                if (rsp.token.index != cur_tok.index) $display ("DTR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
-
-                if (rsp.hasMore)
-                begin
-                    // The load/store spanned two memory locations.
-                    state <= DTR_RSP2;
-                end
-                else if (isaIsLoad(cur_inst))
-                begin
-                    state <= LOA_REQ;
-                end
-                else
-                begin
-                    state <= STO_REQ;
-                end
-
-            end
-            DTR_RSP2:
-            begin
-
-                // Get the response
-                let rsp = link_to_dtr.getResp();
-                link_to_dtr.deq();
-
-                debugLog.record($format("[%d] DTranslate responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                if (rsp.token.index != cur_tok.index) $display ("DTR ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
-
-                if (isaIsLoad(cur_inst))
-                begin
-                    state <= LOA_REQ;
-                end
-                else
-                begin
-                    state <= STO_REQ;
-                end
-
-            end
-            LOA_REQ:
-            begin
-
                 // Request the load(s).
-                link_to_loa.makeReq(initFuncpReqDoLoads(cur_tok));
-
-                debugLog.record($format("[%d] Loads for TOKEN %0d", fpgaCC, cur_tok.index));
-
-                state <= LOA_RSP;
-
+                link_to_loa.makeReq(initFuncpReqDoLoads(tok));
+                debugLog.record($format("TOKEN %d: Do loads", tok.index));
             end
-            LOA_RSP:
+            else
             begin
-
-                // Get the load response
-                let rsp = link_to_loa.getResp();
-                link_to_loa.deq();
-
-                debugLog.record($format("[%d] Load ops responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                if (rsp.token.index != cur_tok.index) $display ("LOA ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
-
-                state <= LCO_REQ;
-
-            end
-            STO_REQ:
-            begin
-
                 // Request the store(s)
-                link_to_sto.makeReq(initFuncpReqDoStores(cur_tok));
-
-                debugLog.record($format("[%d] Stores for TOKEN %0d", fpgaCC, cur_tok.index));
-
-                state <= STO_RSP;
+                link_to_sto.makeReq(initFuncpReqDoStores(tok));
+                debugLog.record($format("TOKEN %d: Do stores", tok.index));
             end
-            STO_RSP:
-            begin
+        end
+    endrule
 
-                 // Get the store response
-                let rsp = link_to_sto.getResp();
-                link_to_sto.deq();
+    rule loa_rsp (True);
+        // Get the load response
+        let rsp = link_to_loa.getResp();
+        link_to_loa.deq();
 
-                debugLog.record($format("[%d] Store ops responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: Load ops responded", tok.index));
 
-                if (rsp.token.index != cur_tok.index) $display ("STO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
+        commitQ.enq(tok);
+    endrule
 
-                state <= LCO_REQ;
-            end
-            LCO_REQ:
-            begin
-            
-                // Locally commit the token.
-                link_to_lco.makeReq(initFuncpReqCommitResults(cur_tok));
+    rule sto_rsp (True);
+        // Get the store response
+        let rsp = link_to_sto.getResp();
+        link_to_sto.deq();
 
-                debugLog.record($format("[%d] Locally committing TOKEN %0d.", fpgaCC, cur_tok.index));
-                
-                state <= LCO_RSP;
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: Store ops responded", tok.index));
 
-            end
-            LCO_RSP:
-            begin
+        commitQ.enq(tok);
+    endrule
 
-                //Get the commit response
+    rule lco_req (True);
+        // Get the current token from previous rule
+        let tok = commitQ.first();
+        commitQ.deq();
 
-                let rsp = link_to_lco.getResp();
-                link_to_lco.deq();
+        if (! tokIsPoisoned(tok))
+        begin
+            // Locally commit the token.
+            link_to_lco.makeReq(initFuncpReqCommitResults(tok));
+            debugLog.record($format("TOKEN %d: Locally committing", tok.index));
+        end
+        else
+        begin
+            // Token is poisoned.  Invoke fault handler.
+            link_handleFault.makeReq(initFuncpReqHandleFault(tok));
+            debugLog.record($format("TOKEN %d: Handling fault", tok.index));
+        end
+    endrule
 
-                debugLog.record($format("[%d] LCO Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
+    rule lco_rsp_gco_req (True);
+        let rsp = link_to_lco.getResp();
+        link_to_lco.deq();
 
-                if (rsp.token.index != cur_tok.index) $display ("LCO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: LCO Responded", tok.index));
 
-                if (isaIsStore(cur_inst))
-                begin
+        if (tokIsStore(tok))
+        begin
+            // Request global commit of stores.
+            link_to_gco.makeReq(initFuncpReqCommitStores(tok));
+            debugLog.record($format("TOKEN %d: Globally committing", tok.index));
+        end
+        else
+        begin
+            endModelCycle(tok);
+        end
+    endrule
 
-                    state <= GCO_REQ;
+    rule gco_rsp (True);
+        // Get the global commit response
+        let rsp = link_to_gco.getResp();
+        link_to_gco.deq();
 
-                end
-                else
-                begin
-                
-                    // End the model cycle.
-                    modelCC <= modelCC + 1;
-                    debugLog.record($format("Committed TOKEN %0d on model cycle %0d.", cur_tok.index, modelCC));
-                    event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
-                    link_model_commit.send(1);
-                    stat_com.incr();
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: GCO Responded", tok.index));
 
-                    state <= TOK_REQ;
+        endModelCycle(tok);
+    endrule
 
-                end
+    rule fault_rsp (True);
+        // Fault response (started by lco_req)
+        let rsp = link_handleFault.getResp();
+        link_handleFault.deq();
 
-            end
-            GCO_REQ:
-            begin
+        let tok = rsp.token;
+        debugLog.record($format("TOKEN %d: Handle fault responded PC 0x%0x", tok.index, rsp.nextInstructionAddress));
 
-                // Request global commit of stores.
-                link_to_gco.makeReq(initFuncpReqCommitStores(cur_tok));
+        // Next PC following fault
+        pc <= rsp.nextInstructionAddress;
 
-                debugLog.record($format("[%d] Globally committing TOKEN %0d", fpgaCC, cur_tok.index));
-
-                state <= GCO_RSP;
-            end
-            GCO_RSP:
-            begin
-
-                //Get the commit response
-                let rsp = link_to_gco.getResp();
-                link_to_gco.deq();
-
-                debugLog.record($format("[%d] GCO Responded with TOKEN %0d.", fpgaCC, rsp.token.index));
-
-                if (rsp.token.index != cur_tok.index) $display ("GCO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, rsp.token.index);
- 
-                // End the model cycle.
-                modelCC <= modelCC + 1;
-                debugLog.record($format("Committed TOKEN %0d on model cycle %0d.", cur_tok.index, modelCC));
-                event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
-                link_model_commit.send(1);
-                stat_com.incr();
-
-                state <= TOK_REQ;
-
-            end
-
-        endcase    
-
+        endModelCycle(tok);
     endrule
   
 endmodule
-

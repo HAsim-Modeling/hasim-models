@@ -42,6 +42,8 @@ module [HASIM_MODULE] mkWriteBack ();
 
     Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("wb_bus");
 
+    Port_Send#(TOKEN) faultQ <- mkPort_Send("fault");
+
     Port_Send#(Tuple2#(TOKEN, CacheInput)) dcacheQ <- mkPort_Send("cpu_to_dcache_committed");
     Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) dcache_delQ <- mkPort_Receive("dcache_to_cpu_delayed_committed", 0);
     Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) dcache_immQ <- mkPort_Receive("dcache_to_cpu_immediate_committed", 0);
@@ -52,16 +54,18 @@ module [HASIM_MODULE] mkWriteBack ();
     Connection_Client#(FUNCP_REQ_COMMIT_STORES, FUNCP_RSP_COMMIT_STORES) commitStores  <- mkConnection_Client("funcp_commitStores");
 
     Reg#(WB_STATE) state <- mkReg(WB_STATE_REQ);
+    Reg#(TOKEN_FAULT_EPOCH) faultEpoch <- mkReg(0);
 
     //Local Controller
     Vector#(3, Port_Control) inports  = newVector();
-    Vector#(3, Port_Control) outports = newVector();
+    Vector#(4, Port_Control) outports = newVector();
     inports[0]  = inQ.ctrl;
     inports[1]  = dcache_immQ.ctrl;
     inports[2]  = dcache_delQ.ctrl;
     outports[0] = busQ.ctrl;
     outports[1] = dcacheQ.ctrl;
     outports[2] = sb_deallocQ.ctrl;
+    outports[3] = faultQ.ctrl;
     LocalController local_ctrl <- mkLocalController(inports, outports);
 
     //Events
@@ -75,11 +79,13 @@ module [HASIM_MODULE] mkWriteBack ();
 
     rule bubble (state == WB_STATE_REQ && !isValid(inQ.peek));
         debugLog.record($format("BUBBLE"));
-        local_ctrl.startModelCC();
         inQ.pass();
+        debugLog.nextModelCycle();
+        local_ctrl.startModelCC();
         busQ.send(Invalid);
         sb_deallocQ.send(Invalid);
         dcacheQ.send(Invalid);
+        faultQ.send(Invalid);
         state <= WB_STATE_PASS2;
     endrule
 
@@ -91,15 +97,59 @@ module [HASIM_MODULE] mkWriteBack ();
     endrule
 
     rule results (state == WB_STATE_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
-        commitResults.makeReq(initFuncpReqCommitResults(tok));
-        state <= WB_STATE_DCACHE;
+
+        if (! tokIsPoisoned(tok) && (tokFaultEpoch(tok) == faultEpoch))
+        begin
+            //
+            // Normal commit flow for a good instruction.
+            //
+            debugLog.record(fshow("COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+            commitResults.makeReq(initFuncpReqCommitResults(tok));
+            faultQ.send(Invalid);
+            state <= WB_STATE_DCACHE;
+        end
+        else
+        begin
+            //
+            // Exception flow.
+            //
+            let x <- inQ.receive();
+            dcacheQ.send(Invalid);
+
+            // Clain to write target registers so older instructions drain
+            busQ.send(Valid(bundle.dests));
+            state <= WB_STATE_PASS2;
+
+            // Drop token from store buffer
+            if (bundle.isStore())
+                sb_deallocQ.send(Valid(tok));
+            else
+                sb_deallocQ.send(Invalid);
+
+            if (tokFaultEpoch(tok) != faultEpoch)
+            begin
+                // Draining following earlier fault
+                debugLog.record(fshow("DRAIN: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                faultQ.send(Invalid);
+            end
+            else
+            begin
+                // Fault.  Redirect the front end to handle the fault.
+                debugLog.record(fshow("FAULT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                faultEpoch <= faultEpoch + 1;
+                faultQ.send(tagged Valid tok);
+            end
+        end
     endrule
 
     rule dcache_retry (state == WB_STATE_RETRY_REQ &&& inQ.peek() matches tagged Valid { .tok, .bundle });
+        debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         debugLog.record(fshow("RETRYING DCACHE STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.effAddr));
         dcacheQ.send(Valid(tuple2(tok,Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr)))));
+        faultQ.send(Invalid);
         state <= WB_STATE_DCACHE_RESP;
     endrule
 
