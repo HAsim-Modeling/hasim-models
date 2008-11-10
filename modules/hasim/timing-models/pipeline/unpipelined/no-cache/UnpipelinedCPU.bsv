@@ -151,6 +151,8 @@ module [HASIM_MODULE] mkPipeline
 
 
     rule tok_req (nextToken);
+        local_ctrl.startModelCC();
+
         // Request a Token
         debugLog.record($format("Requesting a new token"));
         link_to_tok.makeReq(initFuncpReqNewInFlight());

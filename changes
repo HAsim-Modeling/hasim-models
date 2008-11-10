@@ -1577,3 +1577,20 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
   be a reference implementation of the minimal timing/functional interface.
 
 - Clean up some debugging output.  E.g. simulated cycle now printed for in-order.
+
+----------
+mcadler     Date: Mon Nov 10 12:41:48 EST 2008  CSN: CSN-hasim-models-82
+                  Mon Nov 10 17:41:48 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified           81 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           81 
+
+- Unpipelined model never called local_ctrl.startModelCC()
+- Superscalar model didn't connect to local controllers.  For now just the front
+  end is connected and external ports aren't defined, so balancing will not
+  work.  The minimal connection added here forces the pipeline to wait for
+  permission to run before starting.

@@ -1,14 +1,34 @@
+//
+// Copyright (C) 2008 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
 import FShow::*;
+import Vector::*;
 
-`include "hasim_common.bsh"
-`include "hasim_modellib.bsh"
-`include "hasim_isa.bsh"
-`include "soft_connections.bsh"
-`include "funcp_interface.bsh"
-`include "hasim_branch_pred.bsh"
-`include "funcp_simulated_memory.bsh"
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/soft_connections.bsh"
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/hasim_branch_pred.bsh"
+`include "asim/provides/funcp_simulated_memory.bsh"
 
-`include "hasim_pipeline_types.bsh"
+`include "asim/provides/hasim_pipeline_types.bsh"
 
 typedef enum
 {
@@ -46,6 +66,16 @@ module [HASIM_MODULE] mkFetch();
 
     BranchPred                                                                   branchPred <- mkBranchPred;
 
+    //
+    // Local Controller
+    //
+    // FIXME -- need to enumerate ports so balancing works for events
+    Vector#(0, Port_Control) inports  = newVector();
+    Vector#(0, Port_Control) outports = newVector();
+
+    LocalController local_ctrl <- mkLocalController(inports, outports);
+
+
     function Action makeFetchBundle(TOKEN token, ISA_INSTRUCTION inst, ISA_ADDRESS _pc, PRED_TYPE predType, Bool prediction, ISA_ADDRESS predPc);
     action
         getInstruction.deq;
@@ -59,6 +89,8 @@ module [HASIM_MODULE] mkFetch();
     endfunction
 
     rule predictUpdate(state == FETCH_STATE_PREDICT_UPDATE);
+        local_ctrl.startModelCC();
+
         if(predictUpdatePort.canReceive)
         begin
             let bundle <- predictUpdatePort.pop;
