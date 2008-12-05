@@ -73,7 +73,7 @@ module [HASIM_MODULE] mkDecode ();
     for (Integer i = numIsaArchRegisters; i < numFuncpPhyRegisters; i = i + 1)
         prfValid_init[i] = False;
 
-    Counter#(TOKEN_INDEX_SIZE) numInstrsInFlight <- mkCounter(0);
+    COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight <- mkLCounter(0);
     Reg#(Bool)    drainingAfter <- mkReg(False);
 
     Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);

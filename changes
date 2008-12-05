@@ -1594,3 +1594,13 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
   end is connected and external ports aren't defined, so balancing will not
   work.  The minimal connection added here forces the pipeline to wait for
   permission to run before starting.
+
+----------
+mcadler     Date: Fri Dec  5 07:56:39 EST 2008  CSN: CSN-hasim-models-83
+                  Fri Dec  5 12:56:39 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Decode.bsv                Locally Modified           82 
+
+Use counter that supports parallel up and down calls.
