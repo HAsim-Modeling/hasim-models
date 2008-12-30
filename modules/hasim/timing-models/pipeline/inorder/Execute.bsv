@@ -281,7 +281,7 @@ module [HASIM_MODULE] mkExecute ();
             endcase
             outQ.send(Valid(tuple2(tok, bundle)));
             busQ.send(Invalid);
-            event_exe.recordEvent(Valid(zeroExtend(tok.index)));
+            event_exe.recordEvent(Valid(zeroExtend(pack(tok.index))));
             state <= EXECUTE_STATE_EXEC;
         end
     endrule

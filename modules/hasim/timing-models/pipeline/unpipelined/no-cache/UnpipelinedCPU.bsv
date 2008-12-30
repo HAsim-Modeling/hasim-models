@@ -130,7 +130,7 @@ module [HASIM_MODULE] mkPipeline
         debugLog.record($format("Model cycle complete.", tok.index));
 
         // Sample event & statistic (commit)
-        event_com.recordEvent(tagged Valid zeroExtend(tok.index));
+        event_com.recordEvent(tagged Valid zeroExtend(pack(tok.index)));
         stat_com.incr();
 
         // Commit counter for heartbeat

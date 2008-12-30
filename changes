@@ -1604,3 +1604,23 @@ Directory modules/hasim/timing-models/pipeline/inorder
  Decode.bsv                Locally Modified           82 
 
 Use counter that supports parallel up and down calls.
+
+----------
+mcadler     Date: Tue Dec 30 17:41:17 EST 2008  CSN: CSN-hasim-models-84
+                  Tue Dec 30 22:41:17 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Fetch.bsv                 Locally Modified           83 
+ Execute.bsv               Locally Modified           83 
+ WriteBack.bsv             Locally Modified           83 
+ Mem.bsv                   Locally Modified           83 
+ Decode.bsv                Locally Modified           83 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ mem.bsv                   Locally Modified           83 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           83 
+
+TOKEN_INDEX is a struct.  Must use pack() to pass it as part of an event.

@@ -78,7 +78,7 @@ module [HASIM_MODULE] mkMem ();
         let x <- inQ.receive();
         outQ.send(tagged Valid tuple2(tok, bundle));
         busQ.send(Invalid);
-        event_mem.recordEvent(Valid(zeroExtend(tok.index)));
+        event_mem.recordEvent(Valid(zeroExtend(pack(tok.index))));
         state <= MEM_STATE_REQ;
     endaction
     endfunction

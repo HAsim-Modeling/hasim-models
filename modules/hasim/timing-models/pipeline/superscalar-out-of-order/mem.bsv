@@ -93,7 +93,7 @@ module [HASIM_MODULE] mkMem();
         begin
             if(isaIsLoad(memAddressFifo.first().inst))
             begin
-                debugLog.record($format(fshow(resp.token.index) + $format(": memReq LOAD")));
+                debugLog.record($format(fshow(resp.token) + $format(": memReq LOAD")));
                 doLoads.makeReq(FUNCP_REQ_DO_LOADS{token: resp.token});
             end
             else

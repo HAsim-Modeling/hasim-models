@@ -225,7 +225,7 @@ module [HASIM_MODULE] mkDecode ();
             let mtup <- inQ.receive();
             let bundle = makeBundle(fetchbundle, rsp.dstMap);
             outQ.send(Valid(tuple2(tok,bundle)));
-            event_dec.recordEvent(Valid(zeroExtend(tok.index)));
+            event_dec.recordEvent(Valid(zeroExtend(pack(tok.index))));
             debugLog.record(fshow("SEND: ") + fshow(tok) + fshow(" INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
             memoDependencies <= Invalid;
             drainingAfter <= isaDrainAfter(fetchbundle.inst);

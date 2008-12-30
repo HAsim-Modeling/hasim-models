@@ -207,7 +207,7 @@ module [HASIM_MODULE] mkWriteBack ();
             local_ctrl.endProgram(pf);
         let x <- inQ.receive();
         busQ.send(Valid(bundle.dests));
-        event_wb.recordEvent(Valid(zeroExtend(tok.index)));
+        event_wb.recordEvent(Valid(zeroExtend(pack(tok.index))));
         stat_wb.incr();
         linkModelCommit.send(1);
         state <= WB_STATE_REQ;

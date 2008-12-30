@@ -293,7 +293,7 @@ module [HASIM_MODULE] mkFetch ();
         outQ.send(Valid(tuple2(tok,bundle)));
         pc_fifo.deq();
         pred_fifo.deq();
-        event_fet.recordEvent(Valid(zeroExtend(tok.index)));
+        event_fet.recordEvent(Valid(zeroExtend(pack(tok.index))));
         state <= FETCH_STATE_NEXTPC;
 
     endrule
