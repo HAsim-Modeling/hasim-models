@@ -194,7 +194,7 @@ module [HASIM_MODULE] mkPipe_Fetch#(File debug_file, Bit#(32) curTick)
     if (!stalling)
       begin
         $fdisplay(debug_file, "[%d]:TOK:REQ", curTick);
-        fp_tok_req.send(?);
+        fp_tok_req.send(initFuncpReqNewInFlight(0));
         state <= FET_GetITrans;
 
       end

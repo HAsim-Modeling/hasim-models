@@ -176,7 +176,7 @@ module [HASIM_MODULE] mkFetch ();
         end
         else
         begin
-            newInFlight.makeReq(initFuncpReqNewInFlight());
+            newInFlight.makeReq(initFuncpReqNewInFlight(0));
             state <= FETCH_STATE_ICACHE_REQ;
 	end
     endrule

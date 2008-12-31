@@ -1624,3 +1624,23 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  UnpipelinedCPU.bsv        Locally Modified           83 
 
 TOKEN_INDEX is a struct.  Must use pack() to pass it as part of an event.
+
+----------
+mcadler     Date: Wed Dec 31 14:23:27 EST 2008  CSN: CSN-hasim-models-85
+                  Wed Dec 31 19:23:27 UTC 2008
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Fetch.bsv                 Locally Modified           84 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified           83 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           84 
+
+Directory modules/hasim/timing-models/pipeline/5stage
+ Fetch.bsv                 Locally Modified           83 
+
+- Unpipelined model supports multiple contexts.  Not especially well tested.
+- Other models always request tokens from context 0.

@@ -153,7 +153,7 @@ module [HASIM_MODULE] mkFetch();
         if(fetchPort.canSend())
         begin
             debugLog.record($format("new token req"));
-            newInFlight.makeReq(?);
+            newInFlight.makeReq(initFuncpReqNewInFlight(0));
             state <= FETCH_STATE_I_TRANSLATE_REQ;
         end
         else
