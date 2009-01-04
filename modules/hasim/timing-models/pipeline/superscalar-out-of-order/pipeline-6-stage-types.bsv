@@ -26,20 +26,6 @@ typedef TExp#(`ROB_INDEX_SIZE) DECODE_CREDITS;
 typedef Bit#(`ROB_INDEX_SIZE) ROB_INDEX;
 typedef Bit#(LOG_DECODE_CREDITS) ROB_PTR;
 
-instance FShow#(TOKEN);
-    function Fmt fshow(TOKEN tok);
-        Fmt s = $format("TOKEN: %0d", tok.index);
-        if (tokIsPoisoned(tok))
-            s = s + fshow(" POISON");
-
-        // For some reason the following line keeps "POISON" from appearing
-        // improperly when the token is the last object printed.
-        s = s + fshow("");
-
-        return s;
-    endfunction
-endinstance
-
 typedef enum {PRED_TYPE_BRANCH_IMM, PRED_TYPE_BRANCH_REG, PRED_TYPE_JUMP_IMM, PRED_TYPE_JUMP_REG, PRED_TYPE_RET, PRED_TYPE_TARGET, PRED_TYPE_NONE} PRED_TYPE deriving (Bits, Eq); 
 
 typedef struct {

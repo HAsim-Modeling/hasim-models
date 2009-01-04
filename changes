@@ -1644,3 +1644,19 @@ Directory modules/hasim/timing-models/pipeline/5stage
 
 - Unpipelined model supports multiple contexts.  Not especially well tested.
 - Other models always request tokens from context 0.
+
+----------
+mcadler     Date: Sun Jan  4 16:43:08 EST 2009  CSN: CSN-hasim-models-86
+                  Sun Jan  4 21:43:08 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ PipelineTypes.bsv         Locally Modified           84 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ pipeline-6-stage-types.bsv Locally Modified           84 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           85 
+
+Move fshow() declaration for TOKEN and TOKEN_INDEX to token.bsv.

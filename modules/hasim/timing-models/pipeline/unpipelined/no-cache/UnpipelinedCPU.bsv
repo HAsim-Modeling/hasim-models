@@ -18,6 +18,7 @@
 
 import Vector::*;
 import FIFO::*;
+import FShow::*;
 
 //HASim library imports
 `include "asim/provides/hasim_common.bsh"
@@ -145,7 +146,7 @@ module [HASIM_MODULE] mkPipeline
     //
     function Action endModelCycle(TOKEN tok);
     action
-        debugLog.record($format("TOKEN %0d: Model cycle complete", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": Model cycle complete"));
 
         // Sample event & statistic (commit)
         event_com.recordEvent(tagged Valid zeroExtend(pack(tok.index)));
@@ -214,12 +215,12 @@ module [HASIM_MODULE] mkPipeline
         link_to_tok.deq();
 
         let tok = rsp.newToken;
-        debugLog.record($format("TOKEN %0d: TOK Responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": TOK Responded"));
 
         // Translate next pc.
         let ctx_pc = pc[tokContextId(tok)];
         link_to_itr.makeReq(initFuncpReqDoITranslate(tok, ctx_pc));
-        debugLog.record($format("TOKEN %0d: Translating at address 0x%h", tok.index, ctx_pc));
+        debugLog.record(fshow(tok.index) + $format(": Translating at address 0x%h", ctx_pc));
     endrule
 
     rule itr_rsp_fet_req (True);
@@ -228,13 +229,13 @@ module [HASIM_MODULE] mkPipeline
         link_to_itr.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: ITR Responded, hasMore: %0d", tok.index, rsp.hasMore));
+        debugLog.record(fshow(tok.index) + $format(": ITR Responded, hasMore: %0d", rsp.hasMore));
 
         if (! rsp.hasMore)
         begin
             // Fetch the next instruction
             link_to_fet.makeReq(initFuncpReqGetInstruction(tok));
-            debugLog.record($format("TOKEN %0d: Fetching at address 0x%h", tok.index, pc[tokContextId(tok)]));
+            debugLog.record(fshow(tok.index) + $format(": Fetching at address 0x%h", pc[tokContextId(tok)]));
         end
     endrule
 
@@ -244,7 +245,7 @@ module [HASIM_MODULE] mkPipeline
         link_to_fet.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: FET Responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": FET Responded"));
 
         // Record load and store properties for the instruction in the token
         tok.timep_info.scratchpad[0] = pack(isaIsLoad(rsp.instruction));
@@ -252,7 +253,7 @@ module [HASIM_MODULE] mkPipeline
 
         // Decode the current inst
         link_to_dec.makeReq(initFuncpReqGetDependencies(tok));
-        debugLog.record($format("TOKEN %0d: Decoding", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": Decoding"));
     endrule
 
     rule dec_rsp_exe_req (True);
@@ -261,14 +262,14 @@ module [HASIM_MODULE] mkPipeline
         link_to_dec.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: DEC Responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": DEC Responded"));
 
         // In a more complex processor we would use the dependencies 
         // to determine if we can issue the instruction.
 
         // Execute the instruction
         link_to_exe.makeReq(initFuncpReqGetResults(tok));
-        debugLog.record($format("TOKEN %0d: Executing", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": Executing"));
     endrule
 
     rule exe_rsp (True);
@@ -281,7 +282,7 @@ module [HASIM_MODULE] mkPipeline
 
         let ctx_id = tokContextId(tok);
 
-        debugLog.record($format("TOKEN %0d: EXE Responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": EXE Responded"));
 
         // If it was a branch we must update the PC.
         case (res) matches
@@ -312,7 +313,7 @@ module [HASIM_MODULE] mkPipeline
         if (tokIsLoad(tok) || tokIsStore(tok))
         begin
             // Memory ops require more work.
-            debugLog.record($format("TOKEN %0d: DTranslate", tok.index));
+            debugLog.record(fshow(tok.index) + $format(": DTranslate"));
 
             // Get the physical address(es) of the memory access.
             link_to_dtr.makeReq(initFuncpReqDoDTranslate(tok));
@@ -330,7 +331,7 @@ module [HASIM_MODULE] mkPipeline
         link_to_dtr.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: DTR Responded, hasMore: %0d", tok.index, rsp.hasMore));
+        debugLog.record(fshow(tok.index) + $format(": DTR Responded, hasMore: %0d", rsp.hasMore));
 
         if (! rsp.hasMore)
         begin
@@ -338,13 +339,13 @@ module [HASIM_MODULE] mkPipeline
             begin
                 // Request the load(s).
                 link_to_loa.makeReq(initFuncpReqDoLoads(tok));
-                debugLog.record($format("TOKEN %0d: Do loads", tok.index));
+                debugLog.record(fshow(tok.index) + $format(": Do loads"));
             end
             else
             begin
                 // Request the store(s)
                 link_to_sto.makeReq(initFuncpReqDoStores(tok));
-                debugLog.record($format("TOKEN %0d: Do stores", tok.index));
+                debugLog.record(fshow(tok.index) + $format(": Do stores"));
             end
         end
     endrule
@@ -355,7 +356,7 @@ module [HASIM_MODULE] mkPipeline
         link_to_loa.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: Load ops responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": Load ops responded"));
 
         commitQ.enq(tok);
     endrule
@@ -366,7 +367,7 @@ module [HASIM_MODULE] mkPipeline
         link_to_sto.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: Store ops responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": Store ops responded"));
 
         commitQ.enq(tok);
     endrule
@@ -380,13 +381,13 @@ module [HASIM_MODULE] mkPipeline
         begin
             // Locally commit the token.
             link_to_lco.makeReq(initFuncpReqCommitResults(tok));
-            debugLog.record($format("TOKEN %0d: Locally committing", tok.index));
+            debugLog.record(fshow(tok.index) + $format(": Locally committing"));
         end
         else
         begin
             // Token is poisoned.  Invoke fault handler.
             link_handleFault.makeReq(initFuncpReqHandleFault(tok));
-            debugLog.record($format("TOKEN %0d: Handling fault", tok.index));
+            debugLog.record(fshow(tok.index) + $format(": Handling fault"));
         end
     endrule
 
@@ -395,13 +396,13 @@ module [HASIM_MODULE] mkPipeline
         link_to_lco.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: LCO Responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": LCO Responded"));
 
         if (tokIsStore(tok))
         begin
             // Request global commit of stores.
             link_to_gco.makeReq(initFuncpReqCommitStores(tok));
-            debugLog.record($format("TOKEN %0d: Globally committing", tok.index));
+            debugLog.record(fshow(tok.index) + $format(": Globally committing"));
         end
         else
         begin
@@ -415,7 +416,7 @@ module [HASIM_MODULE] mkPipeline
         link_to_gco.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: GCO Responded", tok.index));
+        debugLog.record(fshow(tok.index) + $format(": GCO Responded"));
 
         endModelCycle(tok);
     endrule
@@ -427,7 +428,7 @@ module [HASIM_MODULE] mkPipeline
         link_handleFault.deq();
 
         let tok = rsp.token;
-        debugLog.record($format("TOKEN %0d: Handle fault responded PC 0x%0x", tok.index, rsp.nextInstructionAddress));
+        debugLog.record(fshow(tok.index) + $format(": Handle fault responded PC 0x%0x", rsp.nextInstructionAddress));
 
         // Next PC following fault
         pc[tokContextId(tok)] <= rsp.nextInstructionAddress;
