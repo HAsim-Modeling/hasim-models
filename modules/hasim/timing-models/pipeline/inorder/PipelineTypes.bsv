@@ -31,6 +31,29 @@ typedef union tagged {
     ISA_ADDRESS BranchTaken;
 } BRANCH_ATTR deriving (Bits, Eq);
 
+
+//
+// Messages from various stages to DECODE
+//
+typedef struct
+{
+    TOKEN token;
+
+    // Registers written (and now available)
+    Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs;
+    // Token killed and won't be seen again
+    Bool tokKilled;
+}
+BUS_MESSAGE
+    deriving (Bits, Eq);
+
+function BUS_MESSAGE genBusMessage(TOKEN tok,
+                                   Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs,
+                                   Bool killed);
+    return BUS_MESSAGE { token: tok, destRegs: destRegs, tokKilled: killed };
+endfunction
+
+
 //
 // Message from EXE back to front end branch predictor
 //

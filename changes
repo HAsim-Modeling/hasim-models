@@ -1660,3 +1660,25 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  UnpipelinedCPU.bsv        Locally Modified           85 
 
 Move fshow() declaration for TOKEN and TOKEN_INDEX to token.bsv.
+
+----------
+mcadler     Date: Mon Jan  5 08:40:29 EST 2009  CSN: CSN-hasim-models-87
+                  Mon Jan  5 13:40:29 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Execute.bsv               Locally Modified           85 
+ Mem.bsv                   Locally Modified           85 
+ PipelineTypes.bsv         Locally Modified           86 
+ WriteBack.bsv             Locally Modified           85 
+ Decode.bsv                Locally Modified           85 
+
+Add proper bypassing from EXE and MEM stages.  The control logica already
+existed from EXE and MEM back to DEC to support bypassing, but it was used
+only to handle dead instructions caused by branch misprediction.  All register
+dependence was waiting for earlier instructions to commit!
+
+New code supports full bypassing using 0 latency ports from EXE and MEM back
+to DEC.  Dependent instructions can now follow typical ALU instructions
+immediately and there is a one cycle bubble for memory loads.  Simulated
+performance for Alpha with perfect caches improves by about 80%.

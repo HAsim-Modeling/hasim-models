@@ -40,7 +40,7 @@ module [HASIM_MODULE] mkMem ();
     StallPort_Receive#(Tuple2#(TOKEN,BUNDLE)) inQ  <- mkStallPort_Receive("exe2mem");
     StallPort_Send#(Tuple2#(TOKEN,BUNDLE))    outQ <- mkStallPort_Send   ("mem2wb");
 
-    Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("mem_bus");
+    Port_Send#(BUS_MESSAGE) busQ <- mkPort_Send("mem_bus");
 
     Port_Send#(Tuple2#(TOKEN, CacheInput)) dcacheQ <- mkPort_Send("cpu_to_dcache_speculative");
     Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) dcache_delQ <- mkPort_Receive("dcache_to_cpu_delayed_speculative", 0);
@@ -77,7 +77,17 @@ module [HASIM_MODULE] mkMem ();
     action
         let x <- inQ.receive();
         outQ.send(tagged Valid tuple2(tok, bundle));
-        busQ.send(Invalid);
+
+        if (bundle.isLoad)
+        begin
+            busQ.send(Valid(genBusMessage(tok, bundle.dests, False)));
+            debugLog.record(fshow(tok) + fshow(": marking load dest reg(s) valid"));
+        end
+        else
+        begin
+            busQ.send(Invalid);
+        end
+
         event_mem.recordEvent(Valid(zeroExtend(pack(tok.index))));
         state <= MEM_STATE_REQ;
     endaction

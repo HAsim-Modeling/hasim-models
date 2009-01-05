@@ -43,7 +43,8 @@ module [HASIM_MODULE] mkExecute ();
     Port_Send#(Tuple2#(TOKEN, ISA_ADDRESS))      rewindQ <- mkPort_Send("rewind");
     Port_Send#(BRANCH_PRED_TRAIN)               bptrainQ <- mkPort_Send("bp_train");
 
-    Port_Send#(Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX))) busQ <- mkPort_Send("exe_bus");
+    // Send a 
+    Port_Send#(BUS_MESSAGE) busQ <- mkPort_Send("exe_bus");
 
     Connection_Client#(FUNCP_REQ_GET_RESULTS,
                        FUNCP_RSP_GET_RESULTS) getResults <- mkConnection_Client("funcp_getResults");
@@ -144,7 +145,7 @@ module [HASIM_MODULE] mkExecute ();
             // Bad path due to branch.  Drop the incoming token.
             //
             let x <- inQ.receive();
-            busQ.send(Valid(bundle.dests));
+            busQ.send(Valid(genBusMessage(tok, bundle.dests, True)));
         end
 
         if (outQ.canSend)
@@ -280,7 +281,18 @@ module [HASIM_MODULE] mkExecute ();
                 end
             endcase
             outQ.send(Valid(tuple2(tok, bundle)));
-            busQ.send(Invalid);
+
+            if (bundle.isLoad)
+            begin
+                busQ.send(Invalid);
+                debugLog.record(fshow(tok) + fshow(": load -- dest regs not yet valid"));
+            end
+            else
+            begin
+                busQ.send(Valid(genBusMessage(tok, bundle.dests, False)));
+                debugLog.record(fshow(tok) + fshow(": marking dest regs valid"));
+            end
+
             event_exe.recordEvent(Valid(zeroExtend(pack(tok.index))));
             state <= EXECUTE_STATE_EXEC;
         end
