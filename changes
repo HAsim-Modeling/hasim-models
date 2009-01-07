@@ -1708,3 +1708,13 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  UnpipelinedCPU.bsv        Locally Modified           87 
 
 Send heartbeats for multiple contexts.
+
+----------
+mcadler     Date: Wed Jan  7 10:44:24 EST 2009  CSN: CSN-hasim-models-89
+                  Wed Jan  7 15:44:24 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           88 
+
+Use new context-aware debug log interface.
