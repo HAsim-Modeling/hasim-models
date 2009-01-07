@@ -75,7 +75,7 @@ module [HASIM_MODULE] mkWriteBack ();
     Stat stat_wb <- mkStatCounter(`STATS_WRITEBACK_INSTS_COMMITTED);
 
     // Number of commits (to go along with heartbeat)
-    Connection_Send#(MODEL_NUM_COMMITS) linkModelCommit <- mkConnection_Send("model_commits");
+    Connection_Send#(CONTROL_MODEL_COMMIT_MSG) linkModelCommit <- mkConnection_Send("model_commits");
 
     rule bubble (state == WB_STATE_REQ && !isValid(inQ.peek));
         debugLog.record($format("BUBBLE"));
@@ -209,7 +209,7 @@ module [HASIM_MODULE] mkWriteBack ();
         commitQ.send(Valid(tok));
         event_wb.recordEvent(Valid(zeroExtend(pack(tok.index))));
         stat_wb.incr();
-        linkModelCommit.send(1);
+        linkModelCommit.send(tuple2(0, 1));
         state <= WB_STATE_REQ;
     endrule
 

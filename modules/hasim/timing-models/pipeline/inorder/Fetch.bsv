@@ -63,7 +63,7 @@ module [HASIM_MODULE] mkFetch ();
     Port_Receive#(ISA_ADDRESS) nextpcQ <- mkPort_Receive("bp_reply_pc", 1);
     Port_Receive#(BRANCH_ATTR) predQ   <- mkPort_Receive("bp_reply_pred", 0);
 
-    Connection_Send#(Bool) model_cycle <- mkConnection_Send("model_cycle");
+    Connection_Send#(CONTROL_MODEL_CYCLE_MSG) model_cycle <- mkConnection_Send("model_cycle");
 
     Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT,
                        FUNCP_RSP_NEW_IN_FLIGHT)      newInFlight    <- mkConnection_Client("funcp_newInFlight");
@@ -117,7 +117,7 @@ module [HASIM_MODULE] mkFetch ();
         debugLog.nextModelCycle();
         local_ctrl.startModelCC();
         stat_cycles.incr();
-        model_cycle.send(?);
+        model_cycle.send(0);
         let x <- nextpcQ.receive();
         if (x matches tagged Valid .a)
             pc <= a;

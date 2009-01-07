@@ -1682,3 +1682,29 @@ New code supports full bypassing using 0 latency ports from EXE and MEM back
 to DEC.  Dependent instructions can now follow typical ALU instructions
 immediately and there is a one cycle bubble for memory loads.  Simulated
 performance for Alpha with perfect caches improves by about 80%.
+
+----------
+mcadler     Date: Tue Jan  6 20:03:03 EST 2009  CSN: CSN-hasim-models-88
+                  Wed Jan  7 01:03:03 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Fetch.bsv                 Locally Modified           87 
+ WriteBack.bsv             Locally Modified           87 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ commit.bsv                Locally Modified           87 
+ inorder-issue.bsv         Locally Modified           87 
+ rob.bsv                   Locally Modified           87 
+
+Directory modules/hasim/timing-models/pipeline/5stage
+ Fetch.bsv                 Locally Modified           87 
+ Writeback.bsv             Locally Modified           87 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ UnpipelinedCPU.bsv        Locally Modified           87 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           87 
+
+Send heartbeats for multiple contexts.

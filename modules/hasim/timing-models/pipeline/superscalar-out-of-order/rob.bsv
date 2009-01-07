@@ -1,16 +1,36 @@
+//
+// Copyright (C) 2008 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
 import Vector::*;
 import Counter::*;
 import FShow::*;
 
-`include "hasim_common.bsh"
-`include "hasim_modellib.bsh"
-`include "hasim_isa.bsh"
-`include "soft_connections.bsh"
-`include "funcp_interface.bsh"
-`include "module_local_controller.bsh"
-`include "fpga_components.bsh"
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/soft_connections.bsh"
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/fpga_components.bsh"
+`include "asim/provides/hasim_controller.bsh"
 
-`include "hasim_pipeline_types.bsh"
+`include "asim/provides/hasim_pipeline_types.bsh"
+`include "asim/provides/hasim_issue.bsh"
 
 typedef enum {ROB_STATE_WRITEBACK_ALU, ROB_STATE_WRITEBACK_MEM, ROB_STATE_ADD, ROB_STATE_COMMIT_REQ, ROB_STATE_COMMIT_RESP, ROB_STATE_ISSUE_REQ, ROB_STATE_ISSUE_RESP} ROB_STATE deriving (Bits, Eq);
 
@@ -35,7 +55,7 @@ module [HASIM_MODULE] mkIssue();
     PORT_CREDIT_SEND#(REWIND_BUNDLE, 1, 1)                                     resteerPort <- mkPortCreditSend("resteer");
     PORT_CREDIT_SEND#(FAULT_BUNDLE, 1, 1)                                        faultPort <- mkPortCreditSend("fault");
 
-    Connection_Send#(Bool)                                                      modelCycle <- mkConnection_Send("model_cycle");
+    Connection_Send#(CONTROL_MODEL_CYCLE_MSG)                                   modelCycle <- mkConnection_Send("model_cycle");
 
     BRAM#(ROB_INDEX, ROB_ENTRY)                                                        rob <- mkBRAM();
 
@@ -281,7 +301,7 @@ module [HASIM_MODULE] mkIssue();
         if((!memPort.canSend() && !aluPort.canSend()) || issuePtr == addPtr || !allPrevIssued)
         begin
             debugLog.record($format("end cycle"));
-            modelCycle.send(?);
+            modelCycle.send(0);
             debugLog.nextModelCycle();
             timeStamp <= timeStamp + 1;
             memPort.done();

@@ -81,9 +81,9 @@ module [HASIM_MODULE] mkPipeline
 
     //********* Connections *********//
 
-    Connection_Send#(Bool)                            link_model_cycle <- mkConnection_Send("model_cycle");
+    Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         link_model_cycle <- mkConnection_Send("model_cycle");
 
-    Connection_Send#(MODEL_NUM_COMMITS)               link_model_commit <- mkConnection_Send("model_commits");
+    Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        link_model_commit <- mkConnection_Send("model_commits");
 
     Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT, 
                        FUNCP_RSP_NEW_IN_FLIGHT)       link_to_tok <- mkConnection_Client("funcp_newInFlight");
@@ -153,11 +153,11 @@ module [HASIM_MODULE] mkPipeline
         stat_com.incr();
 
         // Commit counter for heartbeat
-        link_model_commit.send(1);
+        link_model_commit.send(tuple2(tokContextId(tok), 1));
         
         // Update state vector
         let cur_states = ctxStates;
-        cur_states[tok.index.context_id] = CTX_STATE_DONE;
+        cur_states[tokContextId(tok)] = CTX_STATE_DONE;
         
         // Wait until all contexts are done before starting a new cycle.
         // Technically we could run them independently, but this model is
@@ -192,13 +192,13 @@ module [HASIM_MODULE] mkPipeline
 
             // Debug and heartbeat cycle counters
             debugLog.nextModelCycle();
-            link_model_cycle.send(?);
         end
 
         // Request a Token
         if (local_ctrl.contextIsActive(pack(ctx_id)))
         begin
             debugLog.record($format("Requesting a new token for context %0d", ctx_id));
+            link_model_cycle.send(pack(ctx_id));
             link_to_tok.makeReq(initFuncpReqNewInFlight(pack(ctx_id)));
             ctxStates[ctx_id] <= CTX_STATE_BUSY;
         end

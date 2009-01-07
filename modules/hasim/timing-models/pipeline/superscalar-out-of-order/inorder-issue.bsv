@@ -34,7 +34,7 @@ module [HASIM_MODULE] mkIssue();
     PORT_CREDIT_SEND#(COMMIT_BUNDLE, `ALU_NUM, LOG_ALU_CREDITS)         aluWriteback2Send <- mkPortCreditSend("aluWriteback2");
     PORT_FIFO_RECEIVE#(COMMIT_BUNDLE, `ALU_NUM, LOG_ALU_CREDITS)        aluWriteback2Recv <- mkPortFifoReceive("aluWriteback2", True, `ALU_CREDITS);
 
-    Connection_Send#(Bool)                                                     modelCycle <- mkConnection_Send("model_cycle");
+    Connection_Send#(CONTROL_MODEL_CYCLE_MSG)                                  modelCycle <- mkConnection_Send("model_cycle");
 
     function prfInit(i) = (i < valueOf(TExp#(SizeOf#(ISA_REG_INDEX))));
     Reg#(Vector#(TExp#(SizeOf#(FUNCP_PHYSICAL_REG_INDEX)), Bool))               prfValids <- mkReg(genWith(prfInit));
@@ -115,6 +115,7 @@ module [HASIM_MODULE] mkIssue();
         begin
             debugLog2.record($format("end cycle"));
             debugLog2.nextModelCycle;
+            modelCycle.send(0);
             commitPort.done;
             aluWriteback2Recv.done;
             memWritebackPort.done;
@@ -191,6 +192,7 @@ module [HASIM_MODULE] mkIssue();
         else
         begin
             debugLog1.record($format("end cycle"));
+            modelCycle.send(0);
             decodePort.done;
             aluPort.done;
             memPort.done;

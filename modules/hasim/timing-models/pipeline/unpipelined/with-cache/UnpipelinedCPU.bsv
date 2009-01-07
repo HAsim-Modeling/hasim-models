@@ -82,11 +82,11 @@ module [HASIM_MODULE] mkCPU
   
   //********* Connections *********//
   
-  Connection_Send#(Bool)
+  Connection_Send#(CONTROL_MODEL_CYCLE_MSG)
   //...
   link_model_cycle <- mkConnection_Send("model_cycle");
 
-  Connection_Send#(MODEL_NUM_COMMITS)
+  Connection_Send#(CONTROL_MODEL_COMMIT_MSG)
   //...
   link_model_commit <- mkConnection_Send("model_commits");
 
@@ -240,7 +240,7 @@ module [HASIM_MODULE] mkCPU
 	    //Request a TOKEN
 	    debug(2, $fdisplay(debug_log, "[%d] Requesting a new TOKEN on model cycle %0d.", hostCC, baseTick));
 	    link_to_tok.makeReq(?);
-            link_model_cycle.send(?);
+            link_model_cycle.send(0);
 	    
 	    madeReq <= True;
 	    
@@ -368,7 +368,7 @@ module [HASIM_MODULE] mkCPU
 	  port_to_icache.send(tagged Invalid);
 	  iCacheRead = True;
 	  baseTick <= baseTick + 1;
-	  link_model_cycle.send(?);
+	  link_model_cycle.send(0);
 	  stage <= ICACHE;
        end
        
@@ -612,7 +612,7 @@ module [HASIM_MODULE] mkCPU
 	  port_to_dcache_comm.send(tagged Invalid);
 	  iCacheRead = False;
 	  baseTick <= baseTick + 1;
-	  link_model_cycle.send(?);
+	  link_model_cycle.send(0);
 	  stage <= DCACHE;
        end
     
@@ -713,7 +713,7 @@ module [HASIM_MODULE] mkCPU
               baseTick <= baseTick + 1;
 	      debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, baseTick));
 	      event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
-              link_model_commit.send(1);
+              link_model_commit.send(tuple2(0, 1));
               stat_com.incr();
             end
 	    madeReq <= False;
@@ -747,7 +747,7 @@ module [HASIM_MODULE] mkCPU
 	    
 	    debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, baseTick));
 	    event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
-            link_model_commit.send(1);
+            link_model_commit.send(tuple2(0, 1));
             stat_com.incr();
 	    
 	    stage <= TOK;
