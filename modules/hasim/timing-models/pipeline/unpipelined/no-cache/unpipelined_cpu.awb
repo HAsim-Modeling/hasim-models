@@ -1,21 +1,10 @@
-#/********************************************************************
-# *
-# * Awb module specification
-# *
-# *******************************************************************/
+%name Hasim Unpipelined CPU
+%desc Hasim Unpipelined CPU
+%provides hasim_pipeline
 
-#/*
-# %AWB_START
-#
-# %name Hasim Unpipelined CPU
-# %desc Hasim Unpipelined CPU
-# %provides hasim_pipeline
-#
-# %attributes hasim unpipelined
-#
-# %public UnpipelinedCPU.bsv
-# %private unpipelined_cpu.dic
-#
-# %AWB_END
-# */
+%attributes hasim unpipelined
 
+%public UnpipelinedCPU.bsv
+%private unpipelined_cpu.dic
+
+%param --dynamic SKEW_CONTEXTS  8  "Skew start times of each context to avoid running identical instructions on all contexts.  Max. skew is 127."

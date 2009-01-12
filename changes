@@ -1718,3 +1718,23 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  UnpipelinedCPU.bsv        Locally Modified           88 
 
 Use new context-aware debug log interface.
+
+----------
+mcadler     Date: Mon Jan 12 09:16:08 EST 2009  CSN: CSN-hasim-models-90
+                  Mon Jan 12 14:16:08 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined_cpu.awb       Locally Modified           89 
+ UnpipelinedCPU.bsv        Locally Modified           89 
+
+Changed token allocation logic in the unpipelined model:
+  - New tokens may be allocated for a context whenever processing of the
+    previous token for the context is complete.
+  - Token allocation remains round-robin among contexts.  Contexts can never
+    be more than one cycle apart.
+  - Added a skew generator to delay starting contexts at the start of a
+    run.  This way multiple hardware contexts all executing the same workload
+    will not run in lock step, doing identical operations each cycle.  The
+    number of skew cycles is controlled by a dynamic parameter:  SKEW_CONTEXTS.
+    Specify 0 to have all contexts start together.
