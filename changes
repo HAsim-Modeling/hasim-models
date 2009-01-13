@@ -1738,3 +1738,13 @@ Changed token allocation logic in the unpipelined model:
     will not run in lock step, doing identical operations each cycle.  The
     number of skew cycles is controlled by a dynamic parameter:  SKEW_CONTEXTS.
     Specify 0 to have all contexts start together.
+
+----------
+mcadler     Date: Mon Jan 12 19:39:37 EST 2009  CSN: CSN-hasim-models-91
+                  Tue Jan 13 00:39:37 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           90 
+
+Update debug log interface to new coding standard.

@@ -61,7 +61,7 @@ module [HASIM_MODULE] mkPipeline
     //interface:
         ();
 
-    TIMEP_CONTEXT_DEBUG_FILE debugLog <- mkTIMEPCtxDebugFile("pipe_cpu.out");
+    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_cpu.out");
 
     // ***** Dynamic parameters ********//
 
