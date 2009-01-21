@@ -26,6 +26,7 @@ import FShow::*;
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_controller.bsh"
 `include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/fpga_components.bsh"
 
 //Model-specific imports
 `include "asim/provides/hasim_isa.bsh"
@@ -72,13 +73,8 @@ module [HASIM_MODULE] mkPipeline
     //********* State Elements *********//
 
     // Context status and program counters
-    Vector#(NUM_CONTEXTS, Reg#(CTX_STATE)) ctxState = newVector();
-    Vector#(NUM_CONTEXTS, Reg#(ISA_ADDRESS)) pc = newVector();
-    for (Integer c = 0; c < valueOf(NUM_CONTEXTS); c = c + 1)
-    begin
-        ctxState[c] <- mkReg(CTX_STATE_READY);
-        pc[c] <- mkReg(`PROGRAM_START_ADDR);
-    end
+    LUTRAM#(CONTEXT_ID, CTX_STATE) ctxState <- mkLUTRAM(CTX_STATE_READY);
+    LUTRAM#(CONTEXT_ID, ISA_ADDRESS) pc <- mkLUTRAM(`PROGRAM_START_ADDR);
 
     // Pipe from any stage that flows to local commit
     FIFO#(TOKEN) commitQ <- mkFIFO();
@@ -162,7 +158,7 @@ module [HASIM_MODULE] mkPipeline
         link_model_commit.send(tuple2(ctx_id, 1));
         
         // Update state
-        ctxState[ctx_id] <= CTX_STATE_READY;
+        ctxState.upd(ctx_id, CTX_STATE_READY);
     endaction
     endfunction
 
@@ -228,7 +224,7 @@ module [HASIM_MODULE] mkPipeline
     // cycle of each other.
     Reg#(CONTEXT_ID) curTokCtx <- mkReg(0);
 
-    rule tok_req (ctxState[curTokCtx] == CTX_STATE_READY);
+    rule tok_req (ctxState.sub(curTokCtx) == CTX_STATE_READY);
         local_ctrl.startModelCC();
 
         let ctx_id = curTokCtx;
@@ -249,7 +245,7 @@ module [HASIM_MODULE] mkPipeline
             begin
                 debugLog.record_next_cycle(ctx_id, $format("Requesting a new token"));
                 link_to_tok.makeReq(initFuncpReqNewInFlight(ctx_id));
-                ctxState[ctx_id] <= CTX_STATE_BUSY;
+                ctxState.upd(ctx_id, CTX_STATE_BUSY);
             end
             else
             begin
@@ -275,7 +271,7 @@ module [HASIM_MODULE] mkPipeline
         debugLog.record(ctx_id, fshow(tok.index) + $format(": TOK Responded"));
 
         // Translate next pc.
-        let ctx_pc = pc[ctx_id];
+        let ctx_pc = pc.sub(ctx_id);
         link_to_itr.makeReq(initFuncpReqDoITranslate(tok, ctx_pc));
         debugLog.record(ctx_id, fshow(tok.index) + $format(": Translating at address 0x%h", ctx_pc));
     endrule
@@ -294,7 +290,7 @@ module [HASIM_MODULE] mkPipeline
         begin
             // Fetch the next instruction
             link_to_fet.makeReq(initFuncpReqGetInstruction(tok));
-            debugLog.record(ctx_id, fshow(tok.index) + $format(": Fetching at address 0x%h", pc[tokContextId(tok)]));
+            debugLog.record(ctx_id, fshow(tok.index) + $format(": Fetching at address 0x%h", pc.sub(tokContextId(tok))));
         end
     endrule
 
@@ -344,6 +340,7 @@ module [HASIM_MODULE] mkPipeline
         let res = exe_resp.result;
 
         let ctx_id = tokContextId(tok);
+        let cur_pc = pc.sub(ctx_id);
 
         debugLog.record(ctx_id, fshow(tok.index) + $format(": EXE Responded"));
 
@@ -352,13 +349,13 @@ module [HASIM_MODULE] mkPipeline
             tagged RBranchTaken .addr:
             begin
                 debugLog.record(ctx_id, $format("Branch taken to address %h", addr));
-                pc[ctx_id] <= addr;
+                pc.upd(ctx_id, addr);
             end
 
             tagged RBranchNotTaken .addr:
             begin
                 debugLog.record(ctx_id, $format("Branch not taken"));
-                pc[ctx_id] <= pc[ctx_id] + 4;
+                pc.upd(ctx_id, cur_pc + 4);
             end
 
             tagged RTerminate .pf:
@@ -369,7 +366,7 @@ module [HASIM_MODULE] mkPipeline
 
             default:
             begin
-                pc[ctx_id] <= pc[ctx_id] + 4;
+                pc.upd(ctx_id, cur_pc + 4);
             end
         endcase
 
@@ -507,7 +504,7 @@ module [HASIM_MODULE] mkPipeline
         debugLog.record(ctx_id, fshow(tok.index) + $format(": Handle fault responded PC 0x%0x", rsp.nextInstructionAddress));
 
         // Next PC following fault
-        pc[tokContextId(tok)] <= rsp.nextInstructionAddress;
+        pc.upd(tokContextId(tok), rsp.nextInstructionAddress);
 
         endModelCycle(tok);
     endrule

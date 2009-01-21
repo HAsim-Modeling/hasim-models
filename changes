@@ -1748,3 +1748,14 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  UnpipelinedCPU.bsv        Locally Modified           90 
 
 Update debug log interface to new coding standard.
+
+----------
+mcadler     Date: Tue Jan 20 21:52:42 EST 2009  CSN: CSN-hasim-models-92
+                  Wed Jan 21 02:52:42 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           91 
+
+Store pc and ctxState in LUTRAM instead of vectors to improve generated
+code quality.
