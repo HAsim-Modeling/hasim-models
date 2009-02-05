@@ -33,7 +33,7 @@ module mkBranchPred(BranchPred);
     FIFO#(BPRED_PATH) bpredPathQ <- mkSizedFIFO(16);
 
     function BranchIndex getIdx(ISA_ADDRESS addr);
-        return truncate(hashTo32(addr[31:2]));
+        return truncate(hashBits(addr[31:2]));
     endfunction
 
     //

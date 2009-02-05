@@ -1759,3 +1759,20 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
 
 Store pc and ctxState in LUTRAM instead of vectors to improve generated
 code quality.
+
+----------
+pellauer    Date: Thu Feb  5 13:00:50 EST 2009  CSN: CSN-hasim-models-93
+                  Thu Feb  5 18:00:50 UTC 2009
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ BranchPred.bsv            Locally Modified           92 
+
+
+Two-bit branch predictor used no-longer existing hashTo32 function. Changed to
+new hashBits
+
+This actually broke the inorder model. It seems our regression didn't run
+last night or we would have noticed... :(
+
+Michael
