@@ -33,7 +33,6 @@ import FShow::*;
 
 `include "asim/dict/EVENTS_CPU.bsh"
 `include "asim/dict/STATS_CPU.bsh"
-`include "asim/dict/PARAMS_HASIM_PIPELINE.bsh"
 
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
@@ -63,12 +62,6 @@ module [HASIM_MODULE] mkPipeline
         ();
 
     TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_cpu.out");
-
-    // ***** Dynamic parameters ********//
-
-    PARAMETER_NODE paramNode <- mkDynamicParameterNode();
-
-    Param#(8) skewContextsParam <- mkDynamicParameter(`PARAMS_HASIM_PIPELINE_SKEW_CONTEXTS, paramNode);
 
     //********* State Elements *********//
 
@@ -162,56 +155,6 @@ module [HASIM_MODULE] mkPipeline
     endaction
     endfunction
 
-    
-    //
-    // "Skew" is a start-up algorithm to keep identical workloads on multiple
-    // contexts from running synchronized.  Synchronized programs would
-    // likely hit the worst case functional pipeline behavior.  Skew delays
-    // each context by a constant amount (dynamic parameter SKEW_CONTEXTS).
-    //
-    // This function is not a requirement for proper functioning of the model.
-    // If it simply returned true all the time the model would run correctly,
-    // but all contexts would start running instructions in the first cycle.
-    //
-    Reg#(CONTEXT_ID) skewPos <- mkReg(0);
-    Reg#(Bit#(8)) skewCnt <- mkReg(0);
-
-    function ActionValue#(Bool) skewPermitsContext(CONTEXT_ID ctxId);
-    actionvalue
-        Bool permitCtx;
-
-        if (ctxId <= skewPos)
-        begin
-            // Context is fully active
-            permitCtx = True;
-        end
-        else if (ctxId == (skewPos + 1))
-        begin
-            // Context is next to become active
-            if (skewCnt == skewContextsParam)
-            begin
-                // Time to go
-                skewPos <= skewPos + 1;
-                skewCnt <= 0;
-                permitCtx = True;
-            end
-            else
-            begin
-                // Not yet
-                skewCnt <= skewCnt + 1;
-                permitCtx = False;
-            end
-        end
-        else
-        begin
-            // Context is not yet active
-            permitCtx = False;
-        end
-
-        return permitCtx;
-    endactionvalue
-    endfunction
-
 
     //
     // Whether an instruction is a load or store is stored in token scratchpad
@@ -235,22 +178,9 @@ module [HASIM_MODULE] mkPipeline
             debugLog.nextModelCycle(ctx_id);
             link_model_cycle.send(ctx_id);
 
-            //
-            // Optional skew keeps each context from executing identical instructions
-            // when all contexts are running the same workload.  This model would
-            // work perfectly well if skewPermitsContext() always returned True.
-            //
-            let permit_ctx <- skewPermitsContext(ctx_id);
-            if (permit_ctx)
-            begin
-                debugLog.record_next_cycle(ctx_id, $format("Requesting a new token"));
-                link_to_tok.makeReq(initFuncpReqNewInFlight(ctx_id));
-                ctxState.upd(ctx_id, CTX_STATE_BUSY);
-            end
-            else
-            begin
-                debugLog.record_next_cycle(ctx_id, $format("Skipping cycle for skewed start"));
-            end
+            debugLog.record_next_cycle(ctx_id, $format("Requesting a new token"));
+            link_to_tok.makeReq(initFuncpReqNewInFlight(ctx_id));
+            ctxState.upd(ctx_id, CTX_STATE_BUSY);
         end
         else
         begin

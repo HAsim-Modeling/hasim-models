@@ -6,5 +6,3 @@
 
 %public UnpipelinedCPU.bsv
 %private unpipelined_cpu.dic
-
-%param --dynamic SKEW_CONTEXTS  8  "Skew start times of each context to avoid running identical instructions on all contexts.  Max. skew is 127."
