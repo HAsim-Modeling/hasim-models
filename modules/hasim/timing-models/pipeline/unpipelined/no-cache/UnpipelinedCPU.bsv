@@ -74,59 +74,59 @@ module [HASIM_MODULE] mkPipeline
 
     //********* Connections *********//
 
-    Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         link_model_cycle <- mkConnection_Send("model_cycle");
+    Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         linkModelCycle <- mkConnection_Send("model_cycle");
 
-    Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        link_model_commit <- mkConnection_Send("model_commits");
+    Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        linkModelCommit <- mkConnection_Send("model_commits");
 
     Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT, 
-                       FUNCP_RSP_NEW_IN_FLIGHT)       link_to_tok <- mkConnection_Client("funcp_newInFlight");
+                       FUNCP_RSP_NEW_IN_FLIGHT)       linkToTOK <- mkConnection_Client("funcp_newInFlight");
 
     Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, 
-                       FUNCP_RSP_DO_ITRANSLATE)       link_to_itr <- mkConnection_Client("funcp_doITranslate");
+                       FUNCP_RSP_DO_ITRANSLATE)       linkToITR <- mkConnection_Client("funcp_doITranslate");
 
     Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
-                       FUNCP_RSP_GET_INSTRUCTION)     link_to_fet <- mkConnection_Client("funcp_getInstruction");
+                       FUNCP_RSP_GET_INSTRUCTION)     linkToFET <- mkConnection_Client("funcp_getInstruction");
 
     Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES,
-                       FUNCP_RSP_GET_DEPENDENCIES)    link_to_dec <- mkConnection_Client("funcp_getDependencies");
+                       FUNCP_RSP_GET_DEPENDENCIES)    linkToDEC <- mkConnection_Client("funcp_getDependencies");
 
     Connection_Client#(FUNCP_REQ_GET_RESULTS,
-                       FUNCP_RSP_GET_RESULTS)         link_to_exe <- mkConnection_Client("funcp_getResults");
+                       FUNCP_RSP_GET_RESULTS)         linkToEXE <- mkConnection_Client("funcp_getResults");
 
     Connection_Client#(FUNCP_REQ_DO_DTRANSLATE,
-                       FUNCP_RSP_DO_DTRANSLATE)       link_to_dtr <- mkConnection_Client("funcp_doDTranslate");
+                       FUNCP_RSP_DO_DTRANSLATE)       linkToDTR <- mkConnection_Client("funcp_doDTranslate");
 
     Connection_Client#(FUNCP_REQ_DO_LOADS,
-                       FUNCP_RSP_DO_LOADS)            link_to_loa <- mkConnection_Client("funcp_doLoads");
+                       FUNCP_RSP_DO_LOADS)            linkToLOA <- mkConnection_Client("funcp_doLoads");
 
     Connection_Client#(FUNCP_REQ_DO_STORES,
-                       FUNCP_RSP_DO_STORES)           link_to_sto <- mkConnection_Client("funcp_doSpeculativeStores");
+                       FUNCP_RSP_DO_STORES)           linkToSTO <- mkConnection_Client("funcp_doSpeculativeStores");
 
     Connection_Client#(FUNCP_REQ_COMMIT_RESULTS,
-                       FUNCP_RSP_COMMIT_RESULTS)      link_to_lco <- mkConnection_Client("funcp_commitResults");
+                       FUNCP_RSP_COMMIT_RESULTS)      linkToLCO <- mkConnection_Client("funcp_commitResults");
 
     Connection_Client#(FUNCP_REQ_COMMIT_STORES,
-                       FUNCP_RSP_COMMIT_STORES)       link_to_gco <- mkConnection_Client("funcp_commitStores");
+                       FUNCP_RSP_COMMIT_STORES)       linkToGCO <- mkConnection_Client("funcp_commitStores");
 
     Connection_Client#(FUNCP_REQ_HANDLE_FAULT, 
-                       FUNCP_RSP_HANDLE_FAULT)   link_handleFault <- mkConnection_Client("funcp_handleFault");
+                       FUNCP_RSP_HANDLE_FAULT)   linkToHandleFault <- mkConnection_Client("funcp_handleFault");
 
     // For killing. UNUSED
 
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, 
-                       FUNCP_RSP_REWIND_TO_TOKEN)     link_rewindToToken <- mkConnection_Client("funcp_rewindToToken");
+                       FUNCP_RSP_REWIND_TO_TOKEN)     linkToRewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
 
     // Events
-    EventRecorder event_com <- mkEventRecorder(`EVENTS_CPU_INSTRUCTION_COMMIT);
+    EVENT_RECORDER_MULTICTX eventCom <- mkEventRecorder_MultiCtx(`EVENTS_CPU_INSTRUCTION_COMMIT);
 
     // Stats
-    Stat stat_com <- mkStatCounter(`STATS_CPU_INSTRUCTION_COMMIT);
+    STAT_RECORDER_MULTICTX statCom <- mkStatCounter_MultiCtx(`STATS_CPU_INSTRUCTION_COMMIT);
 
-    Vector#(0, Port_Control) inports = newVector();
-    Vector#(0, Port_Control) outports = newVector();
+    Vector#(0, PORT_CONTROLS) inports = newVector();
+    Vector#(0, PORT_CONTROLS) outports = newVector();
 
-    LocalController local_ctrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
 
     //********* Rules *********//
 
@@ -144,14 +144,17 @@ module [HASIM_MODULE] mkPipeline
         debugLog.record(ctx_id, fshow(tok.index) + $format(": Model cycle complete"));
 
         // Sample event & statistic (commit)
-        event_com.recordEvent(tagged Valid zeroExtend(pack(tok.index)));
-        stat_com.incr();
+        eventCom.recordEvent(ctx_id, tagged Valid zeroExtend(pack(tok.index)));
+        statCom.incr(ctx_id);
 
         // Commit counter for heartbeat
-        link_model_commit.send(tuple2(ctx_id, 1));
+        linkModelCommit.send(tuple2(ctx_id, 1));
         
         // Update state
         ctxState.upd(ctx_id, CTX_STATE_READY);
+        
+        // End the model cycle.
+        localCtrl.endModelCycle(ctx_id, 1);
     endaction
     endfunction
 
@@ -167,33 +170,23 @@ module [HASIM_MODULE] mkPipeline
     // cycle of each other.
     Reg#(CONTEXT_ID) curTokCtx <- mkReg(0);
 
-    rule tok_req (ctxState.sub(curTokCtx) == CTX_STATE_READY);
-        local_ctrl.startModelCC();
+    rule tok_req (True);
 
-        let ctx_id = curTokCtx;
+        let ctx_id <- localCtrl.startModelCycle();
 
         // Request a Token
-        if (local_ctrl.contextIsActive(ctx_id))
-        begin
-            debugLog.nextModelCycle(ctx_id);
-            link_model_cycle.send(ctx_id);
+        debugLog.nextModelCycle(ctx_id);
+        linkModelCycle.send(ctx_id);
 
-            debugLog.record_next_cycle(ctx_id, $format("Requesting a new token"));
-            link_to_tok.makeReq(initFuncpReqNewInFlight(ctx_id));
-            ctxState.upd(ctx_id, CTX_STATE_BUSY);
-        end
-        else
-        begin
-            debugLog.record(ctx_id, $format("Context is not active"));
-        end
-        
-        curTokCtx <= curTokCtx + 1;
+        debugLog.record_next_cycle(ctx_id, $format("Requesting a new token"));
+        linkToTOK.makeReq(initFuncpReqNewInFlight(ctx_id));
+
     endrule
 
     rule tok_rsp_itr_req (True);
         // Get the response from tok_req
-        let rsp = link_to_tok.getResp();
-        link_to_tok.deq();
+        let rsp = linkToTOK.getResp();
+        linkToTOK.deq();
 
         let tok = rsp.newToken;
         let ctx_id = tokContextId(tok);
@@ -202,14 +195,14 @@ module [HASIM_MODULE] mkPipeline
 
         // Translate next pc.
         let ctx_pc = pc.sub(ctx_id);
-        link_to_itr.makeReq(initFuncpReqDoITranslate(tok, ctx_pc));
+        linkToITR.makeReq(initFuncpReqDoITranslate(tok, ctx_pc));
         debugLog.record(ctx_id, fshow(tok.index) + $format(": Translating at address 0x%h", ctx_pc));
     endrule
 
     rule itr_rsp_fet_req (True);
         // Get the ITrans response started by tok_rsp_itr_req
-        let rsp = link_to_itr.getResp();
-        link_to_itr.deq();
+        let rsp = linkToITR.getResp();
+        linkToITR.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -219,15 +212,15 @@ module [HASIM_MODULE] mkPipeline
         if (! rsp.hasMore)
         begin
             // Fetch the next instruction
-            link_to_fet.makeReq(initFuncpReqGetInstruction(tok));
+            linkToFET.makeReq(initFuncpReqGetInstruction(tok));
             debugLog.record(ctx_id, fshow(tok.index) + $format(": Fetching at address 0x%h", pc.sub(tokContextId(tok))));
         end
     endrule
 
     rule fet_rsp_dec_req (True);
         // Get the instruction response
-        let rsp = link_to_fet.getResp();
-        link_to_fet.deq();
+        let rsp = linkToFET.getResp();
+        linkToFET.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -239,14 +232,14 @@ module [HASIM_MODULE] mkPipeline
         tok.timep_info.scratchpad[1] = pack(isaIsStore(rsp.instruction));
 
         // Decode the current inst
-        link_to_dec.makeReq(initFuncpReqGetDependencies(tok));
+        linkToDEC.makeReq(initFuncpReqGetDependencies(tok));
         debugLog.record(ctx_id, fshow(tok.index) + $format(": Decoding"));
     endrule
 
     rule dec_rsp_exe_req (True);
         // Get the decode response
-        let rsp = link_to_dec.getResp();
-        link_to_dec.deq();
+        let rsp = linkToDEC.getResp();
+        linkToDEC.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -257,14 +250,14 @@ module [HASIM_MODULE] mkPipeline
         // to determine if we can issue the instruction.
 
         // Execute the instruction
-        link_to_exe.makeReq(initFuncpReqGetResults(tok));
+        linkToEXE.makeReq(initFuncpReqGetResults(tok));
         debugLog.record(ctx_id, fshow(tok.index) + $format(": Executing"));
     endrule
 
     rule exe_rsp (True);
         // Get the execution result
-        let exe_resp = link_to_exe.getResp();
-        link_to_exe.deq();
+        let exe_resp = linkToEXE.getResp();
+        linkToEXE.deq();
 
         let tok = exe_resp.token;
         let res = exe_resp.result;
@@ -291,7 +284,7 @@ module [HASIM_MODULE] mkPipeline
             tagged RTerminate .pf:
             begin
                 debugLog.record(ctx_id, $format("Terminating Execution"));
-                local_ctrl.endProgram(pf);
+                localCtrl.contextDone(ctx_id, pf);
             end
 
             default:
@@ -306,7 +299,7 @@ module [HASIM_MODULE] mkPipeline
             debugLog.record(ctx_id, fshow(tok.index) + $format(": DTranslate"));
 
             // Get the physical address(es) of the memory access.
-            link_to_dtr.makeReq(initFuncpReqDoDTranslate(tok));
+            linkToDTR.makeReq(initFuncpReqDoDTranslate(tok));
         end
         else
         begin
@@ -317,8 +310,8 @@ module [HASIM_MODULE] mkPipeline
 
     rule dtr_rsp_mem_req (True);
         // Get the response from dTranslate
-        let rsp = link_to_dtr.getResp();
-        link_to_dtr.deq();
+        let rsp = linkToDTR.getResp();
+        linkToDTR.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -330,13 +323,13 @@ module [HASIM_MODULE] mkPipeline
             if (tokIsLoad(tok))
             begin
                 // Request the load(s).
-                link_to_loa.makeReq(initFuncpReqDoLoads(tok));
+                linkToLOA.makeReq(initFuncpReqDoLoads(tok));
                 debugLog.record(ctx_id, fshow(tok.index) + $format(": Do loads"));
             end
             else
             begin
                 // Request the store(s)
-                link_to_sto.makeReq(initFuncpReqDoStores(tok));
+                linkToSTO.makeReq(initFuncpReqDoStores(tok));
                 debugLog.record(ctx_id, fshow(tok.index) + $format(": Do stores"));
             end
         end
@@ -344,8 +337,8 @@ module [HASIM_MODULE] mkPipeline
 
     rule loa_rsp (True);
         // Get the load response
-        let rsp = link_to_loa.getResp();
-        link_to_loa.deq();
+        let rsp = linkToLOA.getResp();
+        linkToLOA.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -357,8 +350,8 @@ module [HASIM_MODULE] mkPipeline
 
     rule sto_rsp (True);
         // Get the store response
-        let rsp = link_to_sto.getResp();
-        link_to_sto.deq();
+        let rsp = linkToSTO.getResp();
+        linkToSTO.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -377,20 +370,20 @@ module [HASIM_MODULE] mkPipeline
         if (! tokIsPoisoned(tok))
         begin
             // Locally commit the token.
-            link_to_lco.makeReq(initFuncpReqCommitResults(tok));
+            linkToLCO.makeReq(initFuncpReqCommitResults(tok));
             debugLog.record(ctx_id, fshow(tok.index) + $format(": Locally committing"));
         end
         else
         begin
             // Token is poisoned.  Invoke fault handler.
-            link_handleFault.makeReq(initFuncpReqHandleFault(tok));
+            linkToHandleFault.makeReq(initFuncpReqHandleFault(tok));
             debugLog.record(ctx_id, fshow(tok.index) + $format(": Handling fault"));
         end
     endrule
 
     rule lco_rsp_gco_req (True);
-        let rsp = link_to_lco.getResp();
-        link_to_lco.deq();
+        let rsp = linkToLCO.getResp();
+        linkToLCO.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -400,7 +393,7 @@ module [HASIM_MODULE] mkPipeline
         if (tokIsStore(tok))
         begin
             // Request global commit of stores.
-            link_to_gco.makeReq(initFuncpReqCommitStores(tok));
+            linkToGCO.makeReq(initFuncpReqCommitStores(tok));
             debugLog.record(ctx_id, fshow(tok.index) + $format(": Globally committing"));
         end
         else
@@ -411,8 +404,8 @@ module [HASIM_MODULE] mkPipeline
 
     rule gco_rsp (True);
         // Get the global commit response
-        let rsp = link_to_gco.getResp();
-        link_to_gco.deq();
+        let rsp = linkToGCO.getResp();
+        linkToGCO.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);
@@ -425,8 +418,8 @@ module [HASIM_MODULE] mkPipeline
     (* descending_urgency = "fault_rsp, gco_rsp, lco_rsp_gco_req, sto_rsp, loa_rsp, exe_rsp, tok_req" *)
     rule fault_rsp (True);
         // Fault response (started by lco_req)
-        let rsp = link_handleFault.getResp();
-        link_handleFault.deq();
+        let rsp = linkToHandleFault.getResp();
+        linkToHandleFault.deq();
 
         let tok = rsp.token;
         let ctx_id = tokContextId(tok);

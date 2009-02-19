@@ -70,10 +70,10 @@ module [HASIM_MODULE] mkFetch();
     // Local Controller
     //
     // FIXME -- need to enumerate ports so balancing works for events
-    Vector#(0, Port_Control) inports  = newVector();
-    Vector#(0, Port_Control) outports = newVector();
+    Vector#(0, PORT_CONTROLS) inports  = newVector();
+    Vector#(0, PORT_CONTROLS) outports = newVector();
 
-    LocalController local_ctrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
 
 
     function Action makeFetchBundle(TOKEN token, ISA_INSTRUCTION inst, ISA_ADDRESS _pc, PRED_TYPE predType, Bool prediction, ISA_ADDRESS predPc);
@@ -89,7 +89,8 @@ module [HASIM_MODULE] mkFetch();
     endfunction
 
     rule predictUpdate(state == FETCH_STATE_PREDICT_UPDATE);
-        local_ctrl.startModelCC();
+        let dummy <- localCtrl.startModelCycle();
+        localCtrl.endModelCycle(dummy, 1);
 
         if(predictUpdatePort.canReceive)
         begin

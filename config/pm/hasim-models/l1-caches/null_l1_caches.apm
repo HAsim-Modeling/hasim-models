@@ -1,0 +1,37 @@
+
+[Global]
+SaveParameters=0
+Description=Null L1 caches (always hit)
+File=null_l1_caches
+Version=2.1
+Name=Null L1 caches
+Type=HAsim
+Class=Asim::Model
+
+[Model]
+DefaultAttributes=hasim caches l1
+model=L1 caches
+
+[L1 caches]
+File=modules/hasim/timing-models/caches/l1-caches/hasim_l1_caches.awb
+Packagehint=hasim-models
+
+
+
+
+
+
+
+
+[L1 caches/Requires]
+hasim_dcache=Null DCache
+hasim_icache=Null ICache
+
+
+[Null DCache]
+File=modules/hasim/timing-models/caches/null-caches/null_dcache.awb
+Packagehint=hasim-models
+
+[Null ICache]
+File=modules/hasim/timing-models/caches/null-caches/null_icache.awb
+Packagehint=hasim-models

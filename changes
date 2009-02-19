@@ -1787,3 +1787,81 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  UnpipelinedCPU.bsv        Locally Modified           93 
 
 Skewed contexts startup code moved to m5 library so it is model-independent.
+
+----------
+pellauer    Date: Thu Feb 19 11:17:14 EST 2009  CSN: CSN-hasim-models-95
+                  Thu Feb 19 16:17:14 UTC 2009
+
+
+Directory config/pm/hasim-models/l1-caches
+ null_l1_caches.apm        Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ StoreBuffer.bsv           Locally Modified           94 
+ Fetch.bsv                 Locally Modified           94 
+ PipelineTypes.bsv         Locally Modified           94 
+ Execute.bsv               Locally Modified           94 
+ Pipeline.bsv              Locally Modified           94 
+ BranchPredictor.bsv       Locally Modified           94 
+ WriteBack.bsv             Locally Modified           94 
+ Mem.bsv                   Locally Modified           94 
+ Decode.bsv                Locally Modified           94 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified           94 
+ rob.bsv                   Locally Modified           94 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ UnpipelinedCPU.bsv        Locally Modified           94 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ NullICache.bsv            Locally Modified           94 
+ NullDCache.bsv            Locally Modified           94 
+
+
+* The inorder model is now multi-context. Also it is pipelined within the
+  modules across multiple contexts.
+
+* Rewrote all rules to use the new local controller syntax. Most rules have the
+  following form:
+  
+  // Get the current context...
+  let ctx_id = stage2Q.first();
+  stage2Q.deq();
+  
+  // Get our local state using the context id.
+  let pc = ctx_pc[ctx_id];
+  
+  // Read and update local state.
+  pc <= pc + 4;
+  
+  // Send a message to another module.
+  pcToICache.send(ctx_id, tagged Valid pc);
+  
+  // Pass the context to the next stage.
+  stage2Q.enq(ctx_id);
+  
+* Thus one stage may be operating in a different context (and thus on a
+  different PC register) than other stages.
+
+* The local controller ensures that a context is not in flight multiple times
+  simultaneously in a single module. Thus the interface is
+  startModelCycle/endModelCycle(ctx);
+
+* The end model cycle call also takes a Path number, which can be useful for
+  debugging. This is unused in the hardware and should be optimized away by
+  the synthesis tool.
+
+* A special mkPortUncontrolled() A-Port is used by A-Ports which are read later
+  in the clock cycle dependent on input - like Cache responses. This could
+  perhaps be cleaned up.
+
+* Updated the unpipelined and OOO models to use the new local controller
+  interface. The OOO does not actually use the local controller to control its
+  ports.
+
+* TODO: Break into multiple AWB modules.
+
+* TODO: Support more multi-context caches.
+
+Michael P.

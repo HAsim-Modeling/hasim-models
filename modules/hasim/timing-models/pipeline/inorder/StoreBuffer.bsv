@@ -16,83 +16,187 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
-typedef enum { SB_STATE_DEALLOC, SB_STATE_SEARCH } SB_STATE deriving (Bits, Eq);
+// ****** Bluespec imports ******
+
+import Vector::*;
+import FShow::*;
+
+
+// ****** Project imports ******
+
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/soft_connections.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/funcp_simulated_memory.bsh"
+
+`define STORE_BUFF_SIZE 4
+
+// mkStoreBuffer
+
+// A simple INORDER head/tail circular buffer store buffer.
+
+// INORDER means that it assumes that stores are committed in the same order they're allocated.
+// Thus this could not be used for an out-of-order issue processor.
+
+// This uses an associative memory. Therefore it is best for small sizes. 
+// Larger sizes would want to use BRAM or LUTRAM and sequentially search the RAMs.
+
+// This module is pipelined across contexts. Stages:
+// Stage 1 -> Stage 2
+// These stages will never stall.
+
+// There is only one way that a model cycle can end.
+
 
 module [HASIM_MODULE] mkStoreBuffer ();
 
-    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_storebuffer.out");
+    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_storebuffer.out");
 
-    Port_Receive#(Tuple2#(TOKEN,CacheInput)) inQ      <- mkPort_Receive("storebuffer_req", 0);
-    Port_Receive#(TOKEN)                     deallocQ <- mkPort_Receive("storebuffer_dealloc", 1);
-    Port_Send#(Tuple2#(TOKEN,SB_RESPONSE))   outQ     <- mkPort_Send("storebuffer_resp");
 
-    Reg#(SB_STATE) state <- mkReg(SB_STATE_DEALLOC);
+    // ****** Model State (per Context) ******
+    
+    MULTICTX#(Vector#(`STORE_BUFF_SIZE, Reg#(Maybe#(ISA_ADDRESS)))) ctx_buff <- mkMultiCtx(replicateM(mkReg(Invalid)));
+    MULTICTX#(Reg#(Bit#(2))) ctx_head <- mkMultiCtx(mkReg(0));
+    MULTICTX#(Reg#(Bit#(2))) ctx_tail <- mkMultiCtx(mkReg(0));
 
-    //Local Controller
-    Vector#(2, Port_Control) inports  = newVector();
-    Vector#(1, Port_Control) outports = newVector();
-    inports[0]  = inQ.ctrl;
-    inports[1]  = deallocQ.ctrl;
-    outports[0] = outQ.ctrl;
-    LocalController local_ctrl <- mkLocalController(inports, outports);
+    function Bool empty(CONTEXT_ID ctx) = ctx_head[ctx] == ctx_tail[ctx];
+    function Bool full(CONTEXT_ID ctx)  = ctx_head[ctx] == ctx_tail[ctx] + 1;
 
-    Vector#(4, Reg#(Maybe#(ISA_ADDRESS))) vec <- replicateM(mkReg(Invalid));
-    Reg#(Bit#(2)) head <- mkReg(0);
-    Reg#(Bit#(2)) tail <- mkReg(0);
 
-    Bool empty = head == tail;
-    Bool full  = head == tail + 1;
+    // ****** UnModel Pipeline State ******
 
-    rule dealloc (state == SB_STATE_DEALLOC);
-        debugLog.nextModelCycle();
-        local_ctrl.startModelCC();
-        let m <- deallocQ.receive();
+    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
+    FIFO#(CONTEXT_ID) stage3Q <- mkFIFO();
+
+    // ****** Ports ******
+
+    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, CacheInput)) reqFromMem     <- mkPortRecv_MultiCtx("DMem_to_SB_req", 0);
+    PORT_RECV_MULTICTX#(TOKEN)                      deallocFromCom <- mkPortRecv_MultiCtx("Com_to_SB_dealloc", 1);
+    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, SB_RESPONSE))   rspToMem    <- mkPortSend_MultiCtx("SB_to_DMem_rsp");
+
+
+    // ****** Local Controller ******
+
+    Vector#(2, PORT_CONTROLS) inports  = newVector();
+    Vector#(1, PORT_CONTROLS) outports = newVector();
+    inports[0]  = reqFromMem.ctrl;
+    inports[1]  = deallocFromCom.ctrl;
+    outports[0] = rspToMem.ctrl;
+
+    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+
+
+    // ****** Rules ******
+
+    rule stage1_dealloc (True);
+    
+        let ctx <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(ctx);
+
+        Reg#(Bit#(2)) head = ctx_head[ctx];
+        let buff = ctx_buff[ctx];
+
+        let m <- deallocFromCom.receive(ctx);
+
         if (m matches tagged Valid .tok)
         begin
+
+            // assert !empty(ctx)
+
+            // A deallocation request.
+            debugLog.record_next_cycle(ctx, fshow("DEALLOC ") + fshow(tok));
+
+            // Invalidate the oldest entry and update the head pointer.
             head <= head + 1;
-            vec[head] <= Invalid;
-            debugLog.record(fshow("DEALLOC ") + fshow(tok));
+            buff[head] <= Invalid;
+
         end
-        state <= SB_STATE_SEARCH;
+
+        stage2Q.enq(ctx);
+
     endrule
 
-    rule search (state == SB_STATE_SEARCH);
-        let m <- inQ.receive();
-        case (m) matches
+
+    // stage2_search
+    
+
+    rule stage2_search (True);
+
+        let ctx = stage2Q.first();
+        stage2Q.deq();
+
+        Reg#(Bit#(2)) tail = ctx_tail[ctx];
+
+        let buff = ctx_buff[ctx];
+
+        let m_req <- reqFromMem.receive(ctx);
+
+        case (m_req) matches
             tagged Invalid:
-                outQ.send(Invalid);
+            begin
+                // Propogate the bubble.
+                debugLog.record(ctx, fshow("BUBBLE"));
+                rspToMem.send(ctx, Invalid);
+            end
             tagged Valid { .tok, .x }:
             case (x) matches
-                tagged Data_read_mem_ref { .pc, .a }:
+                tagged Data_read_mem_ref { .pc, .addr }:
                 begin
-                    if (elem(Valid(a), readVReg(vec)))
+                    if (elem(tagged Valid addr, readVReg(buff)))
                     begin
-                        outQ.send(Valid(tuple2(tok,SB_HIT)));
-                        debugLog.record(fshow("LOAD HIT ") + fshow(tok));
+
+                        // We've got that address in the store buffer.
+                        debugLog.record(ctx, fshow("LOAD HIT ") + fshow(tok));
+
+                        // Luckily, since we're a simulation, we don't actually 
+                        // need to retrieve the value, which makes the hardware a LOT simpler
+                        // as we don't need to get the "youngest store older than this load"
+                        // Instead, just tell the Mem module that we have the value.
+                        rspToMem.send(ctx, tagged Valid tuple2(tok, SB_HIT));
+
                     end
                     else
                     begin
-                        outQ.send(Valid(tuple2(tok,SB_MISS)));
-                        debugLog.record(fshow("LOAD MISS ") + fshow(tok));
+
+                        // We don't have it.
+                        debugLog.record(ctx, fshow("LOAD MISS ") + fshow(tok));
+                        rspToMem.send(ctx, tagged Valid tuple2(tok, SB_MISS));
+
                     end
                 end
                 tagged Data_write_mem_ref { .pc, .a }:
                 begin
-                    if (full)
+
+                    if (full(ctx))
                     begin
-                        outQ.send(Valid(tuple2(tok,SB_STALL)));
-                        debugLog.record(fshow("SB STORE RETRY (SB FULL!) ") + fshow(tok));
+                    
+                        // We're full, the requester will have to wait until the pipeline drains.
+                        debugLog.record(ctx, fshow("SB STORE RETRY (SB FULL!) ") + fshow(tok));
+                        rspToMem.send(ctx, tagged Valid tuple2(tok, SB_STALL));
+
                     end
                     else
                     begin
+
+                        // Do the allocation.
+                        debugLog.record(ctx, fshow("SB STORE ALLOC ") + fshow(tok));
                         tail <= tail + 1;
-                        vec[tail] <= Valid(a);
-                        outQ.send(Invalid);
-                        debugLog.record(fshow("SB STORE ALLOC ") + fshow(tok));
+                        buff[tail] <= Valid(a);
+                        // No need for a response.
+                        rspToMem.send(ctx, tagged Invalid);
+
                     end
+
                 end
+
             endcase
+
         endcase
-        state <= SB_STATE_DEALLOC;
+        
+        localCtrl.endModelCycle(ctx, 1);
+
     endrule
+    
 endmodule

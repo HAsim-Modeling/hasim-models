@@ -65,12 +65,14 @@ typedef struct {
 } BRANCH_PRED_TRAIN deriving (Bits, Eq);
 
 typedef struct {
+    TOKEN token;
     ISA_ADDRESS pc;
     ISA_INSTRUCTION inst;
     BRANCH_ATTR branchAttr;
 } FETCH_BUNDLE deriving (Bits, Eq);
 
 typedef struct {
+    TOKEN token;
     ISA_ADDRESS pc;
     BRANCH_ATTR branchAttr;
     Bool isLoad;

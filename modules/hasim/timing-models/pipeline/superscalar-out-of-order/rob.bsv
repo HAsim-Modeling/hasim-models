@@ -87,9 +87,9 @@ module [HASIM_MODULE] mkIssue();
     Reg#(Bool)                                                               allPrevIssued <- mkReg(False);
     Reg#(Bool)                                                            allPrevMemIssued <- mkReg(False);
 
-    Vector#(0, Port_Control) inports  = newVector();
-    Vector#(0, Port_Control) outports = newVector();
-    LocalController                                                        localController <- mkLocalController(inports, outports);
+    Vector#(0, PORT_CONTROLS) inports  = newVector();
+    Vector#(0, PORT_CONTROLS) outports = newVector();
+    LOCAL_CONTROLLER                                                       localController <- mkLocalController(inports, outports);
 
     ROB_INDEX commitIndex = truncate(commitPtr);
     ROB_INDEX addIndex = truncate(addPtr);
@@ -266,7 +266,7 @@ module [HASIM_MODULE] mkIssue();
         if(terminate.sub(commitIndex))
         begin
             debugLog.record($format("terminate"));
-            localController.endProgram(passFail.sub(commitIndex));
+            localController.contextDone(0, passFail.sub(commitIndex));
         end
 
         if (robPoison.sub(commitIndex))

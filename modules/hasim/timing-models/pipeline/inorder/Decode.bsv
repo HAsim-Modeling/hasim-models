@@ -16,70 +16,143 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
-import hasim_common::*;
-import soft_connections::*;
-import hasim_modellib::*;
-import hasim_isa::*;
-import module_local_controller::*;
 
-//import PipelineTypes::*;
+// ****** Bluespec imports  *****
+
 import FShow::*;
 import Vector::*;
+import FIFO::*;
+
+
+// ****** Project imports ******
+
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/soft_connections.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/module_local_controller.bsh"
+
+
+// ****** Generated files ******
 
 `include "asim/dict/EVENTS_DECODE.bsh"
 
-typedef enum { DECODE_STATE_BUS, DECODE_STATE_INST, DECODE_STATE_DEP, DECODE_STATE_SEND } DECODE_STATE deriving (Bits, Eq);
+
+// ****** Local types ******
+
+// DEC2_STATE
+
+// The second stage stalls when it asks for the dependencies.
+
+typedef enum
+{
+    DEC2_ready,
+    DEC2_depsRsp
+}
+    DEC2_STATE
+        deriving (Bits, Eq);
+
+
+// mkDecode
+
+// Multi-context inorder decode module which stalls the first instruction until its
+// source registers have been written. 
+
+// Writes to registers can be reported by the Exe, Mem, or Com stages.
+
+// Certain instructions must stall the pipeline either before or after their execution.
+
+// This module is pipelined across contexts. Stages:
+
+// Stage 1 -> Stage 2* -> Stage 3 
+// * Stage 2 stalls once for each instruction until it gets a
+//   response from the functional partition. Thus we only pay 
+//   this penalty once if an instruction stalls in the InstQ.
+
+// Possible ways the model cycle can end:
+//   Path 1: InstQ is empty or the IssueQ is full, so we can't issue.
+//   Path 2: We issue succesfully.
+//   Path 3: The instruction must be stalled on a dependency.
 
 module [HASIM_MODULE] mkDecode ();
 
-    TIMEP_DEBUG_FILE debugLog <- mkTIMEPDebugFile("pipe_decode.out");
+    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_decode.out");
 
-    StallPort_Receive#(Tuple2#(TOKEN,FETCH_BUNDLE)) inQ <- mkStallPort_Receive("fet2dec");
-    StallPort_Send#(Tuple2#(TOKEN,BUNDLE))          outQ <- mkStallPort_Send   ("dec2exe");
 
-    Vector#(2, Port_Receive#(BUS_MESSAGE)) busQ = newVector();
-    busQ[0] <- mkPort_Receive("exe_bus", 0);
-    busQ[1] <- mkPort_Receive("mem_bus", 0);
+    // ****** Ports *****
 
-    Port_Receive#(TOKEN) commitQ <- mkPort_Receive("commit_bus", 0);
+    PORT_STALL_RECV_MULTICTX#(FETCH_BUNDLE) bundleFromInstQ <- mkPortStallRecv_MultiCtx("InstQ");
+    PORT_STALL_SEND_MULTICTX#(BUNDLE)        bundleToIssueQ <- mkPortStallSend_MultiCtx("IssueQ");
+    
+    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromExe <- mkPortRecv_MultiCtx("Exe_to_Dec_writeback", 1); //0?
+    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromMem <- mkPortRecv_MultiCtx("Mem_to_Dec_writeback", 1); //0?
+    PORT_RECV_MULTICTX#(TOKEN)       writebackFromCom <- mkPortRecv_MultiCtx("Com_to_Dec_writeback", 1); //0?
+
+
+    // ****** Soft Connections ******
 
     Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES,
                        FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
 
-    Reg#(DECODE_STATE) state <- mkReg(DECODE_STATE_BUS);
-    Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies <- mkReg(Invalid);
+ 
+    // ****** Local Controller ******
 
-    //Local Controller
-    Vector#(4, Port_Control) inports  = newVector();
-    Vector#(1, Port_Control) outports = newVector();
-    inports[0]  = inQ.ctrl;
-    inports[1]  = busQ[0].ctrl;
-    inports[2]  = busQ[1].ctrl;
-    inports[3]  = commitQ.ctrl;
-    outports[0] = outQ.ctrl;
-    LocalController local_ctrl <- mkLocalController(inports, outports);
+    Vector#(5, PORT_CONTROLS) inports  = newVector();
+    Vector#(2, PORT_CONTROLS) outports = newVector();
+    inports[0]  = bundleFromInstQ.ctrl;
+    inports[1]  = writebackFromExe.ctrl;
+    inports[2]  = writebackFromMem.ctrl;
+    inports[3]  = writebackFromCom.ctrl;
+    inports[4]  = bundleToIssueQ.ctrl;
+    outports[0] = bundleToIssueQ.ctrl;
+    outports[1] = bundleFromInstQ.ctrl;
 
-    //Events
-    EventRecorder event_dec <- mkEventRecorder(`EVENTS_DECODE_INSTRUCTION_DECODE);
+    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+
+    // ****** Events ******
+    EVENT_RECORDER_MULTICTX eventDec <- mkEventRecorder_MultiCtx(`EVENTS_DECODE_INSTRUCTION_DECODE);
+
+    // ****** Model State (per Context) ******
 
     Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
     Integer numFuncpPhyRegisters = valueof(FUNCP_NUM_PHYSICAL_REGS);
 
-    Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prfValid_init = newVector();
+    Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prfValidInit = newVector();
 
-    for (Integer i = 0; i < numIsaArchRegisters; i = i + 1)
-        prfValid_init[i] = True;
+    let maxInitReg = numIsaArchRegisters * valueOf(NUM_CONTEXTS);
 
-    for (Integer i = numIsaArchRegisters; i < numFuncpPhyRegisters; i = i + 1)
-        prfValid_init[i] = False;
+    for (Integer i = 0; i < maxInitReg; i = i + 1)
+        prfValidInit[i] = True;
 
-    COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight <- mkLCounter(0);
-    Reg#(Bool)    drainingAfter <- mkReg(False);
+    for (Integer i = maxInitReg; i < numFuncpPhyRegisters; i = i + 1)
+        prfValidInit[i] = False;
+    
+    MULTICTX#(COUNTER#(TOKEN_INDEX_SIZE))              ctx_numInstrsInFlight <- mkMultiCtx(mkLCounter(0));
+    MULTICTX#(Reg#(Bool))                                  ctx_drainingAfter <- mkMultiCtx(mkReg(False));
+    MULTICTX#(Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES))) ctx_memoDependencies <- mkMultiCtx(mkReg(Invalid));
+    MULTICTX#(Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)))      ctx_prfValid <- mkMultiCtx(mkReg(prfValidInit));
 
-    Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid <- mkReg(prfValid_init);
+    // ****** UnModel Pipeline State ******
+    
+    Reg#(DEC2_STATE) stage2State <- mkReg(DEC2_ready);
+    
+    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
+    FIFO#(CONTEXT_ID) stage3Q <- mkFIFO();
+    
+    // ***** Helper Functions ******
+    
+    // readyToGo
+    
+    // Check if a token's sources are ready.
 
     function ActionValue#(Bool) readyToGo(TOKEN tok, ISA_SRC_MAPPING srcmap);
     actionvalue
+
+        // Extract local state from the context.
+        let ctx = tokContextId(tok);
+        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = ctx_prfValid[ctx];
+
+        // Check if each source register is ready.
         Bool rdy = True;
         for (Integer i = 0; i < valueof(ISA_MAX_SRCS); i = i + 1)
         begin
@@ -89,15 +162,24 @@ module [HASIM_MODULE] mkDecode ();
 
                 if (! prfValid[pr])
                 begin
-                    debugLog.record(fshow(tok) + $format(": PR %0d (AR %0d) not ready", pr, ar));
+                    debugLog.record(ctx, fshow(tok) + $format(": PR %0d (AR %0d) not ready", pr, ar));
                 end
             end
         end
+
         return rdy;
+
     endactionvalue
     endfunction
 
-    function Bool readyDrainBefore(ISA_INSTRUCTION inst);
+    // readyDrainBefore
+    
+    // If an instruction is marked drainBefore, then we must wait until
+    // the instructions older than it have committed.
+
+    function Bool readyDrainBefore(CONTEXT_ID ctx, ISA_INSTRUCTION inst);
+    
+        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = ctx_numInstrsInFlight[ctx];
     
         if (isaDrainBefore(inst))
             return numInstrsInFlight.value() == 0;
@@ -106,7 +188,16 @@ module [HASIM_MODULE] mkDecode ();
     
     endfunction
     
-    function Bool readyDrainAfter();
+    // readyDrainAfter
+    
+    // If we had previously issued an instruction that was marked drainAfter,
+    // then we must wait until instructions older than the next instruction
+    // have committed.
+    
+    function Bool readyDrainAfter(CONTEXT_ID ctx);
+    
+        Reg#(Bool)                     drainingAfter = ctx_drainingAfter[ctx];
+        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = ctx_numInstrsInFlight[ctx];
     
         if (drainingAfter)
             return numInstrsInFlight.value() == 0;
@@ -115,8 +206,19 @@ module [HASIM_MODULE] mkDecode ();
     
     endfunction
 
+    // markPRFInvalid
+
+    // When we issue an instruction we mark its destinations as unready.
+
     function Action markPRFInvalid(TOKEN tok, ISA_DST_MAPPING dstmap);
-      action
+    action
+        
+        // Extract local state from the context.
+        let ctx = tokContextId(tok);
+        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = ctx_prfValid[ctx];
+        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = ctx_numInstrsInFlight[ctx];
+
+        // Update the scoreboard.
         Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
 
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
@@ -124,15 +226,20 @@ module [HASIM_MODULE] mkDecode ();
             if (dstmap[i] matches tagged Valid { .ar, .pr })
             begin
                 prf_valid[pr] = False;
-                debugLog.record(fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
+                debugLog.record(ctx, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
             end
         end
         prfValid <= prf_valid;
         numInstrsInFlight.up();
-      endaction
+
+    endaction
     endfunction
 
-    function BUNDLE makeBundle(FETCH_BUNDLE fbndl, ISA_DST_MAPPING dstmap);
+    // makeBundle
+    
+    // Marshall up a bundle of useful information to send to the rest of the pipeline.
+
+    function BUNDLE makeBundle(TOKEN tok, FETCH_BUNDLE fbndl, ISA_DST_MAPPING dstmap);
         Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dests = newVector();
         for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
         begin
@@ -141,7 +248,8 @@ module [HASIM_MODULE] mkDecode ();
             else
                 dests[i] = Invalid;
         end
-        return BUNDLE { isLoad:  isaIsLoad(fbndl.inst),
+        return BUNDLE { token:   tok,
+                        isLoad:  isaIsLoad(fbndl.inst),
                         isStore: isaIsStore(fbndl.inst),
                         isTerminate: Invalid,
                         pc: fbndl.pc,
@@ -150,124 +258,256 @@ module [HASIM_MODULE] mkDecode ();
                         dests: dests };
     endfunction
 
-    rule bus (state == DECODE_STATE_BUS);
-        debugLog.nextModelCycle();
-        local_ctrl.startModelCC();
+    // ****** Rules ******
+    
+    // stage1_commits
+    
+    // Begin simulating a new context.
+    // Get any commits from Exe, Mem, or Com and update the scoreboard.
+    // This stage never stalls.
 
+    rule stage1_writebacks (True);
+
+        // Begin model cycle.
+        let ctx <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(ctx);
+        
+        
+        // Extract our local state from the context.
+        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = ctx_prfValid[ctx];
+        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = ctx_numInstrsInFlight[ctx];
+
+        // Record how many registers have been written or instructions killed.
         Integer instrs_removed = 0;
         Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
 
         // Process writes from EXE
-        let bus_exe <- busQ[0].receive();
+        let bus_exe <- writebackFromExe.receive(ctx);
         if (bus_exe matches tagged Valid .msg)
         begin
+
             if (msg.tokKilled)
             begin
+
+                // It was shot down because it was from the wrong epoch.
+                debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": no longer in flight"));
                 instrs_removed = instrs_removed + 1;
-                debugLog.record_next_cycle(fshow(msg.token) + $format(": no longer in flight"));
+
             end
 
             for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
             begin
+
                 if (msg.destRegs[i] matches tagged Valid .pr)
                 begin
+
                     prf_valid[pr] = True;
-                    debugLog.record_next_cycle(fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
+                    debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
+
                 end
             end
         end
 
         // Process writes from MEM
-        let bus_mem <- busQ[1].receive();
+        let bus_mem <- writebackFromMem.receive(ctx);
         if (bus_mem matches tagged Valid .msg)
         begin
             if (msg.tokKilled)
             begin
                 instrs_removed = instrs_removed + 1;
-                debugLog.record_next_cycle(fshow(msg.token) + $format(": no longer in flight"));
+                debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": no longer in flight"));
             end
 
             for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
             begin
+
                 if (msg.destRegs[i] matches tagged Valid .pr)
                 begin
+
                     prf_valid[pr] = True;
-                    debugLog.record_next_cycle(fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
+                    debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
+
                 end
+
             end
         end
 
-        // Track in-flight instructions
-        let commit <- commitQ.receive();
+        // Process writes from Com. These can't have been retired.
+        let commit <- writebackFromCom.receive(ctx);
         if (commit matches tagged Valid .commit_tok)
         begin
-            debugLog.record_next_cycle(fshow(commit_tok) + $format(": Commit"));
-            instrs_removed = instrs_removed + 1;
-        end
 
+            debugLog.record_next_cycle(ctx, fshow(commit_tok) + $format(": Commit"));
+            instrs_removed = instrs_removed + 1;
+
+        end
+        
+        // Update the scoreboard.
         numInstrsInFlight.downBy(fromInteger(instrs_removed));
         prfValid <= prf_valid;
 
-        state <= DECODE_STATE_INST;
+        // Pass to the next stage.
+        stage2Q.enq(ctx);
+        
     endrule
 
-    rule stall (state == DECODE_STATE_INST && !outQ.canSend);
-        debugLog.record(fshow("STALL PROPAGATED"));
-        inQ.pass();
-        outQ.pass();
-        event_dec.recordEvent(Invalid);
-        state <= DECODE_STATE_BUS;
-    endrule
-
-    rule bubble (state == DECODE_STATE_INST && outQ.canSend && !isValid(inQ.peek));
-        debugLog.record(fshow("BUBBLE"));
-        let x <- inQ.receive();
-        outQ.send(Invalid);
-        event_dec.recordEvent(Invalid);
-        state <= DECODE_STATE_BUS;
-    endrule
-
-    rule inst (state == DECODE_STATE_INST &&& outQ.canSend &&& inQ.peek() matches tagged Valid { .tok, .* });
-        if (!isValid(memoDependencies))
-            getDependencies.makeReq(initFuncpReqGetDependencies(tok));
-        state <= DECODE_STATE_DEP;
-    endrule
-
-    rule dep (state == DECODE_STATE_DEP);
-        if (!isValid(memoDependencies)) begin
-            let rsp = getDependencies.getResp();
-            memoDependencies <= Valid(rsp);
-            getDependencies.deq();
-        end
-        state <= DECODE_STATE_SEND;
-    endrule
-
-    rule send (state == DECODE_STATE_SEND &&& memoDependencies matches tagged Valid .rsp
-                                          &&& inQ.peek() matches tagged Valid { .tok, .fetchbundle });
+    // stage2_dependencies
     
-        let tok = rsp.token;
-        let data_ready <- readyToGo(tok, rsp.srcMap);
-        if (data_ready && readyDrainAfter() && readyDrainBefore(fetchbundle.inst))
-        begin
+    // Check if there's an instruction waiting to be issued. 
+    // In order to issue we have to have the dependencies from the functional partition.
+    // If we don't have them, stall to retrieve them.
+    // If we previously got them, advance to the next stage.
+    
+    rule stage2_dependencies (stage2State == DEC2_ready);
 
-            markPRFInvalid(tok, rsp.dstMap);
-            let mtup <- inQ.receive();
-            let bundle = makeBundle(fetchbundle, rsp.dstMap);
-            outQ.send(Valid(tuple2(tok,bundle)));
-            event_dec.recordEvent(Valid(zeroExtend(pack(tok.index))));
-            debugLog.record(fshow(tok) + fshow(": SEND INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
-            memoDependencies <= Invalid;
-            drainingAfter <= isaDrainAfter(fetchbundle.inst);
+        // Get the context from the previous stage.
+        let ctx = stage2Q.first();
+        
+        // Extract local state from the context.
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = ctx_memoDependencies[ctx];
+
+        if (bundleToIssueQ.canEnq(ctx) && bundleFromInstQ.canDeq(ctx))
+        begin
             
+            // Issue Q has space and there's an instruction waiting.
+                
+            // There is... 
+            let bundle = bundleFromInstQ.peek(ctx);
+            let tok = bundle.token;
+
+            // Let's get the dependencies, if we haven't already.                
+            if (!isValid(memoDependencies))
+            begin
+
+                // We need to retrieve dependencies from the functional partition.
+                getDependencies.makeReq(initFuncpReqGetDependencies(tok));
+                // Stall this stage until we get a response.
+                stage2State <= DEC2_depsRsp;
+
+            end
+            else
+            begin
+
+               // We have the dependencies, advance this context to the next stage.
+               stage2Q.deq();
+               stage3Q.enq(ctx);
+
+            end
+
         end
         else
         begin
-            debugLog.record(fshow(tok) + fshow(": STALL ON DEPENDENCY"));
-            inQ.pass();
-            outQ.send(Invalid);
-            event_dec.recordEvent(Invalid);
+
+            // There's a bubble. Nothing we can do.
+            debugLog.record(ctx, fshow("BUBBLE"));
+            eventDec.recordEvent(ctx, tagged Invalid);
+            stage2Q.deq();
+
+            // Don't dequeue the InstQ.
+            bundleFromInstQ.noDeq(ctx);
+
+            // Don't enqueue anything to the IssueQ. 
+            bundleToIssueQ.noEnq(ctx);
+            
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(ctx, 1);
+
         end
-        state <= DECODE_STATE_BUS;
+
+    endrule
+
+    // stage2_dependenciesRsp
+    
+    // Get the response from the functional partition and unstall this stage.
+
+    rule stage2_dependenciesRsp (stage2State == DEC2_depsRsp);
+    
+        // Get the stalled context.
+        let ctx = stage2Q.first();
+
+        // Get the response from the functional partition.
+        let rsp = getDependencies.getResp();
+        getDependencies.deq();
+        
+        // Extract local state from the context.
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = ctx_memoDependencies[ctx];
+    
+        // Update dependencies.
+        memoDependencies <= tagged Valid rsp;
+
+        // Unstall this stage.
+        stage2State <= DEC2_ready;
+        stage2Q.deq();
+
+        // Pass it to the next stage.
+        stage3Q.enq(ctx);
+        
+    endrule
+
+    // stage3_attemptIssue
+    
+    // Check to see if we can actually issue the youngest instruction.
+    // If we get to this stage, we have previously checked that 
+    // there's an instruction in the InstQ and that there's room in the IssueQ,
+    // and we must have already gotten the dependencies from the functional partition.
+
+    rule stage3_attemptIssue (True);
+    
+        // Extract our local state from the context.
+        let ctx = stage3Q.first();
+        stage3Q.deq();
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = ctx_memoDependencies[ctx];
+        Reg#(Bool)                                  drainingAfter = ctx_drainingAfter[ctx];
+        
+        // assert memoDependencies == Valid
+        let rsp = validValue(memoDependencies);
+        // assert bundleFromInstQ.canDeq(ctx)
+        let fetchbundle = bundleFromInstQ.peek(ctx);
+        let tok = fetchbundle.token;
+        
+        // Check if we can issue.
+        let data_ready <- readyToGo(tok, rsp.srcMap);
+
+        if (data_ready && readyDrainAfter(ctx) && readyDrainBefore(ctx, fetchbundle.inst))
+        begin
+
+            // Yep... we're ready to send it. Make sure to send the newer token from the FP.
+            let bundle = makeBundle(rsp.token, fetchbundle, rsp.dstMap);
+            debugLog.record(ctx, fshow(tok) + fshow(": SEND INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
+            eventDec.recordEvent(ctx, tagged Valid zeroExtend(pack(tok.index)));
+            
+            // Update the scoreboard to reflect this instruction issuing.
+            // Mark its destination registers as unready until it commits.
+            markPRFInvalid(tok, rsp.dstMap);
+            memoDependencies <= Invalid;
+            drainingAfter <= isaDrainAfter(fetchbundle.inst);
+
+            // Dequeue the InstQ.
+            bundleFromInstQ.doDeq(ctx);
+
+            // Enqueue the decoded instruction in the IssueQ.
+            bundleToIssueQ.doEnq(ctx, bundle);
+
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(ctx, 2);
+
+        end
+        else
+        begin
+
+            // Nope, we're waiting on an older instruction to write its results.
+            debugLog.record(ctx, fshow(tok) + fshow(": STALL ON DEPENDENCY"));
+            eventDec.recordEvent(ctx, tagged Invalid);
+            
+            // Propogate the bubble.
+            bundleFromInstQ.noDeq(ctx);
+            bundleToIssueQ.noEnq(ctx);
+            
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(ctx, 3);
+
+        end
+
     endrule
 
 endmodule
