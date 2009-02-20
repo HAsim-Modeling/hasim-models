@@ -1,0 +1,21 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Set-associative instruction cache
+# %desc Set-associative instruction cache
+# %requires hasim_icache_base_types hasim_icache_memory hasim_icache_replacement_algorithm 
+# %provides hasim_icache
+#
+# %attributes hasim caches
+#
+# %public  icache-setassoc.bsv 
+# %private icache-setassoc.dic
+#
+# %AWB_END
+# */

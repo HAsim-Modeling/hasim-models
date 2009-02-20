@@ -1,0 +1,20 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Infinite Entries
+# %desc Infinite Entries Branch Stack
+# %provides hasim_branch_stack
+#
+# %attributes hasim model
+#
+# %public branch-stack-infinite.bsv
+#
+# %AWB_END
+# */
+

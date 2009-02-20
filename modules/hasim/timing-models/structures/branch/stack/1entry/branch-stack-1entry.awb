@@ -1,0 +1,20 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name One Entry
+# %desc One Entry Branch Stack
+# %provides hasim_branch_stack
+#
+# %attributes mips model hasim
+#
+# %public branch-stack-1entry.bsv
+#
+# %AWB_END
+# */
+

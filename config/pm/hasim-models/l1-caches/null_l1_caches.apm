@@ -9,29 +9,22 @@ Type=HAsim
 Class=Asim::Model
 
 [Model]
-DefaultAttributes=hasim caches l1
-model=L1 caches
-
-[L1 caches]
-File=modules/hasim/timing-models/caches/l1-caches/hasim_l1_caches.awb
-Packagehint=hasim-models
-
-
-
-
-
-
-
-
-[L1 caches/Requires]
-hasim_dcache=Null DCache
-hasim_icache=Null ICache
-
+DefaultAttributes=hasim model caches l1
+model=Split (Instruction and Data)
 
 [Null DCache]
-File=modules/hasim/timing-models/caches/null-caches/null_dcache.awb
+File=modules/hasim/timing-models/caches/null-caches/dcache-null.awb
 Packagehint=hasim-models
 
 [Null ICache]
-File=modules/hasim/timing-models/caches/null-caches/null_icache.awb
+File=modules/hasim/timing-models/caches/null-caches/icache-null.awb
 Packagehint=hasim-models
+
+[Split (Instruction and Data)/Requires]
+hasim_dcache=Null DCache
+hasim_icache=Null ICache
+
+[Split (Instruction and Data)]
+File=modules/hasim/timing-models/caches/l1-caches/l1-caches.awb
+Packagehint=hasim-models
+

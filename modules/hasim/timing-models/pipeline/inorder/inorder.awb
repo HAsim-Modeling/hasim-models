@@ -1,14 +1,14 @@
 %AWB_START
 
-%name Inorder pipeline
-%desc Inorder pipeline
+%name Inorder
+%desc Inorder Pipeline
 %provides hasim_pipeline
-%requires hasim_branch_pred
+%requires hasim_branch_pred_alg
 
-%attributes hasim pipeline inorder
+%attributes hasim model pipeline inorder
 
-%public Pipeline.bsv
-%private PipelineTypes.bsv Fetch.bsv Decode.bsv Execute.bsv Mem.bsv WriteBack.bsv BranchPredictor.bsv StoreBuffer.bsv
+%public inorder-pipeline.bsv
+%private inorder-pipeline-base-types.bsv inorder-fetch-stage.bsv inorder-decode-stage.bsv inorder-execute-stage.bsv inorder-dmem-stage.bsv inorder-commit-stage.bsv branch-predictor.bsv single-entry-store-buffer.bsv
 %sources -t DICT -v PUBLIC fetch.dic decode.dic execute.dic mem.dic writeback.dic
 
 %param SYNTH_BOUNDARY mkPipeline "Name of synthesis boundary"

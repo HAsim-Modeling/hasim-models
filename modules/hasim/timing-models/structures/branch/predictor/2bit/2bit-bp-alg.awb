@@ -1,0 +1,22 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name 2 Bit
+# %desc 2 Bit Branch Predictor Algorithm
+# %provides hasim_branch_pred_alg
+#
+# %attributes hasim model branch_pred algorithm
+#
+# %param BRANCH_TABLE_SIZE 11 "Branch table (log) size"
+#
+# %public 2bit-bp-alg.bsv
+#
+# %AWB_END
+# */
+

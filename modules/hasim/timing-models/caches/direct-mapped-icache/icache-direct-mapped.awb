@@ -1,0 +1,11 @@
+%name Direct Mapped
+%desc Direct Mapped Instruction Cache
+%requires hasim_icache_base_types hasim_icache_memory 
+%provides hasim_icache
+
+%attributes hasim model caches
+
+%public icache-direct-mapped.bsv 
+%sources -t DICT -v PUBLIC icache-direct-mapped.dic
+
+%param --dynamic ICACHE_ALWAYS_HIT  0     "0 for simulate cache, 1 for always hit"

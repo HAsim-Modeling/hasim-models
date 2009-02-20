@@ -1865,3 +1865,291 @@ Directory modules/hasim/timing-models/caches/null-caches
 * TODO: Support more multi-context caches.
 
 Michael P.
+
+----------
+pellauer    Date: Fri Feb 20 17:06:09 EST 2009  CSN: CSN-hasim-models-96
+                  Fri Feb 20 22:06:09 UTC 2009
+
+
+Directory config/pm/hasim-models/l1-caches
+ l1_caches.apm             Locally Modified           94 
+ null_l1_caches.apm        Locally Modified           95 
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified           94 
+
+Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
+ superscalar-out-of-order.apm Locally Modified           94 
+ single-issue-out-of-order.apm Locally Modified           94 
+ superscalar-in-order.apm  Locally Modified           94 
+
+Directory config/pm/hasim-models/pipeline
+ 5stage/                   Locally Removed            94 
+
+Directory config/pm/hasim-models/pipeline/5stage
+ 5stage.apm                Locally Removed            94 
+
+Directory config/pm/hasim-models/pipeline
+ unpipelined/              Locally Removed            94 
+
+Directory config/pm/hasim-models/pipeline/unpipelined
+ with-cache/               Locally Removed            94 
+
+Directory config/pm/hasim-models/pipeline/unpipelined/with-cache
+ unpipelined.apm           Locally Removed            94 
+
+Directory config/pm/hasim-models/pipeline/unpipelined
+ no-cache/                 Locally Removed            94 
+
+Directory config/pm/hasim-models/pipeline/unpipelined/no-cache
+ unpipelined.apm           Locally Removed            94 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ Execute.bsv               Locally Removed            95 
+ inorder-execute-stage.bsv Locally Added               - 
+ inorder-pipeline.bsv      Locally Added               - 
+ Pipeline.bsv              Locally Removed            95 
+ BranchPredictor.bsv       Locally Removed            95 
+ WriteBack.bsv             Locally Removed            95 
+ Mem.bsv                   Locally Removed            95 
+ inorder-pipeline-base-types.bsv Locally Added               - 
+ inorder.awb               Locally Modified           94 
+ single-entry-store-buffer.bsv Locally Added               - 
+ Decode.bsv                Locally Removed            95 
+ inorder-dmem-stage.bsv    Locally Added               - 
+ inorder-decode-stage.bsv  Locally Added               - 
+ branch-predictor.bsv      Locally Added               - 
+ StoreBuffer.bsv           Locally Removed            95 
+ Fetch.bsv                 Locally Removed            95 
+ inorder-commit-stage.bsv  Locally Added               - 
+ inorder-fetch-stage.bsv   Locally Added               - 
+ PipelineTypes.bsv         Locally Removed            95 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ pipeline-6-stage.awb      Locally Modified           94 
+ fetch.bsv                 Locally Modified           95 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined_cpu.dic       Locally Removed            94 
+ unpipelined-pipeline.awb  Locally Added               - 
+ unpipelined-pipeline.bsv  Locally Added               - 
+ unpipelined_cpu.awb       Locally Removed            94 
+ UnpipelinedCPU.bsv        Locally Removed            95 
+ unpipelined-pipeline.dic  Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined_cpu.dic       Locally Removed            94 
+ unpipelined-pipeline-with-cache.awb Locally Added               - 
+ unpipelined-pipeline-with-cache.bsv Locally Added               - 
+ unpipelined-pipeline-with-cache.dic Locally Added               - 
+ unpipelined_cpu.awb       Locally Removed            94 
+ UnpipelinedCPU.bsv        Locally Removed            94 
+
+Directory modules/hasim/timing-models/pipeline/5stage
+ 5stage.awb                Locally Removed            94 
+ execute.dic               Locally Removed            94 
+ decode.dic                Locally Removed            94 
+ Fetch.bsv                 Locally Removed            94 
+ Writeback.bsv             Locally Removed            94 
+ Mem.bsv                   Locally Removed            94 
+ fetch.dic                 Locally Removed            94 
+ writeback.dic             Locally Removed            94 
+ Execute.bsv               Locally Removed            94 
+ Decode.bsv                Locally Removed            94 
+ Interfaces.bsv            Locally Removed            94 
+ mem.dic                   Locally Removed            94 
+ Pipeline.bsv              Locally Removed            94 
+
+Directory modules/hasim/timing-models/pipeline
+ 5stage/                   Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ NullDCache.bsv            Locally Removed            95 
+ icache-null.awb           Locally Added               - 
+ icache-null.bsv           Locally Added               - 
+ null_icache.awb           Locally Removed            94 
+ NullICache.bsv            Locally Removed            95 
+ dcache-null.awb           Locally Added               - 
+ dcache-null.bsv           Locally Added               - 
+ null_dcache.awb           Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.awb  Locally Added               - 
+ icache-direct-mapped.bsv  Locally Added               - 
+ direct_mapped_icache.awb  Locally Removed            94 
+ icache-direct-mapped.dic  Locally Added               - 
+ ICacheDirectMapped.bsv    Locally Removed            94 
+ direct_mapped_icache.dic  Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ dcache-setassoc-writeback.dic Locally Added               - 
+ DCacheSetAssocWriteBack.bsv Locally Removed            94 
+ set_associative_write_back_dcache.dic Locally Removed            94 
+ dcache-setassoc-writeback.awb Locally Added               - 
+ dcache-setassoc-writeback.bsv Locally Added               - 
+ set_associative_write_back_dcache.awb Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ set_associative_icache.dic Locally Removed            94 
+ icache-setassoc.awb       Locally Added               - 
+ icache-setassoc.bsv       Locally Added               - 
+ set_associative_icache.awb Locally Removed            94 
+ ICacheSetAssoc.bsv        Locally Removed            94 
+ icache-setassoc.dic       Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/l2-cache
+ hasim_shared_cache.awb    Locally Removed            94 
+ L2Cache.bsv               Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches
+ l2-cache/                 Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches.awb             Locally Added               - 
+ L1Cache.bsv               Locally Removed            94 
+ l1-caches.bsv             Locally Added               - 
+ hasim_l1_caches.awb       Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ direct_mapped_write_back_dcache.dic Locally Removed            94 
+ dcache-direct-mapped-writeback.awb Locally Added               - 
+ dcache-direct-mapped-writeback.bsv Locally Added               - 
+ direct_mapped_write_back_dcache.awb Locally Removed            94 
+ dcache-direct-mapped-writeback.dic Locally Added               - 
+ DCacheDirectMappedWriteBack.bsv Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ direct_mapped_write_through_dcache.dic Locally Removed            94 
+ dcache-direct-mapped-writethrough.awb Locally Added               - 
+ dcache-direct-mapped-writethrough.bsv Locally Added               - 
+ direct_mapped_write_through_dcache.awb Locally Removed            94 
+ dcache-direct-mapped-writethrough.dic Locally Added               - 
+ DCacheDirectMappedWriteThrough.bsv Locally Removed            94 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ icache-base-types.bsv     Locally Added               - 
+ dcache_types.awb          Locally Removed            94 
+ DCacheTypes.bsv           Locally Removed            94 
+ icache_types.awb          Locally Removed            94 
+ dcache-base-types.awb     Locally Added               - 
+ ICacheTypes.bsv           Locally Removed            94 
+ dcache-base-types.bsv     Locally Added               - 
+ icache-base-types.awb     Locally Added               - 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.awb      Locally Added               - 
+ single-core-chip.bsv      Locally Added               - 
+ Chip.bsv                  Locally Removed            94 
+ hasim_chip.awb            Locally Removed            94 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/oneEntry
+ TargetBuffer.awb          Locally Removed            94 
+ TargetBuffer.bsv          Locally Removed            94 
+ btb-one-entry.awb         Locally Added               - 
+ btb-one-entry.bsv         Locally Added               - 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multiEntry
+ btb-multi-entry.awb       Locally Added               - 
+ btb-multi-entry.bsv       Locally Added               - 
+ TargetBuffer.awb          Locally Removed            94 
+ TargetBuffer.bsv          Locally Removed            94 
+
+Directory modules/hasim/timing-models/structures/branch/stack/1entry
+ branch-stack-1entry.awb   Locally Added               - 
+ branch-stack-1entry.bsv   Locally Added               - 
+ BranchStack.awb           Locally Removed            94 
+ BranchStack.bsv           Locally Removed            94 
+
+Directory modules/hasim/timing-models/structures/branch/stack/infinite
+ BranchStack.awb           Locally Removed            94 
+ branch-stack-infinite.awb Locally Added               - 
+ BranchStack.bsv           Locally Removed            94 
+ branch-stack-infinite.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ BranchPred.awb            Locally Removed            94 
+ BranchPred.bsv            Locally Removed            94 
+ 2bit-bp-alg.awb           Locally Added               - 
+ 2bit-bp-alg.bsv           Locally Added               - 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/taken
+ BranchPred.awb            Locally Removed            94 
+ BranchPred.bsv            Locally Removed            94 
+ taken-bp-alg.awb          Locally Added               - 
+ taken-bp-alg.bsv          Locally Added               - 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/notTaken
+ BranchPred.awb            Locally Removed            94 
+ BranchPred.bsv            Locally Removed            94 
+ not-taken-bp-alg.awb      Locally Added               - 
+ not-taken-bp-alg.bsv      Locally Added               - 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/globHistory
+ BranchPred.awb            Locally Removed            94 
+ BranchPred.bsv            Locally Removed            94 
+ global-history-bp-alg.awb Locally Added               - 
+ global-history-bp-alg.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/simple
+ BranchPred.awb            Locally Removed            94 
+ BranchPred.bsv            Locally Removed            94 
+ simple-bp-alg.awb         Locally Added               - 
+ simple-bp-alg.bsv         Locally Added               - 
+
+Directory modules/hasim/timing-models/replacement-algorithms/dcache
+ dcache_lru.awb            Locally Removed            94 
+ DCacheLRU.bsv             Locally Removed            94 
+ dcache-replacement-alg-lru.awb Locally Added               - 
+ dcache-replacement-alg-lru.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/replacement-algorithms/icache
+ icache-replacement-alg-lru.awb Locally Added               - 
+ icache-replacement-alg-lru.bsv Locally Added               - 
+ icache_lru.awb            Locally Removed            94 
+ ICacheLRU.bsv             Locally Removed            94 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ Core.bsv                  Locally Removed            94 
+ hasim_core.awb            Locally Removed            94 
+ core-no-cache.awb         Locally Added               - 
+ core-no-cache.bsv         Locally Added               - 
+
+Directory modules/hasim/timing-models/core
+ Core.bsv                  Locally Removed            94 
+ hasim_core.awb            Locally Removed            94 
+ core-with-cache/          Locally Added               0 
+
+Directory modules/hasim/timing-models/core/core-with-cache
+ core-with-cache.awb       Locally Added               - 
+ core-with-cache.bsv       Locally Added               - 
+
+Directory modules/hasim/timing-models/memory
+ memory-magic.bsv          Locally Added               - 
+ memory.awb                Locally Removed            94 
+ Memory.bsv                Locally Removed            94 
+ dcache-memory-magic.awb   Locally Added               - 
+ dcache-memory-magic.bsv   Locally Added               - 
+ dcachememory.awb          Locally Removed            94 
+ icache-memory-magic.awb   Locally Added               - 
+ DCacheMemory.bsv          Locally Removed            94 
+ icache-memory-magic.bsv   Locally Added               - 
+ icachememory.awb          Locally Removed            94 
+ ICacheMemory.bsv          Locally Removed            94 
+ memory-magic.awb          Locally Added               - 
+
+
+* Move hasim-models over to the correct file-naming convention. This is a
+  precursor to splitting the inorder pipeline model up into many modules.
+
+* Kill the 5stage model.
+
+* Branch predictors are now branch predictor algorithms, which are multiplexed
+  by the inorder pipeline's branch predictor.
+
+* Almost all imports are now `include and more type names are in the right
+  coding convention.
+  
+* Still Ongoing: Some directory names need to change. SVN is happier if we do
+  that in a separate commit.
+
+Michael P.

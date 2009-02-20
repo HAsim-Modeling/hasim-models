@@ -8,7 +8,7 @@
 %requires hasim_alu
 %requires hasim_mem
 %requires hasim_commit
-%requires hasim_branch_pred
+%requires hasim_branch_pred_alg
 %requires hasim_pipeline_types
 %provides hasim_pipeline
 

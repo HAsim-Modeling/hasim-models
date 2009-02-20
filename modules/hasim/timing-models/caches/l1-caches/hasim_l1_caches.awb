@@ -1,9 +1,0 @@
-%name L1 caches
-%desc L1 caches
-
-%provides hasim_l1_caches
-
-%requires hasim_icache
-%requires hasim_dcache
-
-%public L1Cache.bsv

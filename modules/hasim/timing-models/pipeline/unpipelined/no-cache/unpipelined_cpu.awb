@@ -1,8 +1,0 @@
-%name Hasim Unpipelined CPU
-%desc Hasim Unpipelined CPU
-%provides hasim_pipeline
-
-%attributes hasim unpipelined
-
-%public UnpipelinedCPU.bsv
-%private unpipelined_cpu.dic

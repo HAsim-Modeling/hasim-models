@@ -1,0 +1,8 @@
+%name Hasim Unpipelined Pipeline
+%desc Hasim Unpipelined Pipeline (One Stage)
+%provides hasim_pipeline
+
+%attributes hasim unpipelined
+
+%public unpipelined-pipeline.bsv
+%private unpipelined-pipeline.dic

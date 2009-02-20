@@ -25,7 +25,7 @@ import Vector::*;
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/hasim_branch_pred.bsh"
+`include "asim/provides/hasim_branch_pred_alg.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
 
 `include "asim/provides/hasim_pipeline_types.bsh"
@@ -64,7 +64,7 @@ module [HASIM_MODULE] mkFetch();
     Reg#(ROB_INDEX)                                                                epochRob <- mkReg(0);
     Reg#(Bool)                                                                 afterResteer <- mkReg(False);
 
-    BranchPred                                                                   branchPred <- mkBranchPred;
+    BRANCH_PREDICTOR_ALG                                                         branchPred <- mkBranchPredAlg;
 
     //
     // Local Controller

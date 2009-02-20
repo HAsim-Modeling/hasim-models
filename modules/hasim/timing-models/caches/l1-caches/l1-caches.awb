@@ -1,0 +1,10 @@
+%name Split (Instruction and Data)
+%desc Split L1 caches (Instruction and Data)
+
+%provides hasim_l1_caches
+%requires hasim_icache
+%requires hasim_dcache
+
+%attributes hasim model caches
+
+%public l1-caches.bsv

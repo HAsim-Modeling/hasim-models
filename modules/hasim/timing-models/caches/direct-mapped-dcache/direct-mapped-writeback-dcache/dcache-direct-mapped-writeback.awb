@@ -1,0 +1,11 @@
+%name Direct Mapped Writeback
+%desc Direct Mapped Writeback Data Cache
+%requires hasim_dcache_base_types hasim_dcache_memory  
+%provides hasim_dcache 
+
+%attributes hasim caches
+
+%public  dcache-direct-mapped-writeback.bsv 
+%private dcache-direct-mapped-writeback.dic
+
+%param --dynamic DCACHE_ALWAYS_HIT  0     "0 for simulate cache, 1 for always hit"

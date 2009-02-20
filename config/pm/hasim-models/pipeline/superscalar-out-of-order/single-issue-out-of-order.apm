@@ -9,12 +9,9 @@ Type=HAsim
 Class=Asim::Model
 
 [Model]
-DefaultAttributes=hasim
+DefaultAttributes=hasim model ooo
 model=Hasim 6-stage CPU
 
-[2 bit Branch Predictor]
-File=modules/hasim/timing-models/structures/branch/predictor/2bit/BranchPred.awb
-Packagehint=hasim-models
 
 [Hasim pipeline types]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/pipeline-6-stage-types.awb
@@ -51,13 +48,17 @@ Packagehint=hasim-models
 [Hasim 6-stage CPU/Requires]
 hasim_commit=Hasim commit
 hasim_pipeline_types=Hasim pipeline types
-hasim_branch_pred=2 bit Branch Predictor
 hasim_mem=Hasim mem
 hasim_issue=Hasim out-of-order issue
 hasim_fetch=Hasim fetch
 hasim_decode=Hasim decode
 hasim_alu=Hasim ALU
+hasim_branch_pred_alg=2 Bit
 
 [Hasim pipeline types/Params]
 ALU_NUM=1
 FETCH_NUM=1
+
+[2 Bit]
+File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
+Packagehint=hasim-models

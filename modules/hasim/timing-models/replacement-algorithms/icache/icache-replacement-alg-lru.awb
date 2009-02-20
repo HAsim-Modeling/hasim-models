@@ -1,0 +1,20 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name LRU
+# %desc Least-Recently Used ICache Replacement Algorithm
+# %provides hasim_icache_replacement_algorithm
+#
+# %attributes hasim model caches algorithm
+#
+# %public icache-replacement-alg-lru.bsv 
+#
+#
+# %AWB_END
+# */

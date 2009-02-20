@@ -1,0 +1,13 @@
+%name DCache Base Types
+%desc DCache Base Types 
+%provides hasim_dcache_base_types
+
+%attributes hasim model caches
+
+%public dcache-base-types.bsv
+
+
+%param DCACHE_LINE_BITS       5  "Number of block offset bits"
+%param DCACHE_IDX_BITS        10 "Number of index bits"
+%param DCACHE_ASSOC           4  "Cache associativity (unused for direct mapped case)"
+%param DCACHE_MISS_PENALTY    10 "Miss penalty cycles (0 not a valid entry)"

@@ -1,0 +1,10 @@
+%name Single Core Chip
+%desc Single Core Chip 
+
+%provides hasim_chip
+
+%requires hasim_core
+
+%attributes hasim model chip
+
+%public single-core-chip.bsv

@@ -1,0 +1,23 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Global History
+# %desc Global History Branch Predictor Algorithm
+# %provides hasim_branch_pred_alg
+#
+# %attributes hasim model branch_pred algorithm
+#
+# %param BRANCH_TABLE_SIZE 5 "Branch table (log) size"
+# %param GLOBAL_HIST_SIZE 2 "Branch global history size"
+#
+# %public global-history-bp-alg.bsv
+#
+# %AWB_END
+# */
+

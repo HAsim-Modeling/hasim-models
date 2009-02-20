@@ -1,0 +1,22 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Hasim Unpipelined Pipeline With Caches
+# %desc Hasim Unpipelined Pipeline With Caches
+# %provides hasim_pipeline
+#
+# %attributes unpipelined cpu
+#
+# %public  unpipelined-pipeline-with-cache.bsv
+# %private unpipelined-pipeline-with-cache.dic
+#
+#
+# %AWB_END
+# */
+

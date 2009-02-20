@@ -1,24 +1,29 @@
 
 [Global]
 SaveParameters=0
-Description=Inorder pipeline
+Description=Inorder Pipeline, 2-bit Branch Predictor
 File=inorder
 Version=2.1
-Name=Inorder pipeline
+Name=Inorder Pipeline, 2-bit branch predictor
 Type=HAsim
 Class=Asim::Model
 
 [Model]
-DefaultAttributes=hasim inorder
-model=Inorder pipeline
+DefaultAttributes=hasim model inorder
+model=Inorder
 
-[Inorder pipeline]
+
+
+[2 Bit/Params]
+BRANCH_TABLE_SIZE=5
+
+[2 Bit]
+File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
+Packagehint=hasim-models
+
+[Inorder]
 File=modules/hasim/timing-models/pipeline/inorder/inorder.awb
 Packagehint=hasim-models
 
-[2 bit Branch Predictor]
-File=modules/hasim/timing-models/structures/branch/predictor/2bit/BranchPred.awb
-Packagehint=hasim-models
-
-[Inorder pipeline/Requires]
-hasim_branch_pred=2 bit Branch Predictor
+[Inorder/Requires]
+hasim_branch_pred_alg=2 Bit

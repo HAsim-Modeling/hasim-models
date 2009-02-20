@@ -1,53 +1,54 @@
 
 [Global]
 SaveParameters=0
-Description=L1 caches
+Description=Direct Mapped, Writeback L1 Caches
 File=l1_caches
 Version=2.1
-Name=L1 caches
+Name=Direct Mapped, Writeback
 Type=HAsim
 Class=Asim::Model
 
 [Model]
-DefaultAttributes=hasim caches l1
-model=L1 caches
+DefaultAttributes=hasim model caches l1
+model=Split (Instruction and Data)
 
-[L1 caches]
-File=modules/hasim/timing-models/caches/l1-caches/hasim_l1_caches.awb
+[ICache Base Types]
+File=modules/hasim/timing-models/caches/cache-types/icache-base-types.awb
 Packagehint=hasim-models
 
-[DCache Types]
-File=modules/hasim/timing-models/caches/cache-types/dcache_types.awb
+[DCache Base Types]
+File=modules/hasim/timing-models/caches/cache-types/dcache-base-types.awb
 Packagehint=hasim-models
 
-[Direct mapped instruction cache/Requires]
-hasim_icache_types=ICache Types
-hasim_icache_memory=Dummy ICache Memory
 
-[Dummy ICache Memory]
-File=modules/hasim/timing-models/memory/icachememory.awb
+[Direct Mapped]
+File=modules/hasim/timing-models/caches/direct-mapped-icache/icache-direct-mapped.awb
 Packagehint=hasim-models
 
-[Direct mapped instruction cache]
-File=modules/hasim/timing-models/caches/direct-mapped-icache/direct_mapped_icache.awb
+[Split (Instruction and Data)/Requires]
+hasim_dcache=Direct Mapped Writeback
+hasim_icache=Direct Mapped
+
+[Split (Instruction and Data)]
+File=modules/hasim/timing-models/caches/l1-caches/l1-caches.awb
 Packagehint=hasim-models
 
-[Dummy memory for DCache]
-File=modules/hasim/timing-models/memory/dcachememory.awb
+[Direct Mapped Writeback/Requires]
+hasim_dcache_memory=Magic DCache Memory
+hasim_dcache_base_types=DCache Base Types
+
+[Direct Mapped Writeback]
+File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache/dcache-direct-mapped-writeback.awb
 Packagehint=hasim-models
 
-[Direct mapped writeback data cache]
-File=modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache/direct_mapped_write_back_dcache.awb
+[Direct Mapped/Requires]
+hasim_icache_memory=Magic ICache Memory
+hasim_icache_base_types=ICache Base Types
+
+[Magic ICache Memory]
+File=modules/hasim/timing-models/memory/icache-memory-magic.awb
 Packagehint=hasim-models
 
-[Direct mapped writeback data cache/Requires]
-hasim_dcache_types=DCache Types
-hasim_dcache_memory=Dummy memory for DCache
-
-[L1 caches/Requires]
-hasim_dcache=Direct mapped writeback data cache
-hasim_icache=Direct mapped instruction cache
-
-[ICache Types]
-File=modules/hasim/timing-models/caches/cache-types/icache_types.awb
+[Magic DCache Memory]
+File=modules/hasim/timing-models/memory/dcache-memory-magic.awb
 Packagehint=hasim-models

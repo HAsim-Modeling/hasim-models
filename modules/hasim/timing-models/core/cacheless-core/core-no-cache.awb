@@ -1,0 +1,11 @@
+%name Cacheless Core
+%desc Cacheless Core
+
+%provides hasim_core
+
+%requires hasim_pipeline
+
+%attributes hasim core
+
+%public core-no-cache.bsv
+

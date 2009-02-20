@@ -2,7 +2,7 @@
 [Global]
 SaveParameters=0
 Description=Superscalar inorder pipeline
-File=superscalar-out-of-order
+File=superscalar-in-order
 Version=2.1
 Name=Superscalar inorder pipeline
 Type=HAsim
@@ -10,11 +10,8 @@ Class=Asim::Model
 
 [Model]
 DefaultAttributes=hasim
-model=Hasim superscalar-out-of-order CPU
+model=Hasim 6-stage CPU
 
-[2 bit Branch Predictor]
-File=modules/hasim/timing-models/structures/branch/predictor/2bit/BranchPred.awb
-Packagehint=hasim-models
 
 [Hasim pipeline types]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/pipeline-6-stage-types.awb
@@ -32,9 +29,6 @@ Packagehint=hasim-models
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/mem.awb
 Packagehint=hasim-models
 
-[Hasim out-of-order issue]
-File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/inorder-issue.awb
-Packagehint=hasim-models
 
 [Hasim fetch]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/fetch.awb
@@ -44,16 +38,26 @@ Packagehint=hasim-models
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/alu.awb
 Packagehint=hasim-models
 
-[Hasim superscalar-out-of-order CPU]
+
+
+[Hasim 6-stage CPU]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/pipeline-6-stage.awb
 Packagehint=hasim-models
 
-[Hasim superscalar-out-of-order CPU/Requires]
+[Hasim inorder issue]
+File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/inorder-issue.awb
+Packagehint=hasim-models
+
+[Hasim 6-stage CPU/Requires]
 hasim_commit=Hasim commit
 hasim_pipeline_types=Hasim pipeline types
-hasim_branch_pred=2 bit Branch Predictor
 hasim_mem=Hasim mem
-hasim_issue=Hasim out-of-order issue
+hasim_issue=Hasim inorder issue
 hasim_fetch=Hasim fetch
+hasim_branch_pred_alg=2 Bit
 hasim_decode=Hasim decode
 hasim_alu=Hasim ALU
+
+[2 Bit]
+File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
+Packagehint=hasim-models

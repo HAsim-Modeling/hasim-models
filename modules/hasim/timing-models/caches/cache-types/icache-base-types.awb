@@ -1,0 +1,12 @@
+%name ICache Base Types
+%desc ICache Base Types 
+%provides hasim_icache_base_types
+
+%attributes hasim model caches
+
+%public icache-base-types.bsv
+
+%param ICACHE_LINE_BITS         5  "Number of block offset bits"
+%param ICACHE_IDX_BITS          10 "Number of index bits"
+%param ICACHE_ASSOC             4  "Cache associativity (unused for direct mapped case)"
+%param ICACHE_MISS_PENALTY      10 "Miss penalty cycles (0 not a valid entry)"

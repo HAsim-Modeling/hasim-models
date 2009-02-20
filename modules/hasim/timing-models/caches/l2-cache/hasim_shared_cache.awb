@@ -1,6 +1,0 @@
-%name Shared cache
-%desc Shared cache
-
-%provides hasim_shared_cache
-
-%public L2Cache.bsv

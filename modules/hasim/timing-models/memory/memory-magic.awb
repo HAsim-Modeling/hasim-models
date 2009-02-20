@@ -1,0 +1,10 @@
+%name Null Memory
+%desc Null Memory
+%provides hasim_memory
+
+%attributes hasim memory
+
+%public memory-magic.bsv 
+
+
+%AWB_END
