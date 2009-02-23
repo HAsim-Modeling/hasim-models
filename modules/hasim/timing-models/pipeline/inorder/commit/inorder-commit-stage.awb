@@ -1,0 +1,12 @@
+%AWB_START
+
+%name Inorder Commit Stage
+%desc Inorder Commit Stage
+%provides commit_stage
+
+%attributes hasim model pipeline inorder
+
+%public  inorder-commit-stage.bsv
+%private commit.dic
+
+%AWB_END

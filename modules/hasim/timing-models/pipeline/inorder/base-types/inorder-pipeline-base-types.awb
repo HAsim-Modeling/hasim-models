@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Inorder Pipeline Base Types
+%desc Inorder Pipeline Base Types
+%provides pipeline_base_types
+
+%attributes hasim model pipeline inorder
+
+%public inorder-pipeline-base-types.bsv
+
+%AWB_END

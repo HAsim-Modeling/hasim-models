@@ -2153,3 +2153,135 @@ Directory modules/hasim/timing-models/memory
   that in a separate commit.
 
 Michael P.
+
+----------
+pellauer    Date: Mon Feb 23 13:04:51 EST 2009  CSN: CSN-hasim-models-97
+                  Mon Feb 23 18:04:51 UTC 2009
+
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified           96 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer
+ oneEntry/                 Locally Removed            96 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/oneEntry
+ btb-one-entry.awb         Locally Removed            96 
+ btb-one-entry.bsv         Locally Removed            96 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer
+ multiEntry/               Locally Removed            96 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multiEntry
+ btb-multi-entry.awb       Locally Removed            96 
+ btb-multi-entry.bsv       Locally Removed            96 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ notTaken/                 Locally Removed            96 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/notTaken
+ not-taken-bp-alg.awb      Locally Removed            96 
+ not-taken-bp-alg.bsv      Locally Removed            96 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ globHistory/              Locally Removed            96 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/globHistory
+ global-history-bp-alg.awb Locally Removed            96 
+ global-history-bp-alg.bsv Locally Removed            96 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ branch-predictor.bsv      Locally Removed            96 
+ decode.dic                Locally Removed            96 
+ dmem/                     Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ dmem.dic                  Locally Added               - 
+ inorder-dmem-stage.awb    Locally Added               0 
+ inorder-dmem-stage.bsv    Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-commit-stage.bsv  Locally Removed            96 
+ decode/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ decode.dic                Locally Added               - 
+ inorder-decode-stage.awb  Locally Added               0 
+ inorder-decode-stage.bsv  Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-fetch-stage.bsv   Locally Removed            96 
+ branch-predictor/         Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Added               - 
+ branch-predictor.awb      Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ fetch.dic                 Locally Removed            96 
+ commit/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.awb  Locally Added               0 
+ inorder-commit-stage.bsv  Locally Added               - 
+ commit.dic                Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ fetch/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.awb   Locally Added               0 
+ inorder-fetch-stage.bsv   Locally Added               - 
+ fetch.dic                 Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-execute-stage.bsv Locally Removed            96 
+ inorder-pipeline.bsv      Locally Modified           96 
+ execute.dic               Locally Removed            96 
+ execute/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ execute.dic               Locally Added               - 
+ inorder-execute-stage.awb Locally Added               0 
+ inorder-execute-stage.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline-base-types.bsv Locally Removed            96 
+ writeback.dic             Locally Removed            96 
+ inorder.awb               Locally Modified           96 
+ single-entry-store-buffer.bsv Locally Removed            96 
+ mem.dic                   Locally Removed            96 
+ inorder-dmem-stage.bsv    Locally Removed            96 
+ base-types/               Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.awb Locally Added               0 
+ inorder-pipeline-base-types.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-decode-stage.bsv  Locally Removed            96 
+
+Directory modules/hasim/timing-models/caches
+ store-buffers/            Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/store-buffers
+ single-entry/             Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/store-buffers/single-entry
+ single-entry-store-buffer.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/caches
+ translation-buffers/      Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/translation-buffers
+ null/                     Locally Added               0 
+
+
+* Inorder model is now broken into multiple AWB modules. Submodel APM ensures
+  everything still works.
+  
+* Directory name cleanup continues.
+
+* Store buffer moved from pipeline to caches.
+
+Michael P.

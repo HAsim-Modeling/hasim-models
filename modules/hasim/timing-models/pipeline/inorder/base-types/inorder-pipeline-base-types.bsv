@@ -19,6 +19,7 @@
 import hasim_common::*;
 import hasim_modellib::*;
 import hasim_isa::*;
+`include "asim/provides/funcp_interface.bsh"
 
 import Vector::*;
 import FShow::*;

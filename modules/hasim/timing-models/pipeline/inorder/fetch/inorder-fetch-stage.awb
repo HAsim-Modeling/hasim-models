@@ -1,0 +1,12 @@
+%AWB_START
+
+%name Inorder Fetch Stage
+%desc Inorder Fetch Stage
+%provides fetch_stage
+
+%attributes hasim model pipeline inorder
+
+%public  inorder-fetch-stage.bsv
+%private fetch.dic
+
+%AWB_END

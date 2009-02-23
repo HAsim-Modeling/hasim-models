@@ -1,2 +1,0 @@
-def EVENTS.WRITEBACK.INSTRUCTION_WRITEBACK "5         WBK";
-def STATS.WRITEBACK.INSTS_COMMITTED        "Instructions Committed";

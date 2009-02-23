@@ -28,13 +28,16 @@ import Vector::*;
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/hasim_controller.bsh"
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/hasim_icache.bsh"
 
 // ****** Generated files ******
 
-`include "asim/dict/EVENTS_WRITEBACK.bsh"
-`include "asim/dict/STATS_WRITEBACK.bsh"
+`include "asim/dict/EVENTS_COMMIT.bsh"
+`include "asim/dict/STATS_COMMIT.bsh"
 
 
 // ****** Local types ******
@@ -90,7 +93,7 @@ typedef union tagged
 
 module [HASIM_MODULE] mkCommit ();
 
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_writeback.out");
+    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_commit.out");
 
 
     // ****** Model State (per Context) ******
@@ -146,9 +149,9 @@ module [HASIM_MODULE] mkCommit ();
 
     // ****** Events and Stats *****
 
-    EVENT_RECORDER_MULTICTX eventCom <- mkEventRecorder_MultiCtx(`EVENTS_WRITEBACK_INSTRUCTION_WRITEBACK);
+    EVENT_RECORDER_MULTICTX eventCom <- mkEventRecorder_MultiCtx(`EVENTS_COMMIT_INSTRUCTION_WRITEBACK);
 
-    STAT_RECORDER_MULTICTX statCom <- mkStatCounter_MultiCtx(`STATS_WRITEBACK_INSTS_COMMITTED);
+    STAT_RECORDER_MULTICTX statCom <- mkStatCounter_MultiCtx(`STATS_COMMIT_INSTS_COMMITTED);
 
 
     // ****** Helper Functions ******
@@ -255,7 +258,7 @@ module [HASIM_MODULE] mkCommit ();
 
                     // Tell the cache to do the store.
                     debugLog.record_next_cycle(ctx, fshow("DCACHE STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.effAddr));
-                    reqToDCache.send(ctx, tagged Valid tuple2(tok,Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr))));
+                    reqToDCache.send(ctx, tagged Valid tuple2(tok, Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr))));
 
                 end
                 else

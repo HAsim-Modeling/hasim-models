@@ -1,0 +1,12 @@
+%AWB_START
+
+%name Inorder DMem Stage
+%desc Inorder DMem Stage
+%provides dmem_stage
+
+%attributes hasim model pipeline inorder
+
+%public  inorder-dmem-stage.bsv
+%private dmem.dic
+
+%AWB_END

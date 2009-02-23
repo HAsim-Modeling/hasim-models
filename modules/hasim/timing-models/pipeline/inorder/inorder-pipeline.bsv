@@ -16,9 +16,19 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
-`include "hasim_common.bsh"
+`include "asim/provides/hasim_common.bsh"
+
+`include "asim/provides/fetch_stage.bsh"
+`include "asim/provides/decode_stage.bsh"
+`include "asim/provides/execute_stage.bsh"
+`include "asim/provides/dmem_stage.bsh"
+`include "asim/provides/commit_stage.bsh"
+
+`include "asim/provides/branch_predictor.bsh"
+`include "asim/provides/store_buffer.bsh"
 
 module [HASIM_MODULE] mkPipeline ();
+
     let fetch   <- mkFetch();
     let decode  <- mkDecode();
     let execute <- mkExecute();
@@ -27,5 +37,6 @@ module [HASIM_MODULE] mkPipeline ();
 
     let bp     <- mkBranchPredictor();
     let sb     <- mkStoreBuffer();
+
 endmodule
 

@@ -1,0 +1,12 @@
+%AWB_START
+
+%name Inorder Decode/Issue Stage
+%desc Inorder Decode/Issue Stage
+%provides decode_stage
+
+%attributes hasim model pipeline inorder
+
+%public  inorder-decode-stage.bsv
+%private decode.dic
+
+%AWB_END

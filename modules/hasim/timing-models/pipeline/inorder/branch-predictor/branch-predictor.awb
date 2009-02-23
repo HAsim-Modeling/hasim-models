@@ -1,0 +1,15 @@
+%AWB_START
+
+%name Branch Predictor with Target Buffer
+%desc Branch Predictor with Target Buffer
+%provides branch_predictor
+%requires hasim_branch_pred_alg
+
+%attributes hasim model pipeline inorder
+
+%public branch-predictor.bsv
+
+%param BTB_IDX_SIZE 12 "Number of bits for Target Buffer index."
+%param BTB_OFFSET_SIZE 2  "Number of bits for Target Buffer address offset."
+
+%AWB_END

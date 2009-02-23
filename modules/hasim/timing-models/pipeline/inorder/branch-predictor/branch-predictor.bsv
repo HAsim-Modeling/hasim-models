@@ -16,17 +16,22 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
+import Vector::*;
+import FIFO::*;
 
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/fpga_components.bsh"
+`include "asim/provides/hasim_isa.bsh"
 
+`include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/funcp_base_types.bsh"
+`include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/hasim_branch_pred_alg.bsh"
 
-typedef 12 BTB_IDX_SZ;
-
-typedef Bit#(2) BTB_OFFSET;
-typedef Bit#(TSub#(`FUNCP_ISA_V_ADDR_SIZE,TAdd#(BTB_IDX_SZ,2))) BTB_TAG;
-typedef Bit#(BTB_IDX_SZ) BTB_INDEX;
+typedef Bit#(`BTB_OFFSET_SIZE) BTB_OFFSET;
+typedef Bit#(TSub#(`FUNCP_ISA_V_ADDR_SIZE,TAdd#(`BTB_IDX_SIZE, `BTB_OFFSET_SIZE))) BTB_TAG;
+typedef Bit#(`BTB_IDX_SIZE) BTB_INDEX;
 
 
 module [HASIM_MODULE] mkBranchPredictor ();

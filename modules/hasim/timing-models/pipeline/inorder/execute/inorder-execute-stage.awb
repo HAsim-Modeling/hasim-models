@@ -1,0 +1,12 @@
+%AWB_START
+
+%name Inorder Execute Stage
+%desc Inorder Execute Stage
+%provides execute_stage
+
+%attributes hasim model pipeline inorder
+
+%public  inorder-execute-stage.bsv
+%private execute.dic
+
+%AWB_END

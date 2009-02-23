@@ -10,20 +10,57 @@ Class=Asim::Model
 
 [Model]
 DefaultAttributes=hasim model inorder
-model=Inorder
+model=Inorder Pipeline
 
+[Inorder Pipeline]
+File=modules/hasim/timing-models/pipeline/inorder/inorder.awb
+Packagehint=hasim-models
 
+[Inorder DMem Stage]
+File=modules/hasim/timing-models/pipeline/inorder/dmem/inorder-dmem-stage.awb
+Packagehint=hasim-models
 
-[2 Bit/Params]
-BRANCH_TABLE_SIZE=5
+[Inorder Decode/Issue Stage]
+File=modules/hasim/timing-models/pipeline/inorder/decode/inorder-decode-stage.awb
+Packagehint=hasim-models
+
+[Inorder Execute Stage]
+File=modules/hasim/timing-models/pipeline/inorder/execute/inorder-execute-stage.awb
+Packagehint=hasim-models
+
+[Inorder Pipeline/Requires]
+decode_stage=Inorder Decode/Issue Stage
+fetch_stage=Inorder Fetch Stage
+execute_stage=Inorder Execute Stage
+commit_stage=Inorder Commit Stage
+dmem_stage=Inorder DMem Stage
+store_buffer=Single-Entry Store Buffer
+pipeline_base_types=Inorder Pipeline Base Types
+branch_predictor=Branch Predictor with Target Buffer
+
+[Inorder Fetch Stage]
+File=modules/hasim/timing-models/pipeline/inorder/fetch/inorder-fetch-stage.awb
+Packagehint=hasim-models
+
+[Inorder Commit Stage]
+File=modules/hasim/timing-models/pipeline/inorder/commit/inorder-commit-stage.awb
+Packagehint=hasim-models
+
+[Single-Entry Store Buffer]
+File=modules/hasim/timing-models/caches/store-buffers/single-entry/single-entry-store-buffer.awb
+Packagehint=hasim-models
+
+[Branch Predictor with Target Buffer]
+File=modules/hasim/timing-models/pipeline/inorder/branch-predictor/branch-predictor.awb
+Packagehint=hasim-models
+
+[Inorder Pipeline Base Types]
+File=modules/hasim/timing-models/pipeline/inorder/base-types/inorder-pipeline-base-types.awb
+Packagehint=hasim-models
+
+[Branch Predictor with Target Buffer/Requires]
+hasim_branch_pred_alg=2 Bit
 
 [2 Bit]
 File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
 Packagehint=hasim-models
-
-[Inorder]
-File=modules/hasim/timing-models/pipeline/inorder/inorder.awb
-Packagehint=hasim-models
-
-[Inorder/Requires]
-hasim_branch_pred_alg=2 Bit

@@ -21,6 +21,7 @@
 
 import FShow::*;
 import Vector::*;
+import FIFO::*;
 
 
 // ****** Project imports ******
@@ -29,12 +30,15 @@ import Vector::*;
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/hasim_icache.bsh"
 
 
 // ****** Generated files ******
 
-`include "asim/dict/EVENTS_MEMORY.bsh"
+`include "asim/dict/EVENTS_DMEM.bsh"
 
 
 // ****** Local types ******
@@ -146,7 +150,7 @@ module [HASIM_MODULE] mkDMem ();
 
     // ****** Events and Stats ******
 
-    EVENT_RECORDER_MULTICTX eventMem <- mkEventRecorder_MultiCtx(`EVENTS_MEMORY_INSTRUCTION_MEM);
+    EVENT_RECORDER_MULTICTX eventMem <- mkEventRecorder_MultiCtx(`EVENTS_DMEM_INSTRUCTION_MEM);
 
 
     // ****** Helper Functions ******
