@@ -2285,3 +2285,18 @@ Directory modules/hasim/timing-models/caches/translation-buffers
 * Store buffer moved from pipeline to caches.
 
 Michael P.
+
+----------
+pellauer    Date: Tue Feb 24 10:56:47 EST 2009  CSN: CSN-hasim-models-98
+                  Tue Feb 24 15:56:47 UTC 2009
+
+
+Directory modules/hasim/timing-models/caches/store-buffers/single-entry
+ single-entry-store-buffer.awb Locally Added               0 
+
+
+* Adding ommitted AWB file. (This will teach me to run my regression in a
+different workspace after a checkin.)
+
+Michael P.
+

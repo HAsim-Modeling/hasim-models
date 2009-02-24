@@ -1,0 +1,8 @@
+%name Single-Entry Store Buffer
+%desc Single-Entry Store Buffer
+
+%provides store_buffer
+
+%attributes hasim model caches
+
+%public single-entry-store-buffer.bsv
