@@ -33,7 +33,7 @@ import FIFO::*;
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/hasim_icache.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
 
 // ****** Generated files ******
@@ -107,12 +107,12 @@ module [HASIM_MODULE] mkDMem ();
 
     PORT_SEND_MULTICTX#(BUS_MESSAGE) writebackToDec <- mkPortSend_MultiCtx("Mem_to_Dec_writeback");
 
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, CacheInput))                      reqToDCache <- mkPortSend_MultiCtx("CPU_to_DCache_speculative");
-    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, CacheOutputDelayed))     rspFromDCacheDelayed <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_speculative_delayed", 0);
-    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, CacheOutputImmediate)) rspFromDCacheImmediate <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_speculative_immediate", 0);
+    PORT_SEND_MULTICTX#(CACHE_INPUT)                      reqToDCache <- mkPortSend_MultiCtx("CPU_to_DCache_speculative");
+    PORT_RECV_MULTICTX#(CACHE_OUTPUT_DELAYED)     rspFromDCacheDelayed <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_speculative_delayed", 0);
+    PORT_RECV_MULTICTX#(CACHE_OUTPUT_IMMEDIATE) rspFromDCacheImmediate <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_speculative_immediate", 0);
 
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, CacheInput))  reqToSB   <- mkPortSend_MultiCtx("DMem_to_SB_req");
-    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, SB_RESPONSE)) rspFromSB <- mkPortRecvGuarded_MultiCtx("SB_to_DMem_rsp", 0);
+    PORT_SEND_MULTICTX#(CACHE_INPUT)  reqToSB   <- mkPortSend_MultiCtx("DMem_to_SB_req");
+    PORT_RECV_MULTICTX#(SB_RESPONSE) rspFromSB <- mkPortRecvGuarded_MultiCtx("SB_to_DMem_rsp", 0);
 
 
     // ****** Soft Connections ******
@@ -336,7 +336,7 @@ module [HASIM_MODULE] mkDMem ();
 
                     // Check if the store buffer has the data for this load.
                     debugLog.record_next_cycle(ctx, fshow("SB LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                    reqToSB.send(ctx, tagged Valid tuple2(tok, Data_read_mem_ref(tuple2(?/*passthru*/, bundle.effAddr))));
+                    reqToSB.send(ctx, tagged Valid (CACHE_INPUT {token: tok, reqType: tagged CACHE_loadData tuple2(?/*passthru*/, bundle.effAddr)}));
 
                 end
                 else if (bundle.isStore)
@@ -344,7 +344,7 @@ module [HASIM_MODULE] mkDMem ();
                     
                     // Tell the store buffer about this new store.
                     debugLog.record_next_cycle(ctx, fshow("SB STORE ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                    reqToSB.send(ctx, tagged Valid tuple2(tok, Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr))));
+                    reqToSB.send(ctx, tagged Valid (CACHE_INPUT {token: tok, reqType: tagged CACHE_writeData tuple2(?/*passthru*/, bundle.effAddr)}));
 
                 end
                 else
@@ -417,11 +417,11 @@ module [HASIM_MODULE] mkDMem ();
                 reqToDCache.send(ctx, tagged Invalid);
 
             end
-            tagged Valid { .tok, .rsp }:
+            tagged Valid .rsp:
             begin
             
                 case (rsp) matches
-                    SB_HIT:
+                    tagged SB_HIT .tok:
                     begin
 
                         // We found the data in the Store buffer, 
@@ -430,15 +430,15 @@ module [HASIM_MODULE] mkDMem ();
                         reqToDCache.send(ctx, tagged Invalid);
 
                     end
-                    SB_MISS:
+                    tagged SB_MISS .tok:
                     begin
 
                         // We missed in the store buffer, so ask the DCache.
                         debugLog.record(ctx, fshow("SB MISS, DCACHE LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                        reqToDCache.send(ctx, tagged Valid tuple2(tok, Data_read_mem_ref(tuple2(?/*passthru*/, bundle.effAddr))));
+                        reqToDCache.send(ctx, tagged Valid CACHE_INPUT {token: tok, reqType: tagged CACHE_loadData tuple2(?, bundle.effAddr)});
 
                     end
-                    SB_STALL:
+                    tagged SB_STALL .tok:
                     begin
                         
                         // The store buffe is full, so we'll retry this request next cycle.
@@ -526,12 +526,12 @@ module [HASIM_MODULE] mkDMem ();
 
                     end
                     
-                    tagged Valid { .tok, .msg }:
+                    tagged Valid .rsp:
                     begin
 
-                        case (msg) matches
+                        case (rsp) matches
                         
-                            tagged Hit .*:
+                            tagged CACHE_hit .*:
                             begin
                             
                                 // A hit! Go on to the next stage via 
@@ -539,7 +539,7 @@ module [HASIM_MODULE] mkDMem ();
                                 
                             end
 
-                            tagged Miss_servicing .*:
+                            tagged CACHE_missServicing .*:
                             begin
 
                                 // This module will no longer check the MemQ 
@@ -549,14 +549,14 @@ module [HASIM_MODULE] mkDMem ();
 
                             end
 
-                            tagged Hit_servicing .*:
+                            tagged CACHE_hitServicing .*:
                             begin
 
                                 noAction;
                                 
                             end
 
-                            tagged Miss_retry .*:
+                            tagged CACHE_missRetry .*:
                             begin
 
                                 // We must retry our request.
@@ -572,32 +572,16 @@ module [HASIM_MODULE] mkDMem ();
 
             end
 
-            tagged Valid { .tok, .msg }:
+            tagged Valid .rsp:
             begin
 
                 // assert stalled == True
                 // assert m_imm == Invalid
 
-                case (msg) matches
-                
-                    tagged Miss_response .*:
-                    begin
+                // It came back, so we can resume normal operations.
+                stalled <= False;
+                makeDTransReq(ctx);
 
-                        // It came back, so we can resume normal operations.
-                        stalled <= False;
-                        makeDTransReq(ctx);
-
-                    end
-
-                    tagged Hit_response .*:
-                    begin
-
-                        // FIXME: This currently is unimplemented.
-                        noAction;
-
-                    end
-
-                endcase
 
             end
 

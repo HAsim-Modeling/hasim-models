@@ -37,6 +37,9 @@ dmem_stage=Inorder DMem Stage
 store_buffer=Single-Entry Store Buffer
 pipeline_base_types=Inorder Pipeline Base Types
 branch_predictor=Branch Predictor with Target Buffer
+pccalc_stage=Inorder PCCalc Stage
+instq_stage=Inorder Instruction Queue Stage
+imem_stage=Inorder IMem Stage
 
 [Inorder Fetch Stage]
 File=modules/hasim/timing-models/pipeline/inorder/fetch/inorder-fetch-stage.awb
@@ -63,4 +66,16 @@ hasim_branch_pred_alg=2 Bit
 
 [2 Bit]
 File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
+Packagehint=hasim-models
+
+[Inorder Instruction Queue Stage]
+File=modules/hasim/timing-models/pipeline/inorder/instq/inorder-instq-stage.awb
+Packagehint=hasim-models
+
+[Inorder IMem Stage]
+File=modules/hasim/timing-models/pipeline/inorder/imem/inorder-imem-stage.awb
+Packagehint=hasim-models
+
+[Inorder PCCalc Stage]
+File=modules/hasim/timing-models/pipeline/inorder/pccalc/inorder-pccalc-stage.awb
 Packagehint=hasim-models

@@ -1,46 +1,17 @@
 import Vector::*;
+import FIFO::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/funcp_interface.bsh"
+
 
 `include "asim/provides/hasim_isa.bsh"
 `include "asim/provides/fpga_components.bsh"
 
-typedef enum {HandleReq, HandleReq2, HandleTag, HandleRead, HandleStall1, HandleStall2} State deriving (Eq, Bits);
-
-typedef ISA_ADDRESS INST_ADDRESS;
-typedef ISA_ADDRESS DATA_ADDRESS;
-
-typedef union tagged {
-		 INST_ADDRESS Inst_mem_ref;              // Instruction fetch from ICache
-		 INST_ADDRESS Inst_prefetch_ref;         // Instruction prefetch from ICache
-		 Tuple2#(INST_ADDRESS, DATA_ADDRESS) Data_read_mem_ref;         // Data read from DCache
-		 Tuple2#(INST_ADDRESS, DATA_ADDRESS)  Data_write_mem_ref;        // Data write to DCache
-		 Tuple2#(INST_ADDRESS, DATA_ADDRESS) Data_read_prefetch_ref;    // Data read prefetch
-		 ISA_ADDRESS Invalidate_line;           // Message to invalidate specific cache line
-		 Bool Invalidate_all;                   // Message to entire cache
-		 ISA_ADDRESS Flush_line;                // Flush specific cache line            
-		 Bool Flush_all;                        // Flush entire cache
-		 Bool Kill_all;                         // Kill all current operations of the cache      
-		 } 
-CacheInput deriving (Eq, Bits);
-
-typedef union tagged{
-   INST_ADDRESS Hit;
-   INST_ADDRESS Hit_servicing;
-   INST_ADDRESS Miss_servicing;
-   INST_ADDRESS Miss_retry;
-   } 
-CacheOutputImmediate deriving (Eq, Bits);
-
-typedef union tagged{
-   INST_ADDRESS Miss_response;
-   INST_ADDRESS Hit_response;
-   }
-CacheOutputDelayed deriving (Eq, Bits);
-
+`include "asim/provides/memory_base_types.bsh"
 
 // mkICache
 
@@ -49,14 +20,25 @@ CacheOutputDelayed deriving (Eq, Bits);
 module [HASIM_MODULE] mkICache();
 
 
+    // ***** Unmodel State ******
+    
+    FIFO#(IMEM_BUNDLE) stage2Q <- mkFIFO();
+
+
+    // ****** Soft Connections *******
+
+    Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
+                       FUNCP_RSP_GET_INSTRUCTION)    getInstruction <- mkConnection_Client("funcp_getInstruction");
+
+
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, CacheInput)) pcFromFet <- mkPortRecv_MultiCtx("CPU_to_ICache_req", 0);
+    PORT_RECV_MULTICTX#(ICACHE_INPUT) pcFromFet <- mkPortRecv_MultiCtx("CPU_to_ICache_req", 0);
 
     // Outgoing ports to CPU
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, CacheOutputImmediate)) immToFet <- mkPortSend_MultiCtx("ICache_to_CPU_immediate");
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, CacheOutputDelayed))   delToFet <- mkPortSend_MultiCtx("ICache_to_CPU_delayed");
+    PORT_SEND_MULTICTX#(ICACHE_OUTPUT_IMMEDIATE) immToFet <- mkPortSend_MultiCtx("ICache_to_CPU_immediate");
+    PORT_SEND_MULTICTX#(ICACHE_OUTPUT_DELAYED)   delToFet <- mkPortSend_MultiCtx("ICache_to_CPU_delayed");
 
 
     // ****** Local Controller ******
@@ -69,7 +51,7 @@ module [HASIM_MODULE] mkICache();
 
     LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
 
-    rule stage1_pass (True);
+    rule stage1_instReq (True);
 
         // Begin a new model cycle.
         let ctx <- localCtrl.startModelCycle();
@@ -79,37 +61,60 @@ module [HASIM_MODULE] mkICache();
 
         // check request type
         case (msg_from_cpu) matches
+
 	    tagged Invalid:
 	    begin
 
                 // Propogate the bubble.
 	        immToFet.send(ctx, tagged Invalid);
 	        delToFet.send(ctx, tagged Invalid);
+                localCtrl.endModelCycle(ctx, 1);
 
 	    end
-	    tagged Valid {.tok_from_cpu, .req_from_cpu}:
+
+	    tagged Valid .req:
 	    begin
 
-	        case (req_from_cpu) matches
-	            tagged Inst_mem_ref .addr:
-	            begin
 
-                       // Always hit.
-	               immToFet.send(ctx, tagged Valid tuple2(tok_from_cpu, tagged Hit addr));
-	               delToFet.send(ctx, tagged Invalid);
-	            end
-	        endcase
+                // An actual cache would do something with the physical 
+                // address to determine hit or miss. We always hit.
 
-	     end
+                // Pass it to the next stage through the functional partition, 
+                // which actually retrieves the instruction.
+                getInstruction.makeReq(initFuncpReqGetInstruction(req.token));
+                stage2Q.enq(req);
+                        
 
-         endcase
+	    end
+
+        endcase
          
-         localCtrl.endModelCycle(ctx, 1);
 
-     endrule
+    endrule
+     
+    rule stage2_instRsp (True);
+        
+        // Get the response from the functional partition.
+        let rsp = getInstruction.getResp();
+        getInstruction.deq();
+
+        let bundle = stage2Q.first();
+        stage2Q.deq();
+        
+        // Update the bundle with the latest token info.
+        bundle.token = rsp.token;
+
+        // Get our context from the token.
+        let ctx = tokContextId(rsp.token);
+
+
+        // Always hit.
+	immToFet.send(ctx, tagged Valid initICacheHit(bundle, rsp.instruction));
+	delToFet.send(ctx, tagged Invalid);
+
+        // End of model cycle. (Path 1)
+        localCtrl.endModelCycle(ctx, 1);
+     
+    endrule
 
 endmodule
-
-	       
-	       
-			 

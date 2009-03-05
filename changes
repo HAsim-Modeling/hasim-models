@@ -2300,3 +2300,87 @@ different workspace after a checkin.)
 
 Michael P.
 
+
+----------
+pellauer    Date: Thu Mar  5 16:06:24 EST 2009  CSN: CSN-hasim-models-99
+                  Thu Mar  5 21:06:24 UTC 2009
+
+
+Directory config/pm/hasim-models/l1-caches
+ null_l1_caches.apm        Locally Modified           98 
+ l1_caches.apm             Locally Modified           98 
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified           98 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified           98 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified           98 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ pccalc/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Added               0 
+ inorder-pccalc-stage.awb  Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ imem/                     Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.awb    Locally Added               0 
+ inorder-imem-stage.bsv    Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified           98 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified           98 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder.awb               Locally Modified           98 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified           98 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.bsv      Locally Modified           98 
+ instq/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.awb   Locally Added               0 
+ inorder-instq-stage.bsv   Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches.awb             Locally Modified           98 
+ l1-caches.bsv             Locally Modified           98 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.awb     Locally Added               0 
+ memory-base-types.bsv     Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/store-buffers/single-entry
+ single-entry-store-buffer.bsv Locally Modified           98 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ itlb-null.awb             Locally Added               0 
+ itlb-null.bsv             Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ dcache-null.bsv           Locally Modified           98 
+ icache-null.bsv           Locally Modified           98 
+
+
+* Inorder non-blocking cache front end pipeline reorganization.
+* Inorder now has ITLB (Always hits for now)
+* Inorder front end is now: Fetch, IMem, PCCalc, and Instruction Queue
+* InstQ ensures instructions block until the ICache response comes back.
+* Calls to functional partition are now organized as follows:
+** Fetch calls newInFlight
+** ITlb calls doITranslate
+** L1 ICache calls getInstruction
+** PCCalc calls rewind/fault
+
+Michael P.

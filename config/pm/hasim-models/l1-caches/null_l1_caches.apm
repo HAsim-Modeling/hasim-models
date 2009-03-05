@@ -23,8 +23,17 @@ Packagehint=hasim-models
 [Split (Instruction and Data)/Requires]
 hasim_dcache=Null DCache
 hasim_icache=Null ICache
+hasim_itlb=Null ITLB
+memory_base_types=Memory Base Types
 
 [Split (Instruction and Data)]
 File=modules/hasim/timing-models/caches/l1-caches/l1-caches.awb
 Packagehint=hasim-models
 
+[Null ITLB]
+File=modules/hasim/timing-models/caches/translation-buffers/null/itlb-null.awb
+Packagehint=hasim-models
+
+[Memory Base Types]
+File=modules/hasim/timing-models/caches/cache-types/memory-base-types.awb
+Packagehint=hasim-models

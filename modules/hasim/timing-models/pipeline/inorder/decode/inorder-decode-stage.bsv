@@ -15,7 +15,7 @@
 // along with this program; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
-
+ 
 
 // ****** Bluespec imports  *****
 
@@ -83,7 +83,7 @@ module [HASIM_MODULE] mkDecode ();
 
     // ****** Ports *****
 
-    PORT_STALL_RECV_MULTICTX#(FETCH_BUNDLE) bundleFromInstQ <- mkPortStallRecv_MultiCtx("InstQ");
+    PORT_STALL_RECV_MULTICTX#(FETCH_BUNDLE) bundleFromInstQ <- mkPortStallRecv_MultiCtx("DecQ");
     PORT_STALL_SEND_MULTICTX#(BUNDLE)        bundleToIssueQ <- mkPortStallSend_MultiCtx("IssueQ");
     
     PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromExe <- mkPortRecv_MultiCtx("Exe_to_Dec_writeback", 1); //0?

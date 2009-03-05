@@ -19,6 +19,9 @@
 `include "asim/provides/hasim_common.bsh"
 
 `include "asim/provides/fetch_stage.bsh"
+`include "asim/provides/imem_stage.bsh"
+`include "asim/provides/pccalc_stage.bsh"
+`include "asim/provides/instq_stage.bsh"
 `include "asim/provides/decode_stage.bsh"
 `include "asim/provides/execute_stage.bsh"
 `include "asim/provides/dmem_stage.bsh"
@@ -30,6 +33,9 @@
 module [HASIM_MODULE] mkPipeline ();
 
     let fetch   <- mkFetch();
+    let imem    <- mkIMem();
+    let pccalc  <- mkPCCalc();
+    let iq      <- mkInstructionQueue();
     let decode  <- mkDecode();
     let execute <- mkExecute();
     let dmem    <- mkDMem();

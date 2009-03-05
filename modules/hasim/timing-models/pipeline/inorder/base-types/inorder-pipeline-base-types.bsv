@@ -83,7 +83,13 @@ typedef struct {
     Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dests;
 } BUNDLE deriving (Bits, Eq);
 
-typedef enum { SB_HIT, SB_MISS, SB_STALL } SB_RESPONSE deriving (Bits, Eq);
+typedef union tagged 
+{ 
+    TOKEN SB_HIT;
+    TOKEN SB_MISS; 
+    TOKEN SB_STALL;
+} 
+SB_RESPONSE deriving (Bits, Eq);
 
 instance FShow#(BRANCH_ATTR);
     function Fmt fshow(BRANCH_ATTR x) =

@@ -32,7 +32,7 @@ import Vector::*;
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/hasim_controller.bsh"
 `include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/hasim_icache.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
 // ****** Generated files ******
 
@@ -109,9 +109,9 @@ module [HASIM_MODULE] mkCommit ();
 
     PORT_SEND_MULTICTX#(TOKEN) faultToFet <- mkPortSend_MultiCtx("Com_to_Fet_fault");
 
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, CacheInput)) reqToDCache <- mkPortSend_MultiCtx("CPU_to_DCache_committed");
-    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, CacheOutputDelayed)) rspFromDCacheDelayed <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_committed_delayed", 0);
-    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, CacheOutputImmediate)) rspFromDCacheImmediate <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_committed_immediate", 0);
+    PORT_SEND_MULTICTX#(CACHE_INPUT) reqToDCache <- mkPortSend_MultiCtx("CPU_to_DCache_committed");
+    PORT_RECV_MULTICTX#(CACHE_OUTPUT_DELAYED) rspFromDCacheDelayed <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_committed_delayed", 0);
+    PORT_RECV_MULTICTX#(CACHE_OUTPUT_IMMEDIATE) rspFromDCacheImmediate <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_committed_immediate", 0);
 
     PORT_SEND_MULTICTX#(TOKEN) deallocToSB <- mkPortSend_MultiCtx("Com_to_SB_dealloc");
 
@@ -258,7 +258,7 @@ module [HASIM_MODULE] mkCommit ();
 
                     // Tell the cache to do the store.
                     debugLog.record_next_cycle(ctx, fshow("DCACHE STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.effAddr));
-                    reqToDCache.send(ctx, tagged Valid tuple2(tok, Data_write_mem_ref(tuple2(?/*passthru*/, bundle.effAddr))));
+                    reqToDCache.send(ctx, tagged Valid (CACHE_INPUT {token: tok, reqType: tagged CACHE_writeData tuple2(?/*passthru*/, bundle.effAddr)}));
 
                 end
                 else
@@ -377,7 +377,7 @@ module [HASIM_MODULE] mkCommit ();
         
         // assert !isValid(imm) && !isValid(del)
 
-        if (del == Invalid &&& imm matches tagged Valid { .tok2, tagged Miss_retry .* })
+        if (del == Invalid &&& imm matches tagged Valid .cRsp &&& cRsp matches tagged CACHE_missRetry .*)
         begin
 
             // Cache told us to retry, so end this cycle and try again from the top.

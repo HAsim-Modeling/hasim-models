@@ -32,7 +32,7 @@ import FIFO::*;
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
-`include "asim/provides/hasim_icache.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
 `define STORE_BUFF_SIZE 4
 
@@ -75,9 +75,9 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTICTX#(Tuple2#(TOKEN, CacheInput)) reqFromMem     <- mkPortRecv_MultiCtx("DMem_to_SB_req", 0);
-    PORT_RECV_MULTICTX#(TOKEN)                      deallocFromCom <- mkPortRecv_MultiCtx("Com_to_SB_dealloc", 1);
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, SB_RESPONSE))   rspToMem    <- mkPortSend_MultiCtx("SB_to_DMem_rsp");
+    PORT_RECV_MULTICTX#(CACHE_INPUT) reqFromMem    <- mkPortRecv_MultiCtx("DMem_to_SB_req", 0);
+    PORT_RECV_MULTICTX#(TOKEN)      deallocFromCom <- mkPortRecv_MultiCtx("Com_to_SB_dealloc", 1);
+    PORT_SEND_MULTICTX#(SB_RESPONSE)   rspToMem    <- mkPortSend_MultiCtx("SB_to_DMem_rsp");
 
 
     // ****** Local Controller ******
@@ -143,48 +143,48 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 debugLog.record(ctx, fshow("BUBBLE"));
                 rspToMem.send(ctx, Invalid);
             end
-            tagged Valid { .tok, .x }:
-            case (x) matches
-                tagged Data_read_mem_ref { .pc, .addr }:
+            tagged Valid .req:
+            case (req.reqType) matches
+                tagged CACHE_loadData { .pc, .addr }:
                 begin
                     if (elem(tagged Valid addr, readVReg(buff)))
                     begin
 
                         // We've got that address in the store buffer.
-                        debugLog.record(ctx, fshow("LOAD HIT ") + fshow(tok));
+                        debugLog.record(ctx, fshow("LOAD HIT ") + fshow(req.token));
 
                         // Luckily, since we're a simulation, we don't actually 
                         // need to retrieve the value, which makes the hardware a LOT simpler
                         // as we don't need to get the "youngest store older than this load"
                         // Instead, just tell the Mem module that we have the value.
-                        rspToMem.send(ctx, tagged Valid tuple2(tok, SB_HIT));
+                        rspToMem.send(ctx, tagged Valid (tagged SB_HIT req.token));
 
                     end
                     else
                     begin
 
                         // We don't have it.
-                        debugLog.record(ctx, fshow("LOAD MISS ") + fshow(tok));
-                        rspToMem.send(ctx, tagged Valid tuple2(tok, SB_MISS));
+                        debugLog.record(ctx, fshow("LOAD MISS ") + fshow(req.token));
+                        rspToMem.send(ctx, tagged Valid (tagged SB_MISS req.token));
 
                     end
                 end
-                tagged Data_write_mem_ref { .pc, .a }:
+                tagged CACHE_writeData { .pc, .a }:
                 begin
 
                     if (full(ctx))
                     begin
                     
                         // We're full, the requester will have to wait until the pipeline drains.
-                        debugLog.record(ctx, fshow("SB STORE RETRY (SB FULL!) ") + fshow(tok));
-                        rspToMem.send(ctx, tagged Valid tuple2(tok, SB_STALL));
+                        debugLog.record(ctx, fshow("SB STORE RETRY (SB FULL!) ") + fshow(req.token));
+                        rspToMem.send(ctx, tagged Valid (tagged SB_STALL req.token));
 
                     end
                     else
                     begin
 
                         // Do the allocation.
-                        debugLog.record(ctx, fshow("SB STORE ALLOC ") + fshow(tok));
+                        debugLog.record(ctx, fshow("SB STORE ALLOC ") + fshow(req.token));
                         tail <= tail + 1;
                         buff[tail] <= Valid(a);
                         // No need for a response.

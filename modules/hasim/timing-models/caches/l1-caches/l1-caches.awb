@@ -3,7 +3,9 @@
 
 %provides hasim_l1_caches
 %requires hasim_icache
+%requires hasim_itlb
 %requires hasim_dcache
+%requires memory_base_types
 
 %attributes hasim model caches
 

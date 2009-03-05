@@ -1,0 +1,7 @@
+%name Memory Base Types
+%desc Memory Base Types 
+%provides memory_base_types
+
+%attributes hasim model caches
+
+%public memory-base-types.bsv

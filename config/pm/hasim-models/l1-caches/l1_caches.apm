@@ -20,7 +20,6 @@ Packagehint=hasim-models
 File=modules/hasim/timing-models/caches/cache-types/dcache-base-types.awb
 Packagehint=hasim-models
 
-
 [Direct Mapped]
 File=modules/hasim/timing-models/caches/direct-mapped-icache/icache-direct-mapped.awb
 Packagehint=hasim-models
@@ -28,6 +27,8 @@ Packagehint=hasim-models
 [Split (Instruction and Data)/Requires]
 hasim_dcache=Direct Mapped Writeback
 hasim_icache=Direct Mapped
+hasim_itlb=Null ITLB
+memory_base_types=Memory Base Types
 
 [Split (Instruction and Data)]
 File=modules/hasim/timing-models/caches/l1-caches/l1-caches.awb
@@ -51,4 +52,12 @@ Packagehint=hasim-models
 
 [Magic DCache Memory]
 File=modules/hasim/timing-models/memory/dcache-memory-magic.awb
+Packagehint=hasim-models
+
+[Null ITLB]
+File=modules/hasim/timing-models/caches/translation-buffers/null/itlb-null.awb
+Packagehint=hasim-models
+
+[Memory Base Types]
+File=modules/hasim/timing-models/caches/cache-types/memory-base-types.awb
 Packagehint=hasim-models

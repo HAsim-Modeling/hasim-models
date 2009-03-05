@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Inorder PCCalc Stage
+%desc Inorder PCCalc Stage
+%provides pccalc_stage
+
+%attributes hasim model pipeline inorder
+
+%public  inorder-pccalc-stage.bsv
+
+%AWB_END
