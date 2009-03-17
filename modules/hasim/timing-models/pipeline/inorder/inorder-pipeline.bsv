@@ -25,10 +25,12 @@
 `include "asim/provides/decode_stage.bsh"
 `include "asim/provides/execute_stage.bsh"
 `include "asim/provides/dmem_stage.bsh"
+`include "asim/provides/commitq_stage.bsh"
 `include "asim/provides/commit_stage.bsh"
 
 `include "asim/provides/branch_predictor.bsh"
 `include "asim/provides/store_buffer.bsh"
+`include "asim/provides/write_buffer.bsh"
 
 module [HASIM_MODULE] mkPipeline ();
 
@@ -39,10 +41,12 @@ module [HASIM_MODULE] mkPipeline ();
     let decode  <- mkDecode();
     let execute <- mkExecute();
     let dmem    <- mkDMem();
+    let cq      <- mkCommitQueue();
     let commit  <- mkCommit();
 
     let bp     <- mkBranchPredictor();
     let sb     <- mkStoreBuffer();
+    let wb     <- mkWriteBuffer();
 
 endmodule
 

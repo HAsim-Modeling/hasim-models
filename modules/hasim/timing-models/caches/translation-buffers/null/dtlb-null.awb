@@ -1,0 +1,19 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Null DTLB
+# %desc Null DTLB
+# %provides hasim_dtlb
+#
+# %attributes hasim model caches
+#
+# %public dtlb-null.bsv
+#
+# %AWB_END
+# */

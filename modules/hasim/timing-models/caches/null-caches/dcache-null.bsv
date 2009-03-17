@@ -1,3 +1,4 @@
+import FIFO::*;
 import Vector::*;
 
 `include "asim/provides/hasim_common.bsh"
@@ -7,93 +8,151 @@ import Vector::*;
 
 `include "asim/provides/hasim_isa.bsh"
 `include "asim/provides/fpga_components.bsh"
+`include "asim/provides/funcp_interface.bsh"
 
 `include "asim/provides/memory_base_types.bsh"
 
 module [HASIM_MODULE] mkDCache();
 
+
+    // ****** Soft Connections ******
+
+    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoads  <- mkConnection_Client("funcp_doLoads");
+    // Connection_Client#(FUNCP_REQ_DO_STORES,FUNCP_RSP_DO_STORES) doStores <- mkConnection_Client("funcp_doSpeculativeStores");
+
+    // ****** UnModel State ******
+    
+    FIFO#(DMEM_BUNDLE) stage2Q <- mkFIFO();
+
+    // ****** Ports ******
+
     // Incoming port from CPU with speculative stores
-    PORT_RECV_MULTICTX#(CACHE_INPUT) specFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_speculative", 0);
+    PORT_RECV_MULTICTX#(DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_load", 0);
 
     // Incoming port from CPU with committed stores
-    PORT_RECV_MULTICTX#(CACHE_INPUT) commFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_committed", 0);
+    PORT_RECV_MULTICTX#(DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_store", 0);
 
     // Outgoing port to CPU with speculative immediate response
-    PORT_SEND_MULTICTX#(CACHE_OUTPUT_IMMEDIATE) specImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_speculative_immediate");
+    PORT_SEND_MULTICTX#(DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_load_immediate");
 
     // Outgoing port to CPU with speculative delayed response
-    PORT_SEND_MULTICTX#(CACHE_OUTPUT_DELAYED) specDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_speculative_delayed");
+    PORT_SEND_MULTICTX#(DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_load_delayed");
 
     // Outgpong port to CPU with commit immediate response
-    PORT_SEND_MULTICTX#(CACHE_OUTPUT_IMMEDIATE) commImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_committed_immediate");
+    PORT_SEND_MULTICTX#(DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_store_immediate");
 
     // Outgoing port to CPU with commit delayed response
-    PORT_SEND_MULTICTX#(CACHE_OUTPUT_DELAYED) commDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_committed_delayed");
+    PORT_SEND_MULTICTX#(DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_store_delayed");
 
     // communication with local controller
     Vector#(2, PORT_CONTROLS) inports = newVector();
     Vector#(4, PORT_CONTROLS) outports = newVector();
-    inports[0] = specFromCPU.ctrl;
-    inports[1] = commFromCPU.ctrl;
-    outports[0] = specImmToCPU.ctrl;
-    outports[1] = specDelToCPU.ctrl;
-    outports[2] = commImmToCPU.ctrl;
-    outports[3] = commDelToCPU.ctrl;
+    inports[0] = loadReqFromCPU.ctrl;
+    inports[1] = storeReqFromCPU.ctrl;
+    outports[0] = loadRspImmToCPU.ctrl;
+    outports[1] = loadRspDelToCPU.ctrl;
+    outports[2] = storeRspImmToCPU.ctrl;
+    outports[3] = storeRspDelToCPU.ctrl;
 
     LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
 
     // ****** Rules ******
 
-    // stage1_pass
+    // stage1_loadReq
     
-    // Always hit in the cache.
+    // Stores always hit in the cache. Loads also always hit but we also 
 
-    rule stage1_pass (True);
+    rule stage1_loadReq (True);
 
-        // Start a new model cycle.
+        // Begin a new model cycle.
         let ctx <- localCtrl.startModelCycle();
 
-        // Read message from incoming ports.
-        let msg_from_cpu_spec <- specFromCPU.receive(ctx);
-        let msg_from_cpu_comm <- commFromCPU.receive(ctx);
-        
-        // Handle speculative loads.
-        // (Stores do nothing.)
-        if (msg_from_cpu_spec matches tagged Valid .req_from_cpu_spec &&&
-            req_from_cpu_spec.reqType matches tagged CACHE_loadData {.cpu_addr_spec, .ref_addr_spec})
-	begin
-        
-	    specImmToCPU.send(ctx, tagged Valid initCacheHit(req_from_cpu_spec.token, ref_addr_spec));
-	    specDelToCPU.send(ctx, tagged Invalid);
-	end
-        else
-        begin
-        
-	    specImmToCPU.send(ctx, tagged Invalid);
-	    specDelToCPU.send(ctx, tagged Invalid);
+        // read store input port
+        let store_from_cpu <- storeReqFromCPU.receive(ctx);
 
-        end
-        
-        // Handle non-speculative stores from commit.
-        // (Committing Stores does nothing.)
-        if (msg_from_cpu_comm matches tagged Valid .req_from_cpu_comm &&&
-            req_from_cpu_comm.reqType matches tagged CACHE_writeData {.cpu_addr_comm, .ref_addr_comm})
-	begin
-        
-	    commImmToCPU.send(ctx, tagged Valid initCacheHit(req_from_cpu_comm.token, ref_addr_comm));
-	    commDelToCPU.send(ctx, tagged Invalid);
-	
-        end
-        else
-        begin
-        
-	    commImmToCPU.send(ctx, tagged Invalid);
-	    commDelToCPU.send(ctx, tagged Invalid);
-	
-        end
-        
-        localCtrl.endModelCycle(ctx, 1);
+        // check request type
+        case (store_from_cpu) matches
 
+	    tagged Invalid:
+	    begin
+
+                // Propogate the bubble.
+	        storeRspImmToCPU.send(ctx, tagged Invalid);
+	        storeRspDelToCPU.send(ctx, tagged Invalid);
+
+	    end
+
+	    tagged Valid {.tok, .addr}:
+	    begin
+
+
+                // An actual cache would do something with the physical 
+                // address to determine hit or miss. We always hit.
+
+	        storeRspImmToCPU.send(ctx, tagged Valid initDCacheStoreOk(tok));
+	        storeRspDelToCPU.send(ctx, tagged Invalid);
+
+	    end
+
+        endcase
+
+        // read load input port
+        let msg_from_cpu <- loadReqFromCPU.receive(ctx);
+
+        // check request type
+        case (msg_from_cpu) matches
+
+	    tagged Invalid:
+	    begin
+
+                // Propogate the bubble.
+	        loadRspImmToCPU.send(ctx, tagged Invalid);
+	        loadRspDelToCPU.send(ctx, tagged Invalid);
+                localCtrl.endModelCycle(ctx, 1);
+
+	    end
+
+	    tagged Valid .req:
+	    begin
+
+
+                // An actual cache would do something with the physical 
+                // address to determine hit or miss. We always hit.
+
+                // Pass it to the next stage through the functional partition, 
+                // which actually retrieves the instruction.
+                doLoads.makeReq(initFuncpReqDoLoads(req.token));
+                stage2Q.enq(req);
+
+	    end
+
+        endcase
+         
+
+    endrule
+
+    rule stage2_loadRsp (True);
+        
+        // Get the response from the functional partition.
+        let rsp = doLoads.getResp();
+        doLoads.deq();
+
+        let bundle = stage2Q.first();
+        stage2Q.deq();
+        
+        // Update the bundle with the latest token info.
+        bundle.token = rsp.token;
+
+        // Get our context from the token.
+        let ctx = tokContextId(rsp.token);
+
+        // Always hit.
+	loadRspImmToCPU.send(ctx, tagged Valid initDCacheLoadHit(bundle));
+	loadRspDelToCPU.send(ctx, tagged Invalid);
+
+        // End of model cycle. (Path 2)
+        localCtrl.endModelCycle(ctx, 2);
+     
     endrule
 
 endmodule

@@ -1,0 +1,10 @@
+%name Blocking Write Buffer
+%desc Write Buffer, Block on Miss
+
+%provides write_buffer
+
+%attributes hasim model caches
+
+%public write-buffer-blocking.bsv
+
+%param WB_NUM_ENTRIES 4 "Number of write buffer entries."

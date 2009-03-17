@@ -1,0 +1,10 @@
+%name Multi-Entry Store Buffer
+%desc Multi-Entry Store Buffer
+
+%provides store_buffer
+
+%attributes hasim model caches
+
+%public store-buffer-multi-entry.bsv
+
+%param SB_NUM_ENTRIES 4 "Number of store buffer entries."

@@ -85,10 +85,14 @@ module [HASIM_MODULE] mkDecode ();
 
     PORT_STALL_RECV_MULTICTX#(FETCH_BUNDLE) bundleFromInstQ <- mkPortStallRecv_MultiCtx("DecQ");
     PORT_STALL_SEND_MULTICTX#(BUNDLE)        bundleToIssueQ <- mkPortStallSend_MultiCtx("IssueQ");
+    PORT_SEND_MULTICTX#(TOKEN)                    allocToSB <- mkPortSend_MultiCtx("Dec_to_SB_alloc");
     
     PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromExe <- mkPortRecv_MultiCtx("Exe_to_Dec_writeback", 1); //0?
-    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromMem <- mkPortRecv_MultiCtx("Mem_to_Dec_writeback", 1); //0?
+    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromMemHit <- mkPortRecv_MultiCtx("DMem_to_Dec_hit_writeback", 1); //0?
+    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromMemMiss <- mkPortRecv_MultiCtx("DMem_to_Dec_miss_writeback", 1); //0?
     PORT_RECV_MULTICTX#(TOKEN)       writebackFromCom <- mkPortRecv_MultiCtx("Com_to_Dec_writeback", 1); //0?
+
+    PORT_RECV_MULTICTX#(VOID)        creditFromSB <- mkPortRecv_MultiCtx("SB_to_Dec_credit", 1); //0?
 
 
     // ****** Soft Connections ******
@@ -99,15 +103,18 @@ module [HASIM_MODULE] mkDecode ();
  
     // ****** Local Controller ******
 
-    Vector#(5, PORT_CONTROLS) inports  = newVector();
-    Vector#(2, PORT_CONTROLS) outports = newVector();
+    Vector#(7, PORT_CONTROLS) inports  = newVector();
+    Vector#(3, PORT_CONTROLS) outports = newVector();
     inports[0]  = bundleFromInstQ.ctrl;
     inports[1]  = writebackFromExe.ctrl;
-    inports[2]  = writebackFromMem.ctrl;
-    inports[3]  = writebackFromCom.ctrl;
-    inports[4]  = bundleToIssueQ.ctrl;
+    inports[2]  = writebackFromMemHit.ctrl;
+    inports[3]  = writebackFromMemMiss.ctrl;
+    inports[4]  = writebackFromCom.ctrl;
+    inports[5]  = bundleToIssueQ.ctrl;
+    inports[6]  = creditFromSB.ctrl;
     outports[0] = bundleToIssueQ.ctrl;
     outports[1] = bundleFromInstQ.ctrl;
+    outports[2] = allocToSB.ctrl;
 
     LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
 
@@ -287,16 +294,6 @@ module [HASIM_MODULE] mkDecode ();
         let bus_exe <- writebackFromExe.receive(ctx);
         if (bus_exe matches tagged Valid .msg)
         begin
-
-            if (msg.tokKilled)
-            begin
-
-                // It was shot down because it was from the wrong epoch.
-                debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": no longer in flight"));
-                instrs_removed = instrs_removed + 1;
-
-            end
-
             for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
             begin
 
@@ -310,16 +307,10 @@ module [HASIM_MODULE] mkDecode ();
             end
         end
 
-        // Process writes from MEM
-        let bus_mem <- writebackFromMem.receive(ctx);
-        if (bus_mem matches tagged Valid .msg)
+        // Process writes from MEM hits
+        let bus_memh <- writebackFromMemHit.receive(ctx);
+        if (bus_memh matches tagged Valid .msg)
         begin
-            if (msg.tokKilled)
-            begin
-                instrs_removed = instrs_removed + 1;
-                debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": no longer in flight"));
-            end
-
             for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
             begin
 
@@ -334,18 +325,35 @@ module [HASIM_MODULE] mkDecode ();
             end
         end
 
+        // Process writes from MEM misses.
+        let bus_memm <- writebackFromMemMiss.receive(ctx);
+        if (bus_memm matches tagged Valid .msg)
+        begin
+            for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
+            begin
+
+                if (msg.destRegs[i] matches tagged Valid .pr)
+                begin
+
+                    prf_valid[pr] = True;
+                    debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
+
+                end
+
+            end
+        end
+    
         // Process writes from Com. These can't have been retired.
         let commit <- writebackFromCom.receive(ctx);
         if (commit matches tagged Valid .commit_tok)
         begin
 
             debugLog.record_next_cycle(ctx, fshow(commit_tok) + $format(": Commit"));
-            instrs_removed = instrs_removed + 1;
+            numInstrsInFlight.down();
 
         end
         
         // Update the scoreboard.
-        numInstrsInFlight.downBy(fromInteger(instrs_removed));
         prfValid <= prf_valid;
 
         // Pass to the next stage.
@@ -404,6 +412,10 @@ module [HASIM_MODULE] mkDecode ();
             debugLog.record(ctx, fshow("BUBBLE"));
             eventDec.recordEvent(ctx, tagged Invalid);
             stage2Q.deq();
+            
+            // No allocation to the store buffer.
+            let m_credit <- creditFromSB.receive(ctx);
+            allocToSB.send(ctx, tagged Invalid);
 
             // Don't dequeue the InstQ.
             bundleFromInstQ.noDeq(ctx);
@@ -467,16 +479,34 @@ module [HASIM_MODULE] mkDecode ();
         let fetchbundle = bundleFromInstQ.peek(ctx);
         let tok = fetchbundle.token;
         
+        // Get the store buffer credit in case it's a store...
+        let m_credit <- creditFromSB.receive(ctx);
+        let sb_has_credit = isValid(m_credit);
+        
+        // If it's a store, we need to be able to allocate a slot in the store buffer.
+        let inst_is_store = isaIsStore(fetchbundle.inst);
+        let store_ready =  inst_is_store ? sb_has_credit : True;
+
         // Check if we can issue.
         let data_ready <- readyToGo(tok, rsp.srcMap);
 
-        if (data_ready && readyDrainAfter(ctx) && readyDrainBefore(ctx, fetchbundle.inst))
+        if (data_ready && store_ready && readyDrainAfter(ctx) && readyDrainBefore(ctx, fetchbundle.inst))
         begin
 
             // Yep... we're ready to send it. Make sure to send the newer token from the FP.
             let bundle = makeBundle(rsp.token, fetchbundle, rsp.dstMap);
             debugLog.record(ctx, fshow(tok) + fshow(": SEND INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
             eventDec.recordEvent(ctx, tagged Valid zeroExtend(pack(tok.index)));
+            
+            // If it's a store, reserve a slot in the store buffer.
+            if (inst_is_store)
+            begin
+                allocToSB.send(ctx, tagged Valid tok);
+            end
+            else
+            begin
+                allocToSB.send(ctx, tagged Invalid);
+            end
             
             // Update the scoreboard to reflect this instruction issuing.
             // Mark its destination registers as unready until it commits.
@@ -504,6 +534,7 @@ module [HASIM_MODULE] mkDecode ();
             // Propogate the bubble.
             bundleFromInstQ.noDeq(ctx);
             bundleToIssueQ.noEnq(ctx);
+            allocToSB.send(ctx, tagged Invalid);
             
             // End of model cycle. (Path 3)
             localCtrl.endModelCycle(ctx, 3);

@@ -35,38 +35,11 @@ import FIFO::*;
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
-
+import FIFOF::*;
+`include "asim/provides/fpga_components.bsh"
 // ****** Generated files ******
 
 `include "asim/dict/EVENTS_DMEM.bsh"
-
-
-// ****** Local types ******
-
-// MEM1_STATE
-
-// The first stage may stall for a bubble.
-
-typedef union tagged
-{
-    void MEM1_ready;
-    CONTEXT_ID MEM1_stall;
-}
-    MEM1_STATE
-        deriving (Bits, Eq);
-
-
-// MEM2_STATE
-
-// The second stage may stall if the store buffer is full.
-
-typedef union tagged
-{
-    void MEM2_ready;
-    CONTEXT_ID MEM2_stall;
-}
-    MEM2_STATE
-        deriving (Bits, Eq);
 
 
 // mkDMem
@@ -95,169 +68,47 @@ module [HASIM_MODULE] mkDMem ();
     TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_mem.out");
 
 
-    // ****** Model State (per Context) ******
-
-    MULTICTX#(Reg#(Bool)) ctx_stalled <- mkMultiCtx(mkReg(False));
-    
-
     // ****** Ports *****
     
-    PORT_STALL_RECV_MULTICTX#(BUNDLE) bundleFromMemQ  <- mkPortStallRecv_MultiCtx("MemQ");
-    PORT_STALL_SEND_MULTICTX#(BUNDLE) bundleToCommitQ <- mkPortStallSend_MultiCtx("CommitQ");
-
-    PORT_SEND_MULTICTX#(BUS_MESSAGE) writebackToDec <- mkPortSend_MultiCtx("Mem_to_Dec_writeback");
-
-    PORT_SEND_MULTICTX#(CACHE_INPUT)                      reqToDCache <- mkPortSend_MultiCtx("CPU_to_DCache_speculative");
-    PORT_RECV_MULTICTX#(CACHE_OUTPUT_DELAYED)     rspFromDCacheDelayed <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_speculative_delayed", 0);
-    PORT_RECV_MULTICTX#(CACHE_OUTPUT_IMMEDIATE) rspFromDCacheImmediate <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_speculative_immediate", 0);
-
-    PORT_SEND_MULTICTX#(CACHE_INPUT)  reqToSB   <- mkPortSend_MultiCtx("DMem_to_SB_req");
-    PORT_RECV_MULTICTX#(SB_RESPONSE) rspFromSB <- mkPortRecvGuarded_MultiCtx("SB_to_DMem_rsp", 0);
+    PORT_STALL_RECV_MULTICTX#(DMEM_BUNDLE)         bundleFromDMemQ <- mkPortStallRecv_MultiCtx("DMemQ");
+    PORT_RECV_MULTICTX#(VOID)                    creditFromCommitQ <- mkPortRecv_MultiCtx("commitQ_credit", 1);
 
 
-    // ****** Soft Connections ******
+    PORT_SEND_MULTICTX#(DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_MultiCtx("CPU_to_DCache_load");
+    PORT_SEND_MULTICTX#(SB_INPUT)                   reqToSB        <- mkPortSend_MultiCtx("DMem_to_SB_req");
+    PORT_SEND_MULTICTX#(WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_MultiCtx("DMem_to_WB_search");
+    PORT_SEND_MULTICTX#(Tuple2#(DMEM_BUNDLE, Bool)) allocToCommitQ <- mkPortSend_MultiCtx("commitQ_alloc");
 
-    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE, FUNCP_RSP_DO_DTRANSLATE) doDTranslate  <- mkConnection_Client("funcp_doDTranslate");
-    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoads  <- mkConnection_Client("funcp_doLoads");
-    Connection_Client#(FUNCP_REQ_DO_STORES,FUNCP_RSP_DO_STORES) doStores <- mkConnection_Client("funcp_doSpeculativeStores");
+    PORT_SEND_MULTICTX#(BUS_MESSAGE)                writebackToDec <- mkPortSend_MultiCtx("DMem_to_Dec_hit_writeback");
+
+    // Zero-latency response ports for stage 2.
+    PORT_RECV_MULTICTX#(DCACHE_LOAD_OUTPUT_IMMEDIATE)  loadRspFromDCache <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_load_immediate", 0);
+    PORT_RECV_MULTICTX#(WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvGuarded_MultiCtx("WB_to_DMem_rsp", 0);
+    PORT_RECV_MULTICTX#(SB_OUTPUT)                     rspFromSB         <- mkPortRecvGuarded_MultiCtx("SB_to_DMem_rsp", 0);
+
+    // ****** UnModel State ******
+    
+    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
 
 
     // ****** Local Controller ******
 
     Vector#(2, PORT_CONTROLS) inports  = newVector();
     Vector#(5, PORT_CONTROLS) outports = newVector();
-    inports[0]  = bundleFromMemQ.ctrl;
-    // inports[1]  = rspFromDCacheDelayed.ctrl;
-    // inports[2]  = rspFromDCacheImmediate.ctrl;
-    // inports[3]  = rspFromSB.ctrl;
-    inports[1]  = bundleToCommitQ.ctrl;
-    outports[0] = bundleToCommitQ.ctrl;
-    outports[1] = writebackToDec.ctrl;
-    outports[2] = reqToDCache.ctrl;
-    outports[3] = reqToSB.ctrl;
-    outports[4] = bundleFromMemQ.ctrl;
+    inports[0]  = bundleFromDMemQ.ctrl;
+    inports[1]  = creditFromCommitQ.ctrl;
+    outports[0] = loadToDCache.ctrl;
+    outports[1] = reqToSB.ctrl;
+    outports[2] = allocToCommitQ.ctrl;
+    outports[3] = searchToWB.ctrl;
+    outports[4] = bundleFromDMemQ.ctrl;
 
     LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
-
-
-    // ****** UnModel Pipeline State ******
-
-    Reg#(MEM1_STATE) stage1State <- mkReg(MEM1_ready);
-    Reg#(MEM2_STATE) stage2State <- mkReg(MEM2_ready);
-    
-    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
-    FIFO#(CONTEXT_ID) stage3Q <- mkFIFO();
 
     // ****** Events and Stats ******
 
     EVENT_RECORDER_MULTICTX eventMem <- mkEventRecorder_MultiCtx(`EVENTS_DMEM_INSTRUCTION_MEM);
 
-
-    // ****** Helper Functions ******
-
-    // finishCycle
-    
-    // Finish the cycle for any instruction.
-
-    function Action finishCycle(TOKEN tok, BUNDLE bundle);
-    action
-        
-        // Retrieve the context.
-        let ctx = tokContextId(tok);
-    
-        // Dequeue the MemQ
-        bundleFromMemQ.doDeq(ctx);
-        
-        // Record any token updates from the FP.
-        bundle.token = tok;
-        
-        // Enqueue the instruction in the CommitQ
-        bundleToCommitQ.doEnq(ctx, bundle);
-
-        if (bundle.isLoad)
-        begin
-            // Mark a load's destinations as ready.
-            writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests, False));
-            debugLog.record(ctx, fshow(tok) + fshow(": marking load dest reg(s) valid"));
-        end
-        else
-        begin
-            // No writebacks to report.
-            writebackToDec.send(ctx, tagged Invalid);
-        end
-        
-        // End of model cycle. (Path 1)
-        eventMem.recordEvent(ctx, tagged Valid zeroExtend(pack(tok.index)));
-        localCtrl.endModelCycle(ctx, 1);
-
-    endaction
-    endfunction
-    
-    // finishCycleStall
-    
-    // Finish a cycle where there's been a stall on the DCache.
-    // This is only called if the MemQ is non-empty.
-
-    function Action finishCycleStall(CONTEXT_ID ctx);
-    action
-    
-        // assert bundleFromMemQ.canDeq, otherwise wouldn't be here.
-        let bundle = bundleFromMemQ.peek(ctx);
-        let tok = bundle.token;
-
-        debugLog.record(ctx, fshow("DCACHE STALL ") + fshow(tok));
-        
-        // Don't dequeue the MemQ.
-        bundleFromMemQ.noDeq(ctx);
-        
-        // Don't enqueue anything to the CommitQ.
-        bundleToCommitQ.noEnq(ctx);
-
-        // No writebacks to report.
-        writebackToDec.send(ctx, tagged Invalid);
-        
-        // End of model cycle. (Path 2)
-        eventMem.recordEvent(ctx, tagged Invalid);
-        localCtrl.endModelCycle(ctx, 2);
-
-    endaction
-    endfunction
-
-
-    // makeDTransReq
-    
-    // For memory ops, request the physical address from the functional partition.
-    // For others, just end the model cycle.
-
-    // Note: in a more realistic memory hierarchy this call is better made by
-    // the simulated TLB.
-
-    function Action makeDTransReq (CONTEXT_ID ctx);
-    action
-    
-        // assert portFromMemQ.canDeq, otherwise wouldn't be here.
-        let bundle = bundleFromMemQ.peek(ctx);
-        let tok = bundle.token;
-
-        // For memory ops, get the translation.
-        if (bundle.isLoad)
-        begin
-            debugLog.record(ctx, fshow("FUNCP-REQ LOAD DTRANS ") + fshow(tok));
-            doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
-        end
-        else if (bundle.isStore)
-        begin
-            debugLog.record(ctx, fshow("FUNCP-REQ STORE DTRANS") + fshow(tok));
-            doDTranslate.makeReq(initFuncpReqDoDTranslate(tok));
-        end
-        else
-        begin
-            finishCycle(tok, bundle);
-        end
-
-    endaction
-    endfunction
-    
     
     // ****** Rules ******
 
@@ -265,413 +116,243 @@ module [HASIM_MODULE] mkDMem ();
     // stage1_begin
     
     // Begin a new model cycle for the next context.
-    // If we're stalling on the cache, wait for a response. 
-    // (If so, then we previously determined the MemQ is non-empty, and the CommitQ non-full.)
-    // Otherwise, if the MemQ is non-empty and the CommitQ is non-full then
-    // do the memory ops for this instruction. Non-memory instructions are passed through.
-    // Memory instructions are sent to the store buffer and passed to the next stage.
+    // If the MemQ is non-empty and the CommitQ is non-full then
+    // do the memory ops for this instruction.
+    // * Non-memory instructions are passed through.
+    // * Stores are sent to the store buffer.
+    // * Loads are sent to the store buffer and dcache simultaneously.
 
-    rule stage1_begin (stage1State matches tagged MEM1_ready);
+    rule stage1_begin (True);
     
         // Begin a model cycle.
         let ctx <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(ctx);
     
-        Reg#(Bool) stalled = ctx_stalled[ctx];
+        // Let's see if we have room in our output buffers.
+        let credit_from_commitQ <- creditFromCommitQ.receive(ctx);
     
-        if (stalled)
+        if (isValid(credit_from_commitQ) && bundleFromDMemQ.canDeq(ctx))
         begin
-        
-            // Assert MemQ.canDeq() from a previous cycle.
-            let bundle = bundleFromMemQ.peek(ctx);
-            let tok = bundle.token;
-        
-            // This context is stalling on a previous cache miss.
-            debugLog.record_next_cycle(ctx, fshow("SB NO REQ, BECAUSE STALLED ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-            
-            // Don't request anything from the store buffer.
-            reqToSB.send(ctx, tagged Invalid);
 
-            // Send it to the next stage, which will try to un-stall.
-            stage2Q.enq(ctx);
-        
-        end
-        else 
-        begin
-    
-            if (!bundleToCommitQ.canEnq(ctx) || !bundleFromMemQ.canDeq(ctx))
+            // The DMemQ has an instruction in it... and the CommitQ has room.
+            let bundle = bundleFromDMemQ.peek(ctx);
+            let tok = bundle.token;
+
+            // Let's see if we should contact the store buffer and dcache.
+            if (bundle.isLoad && !tokIsPoisoned(tok) && !bundle.isJunk)
             begin
 
-                // A bubble.
-                debugLog.record_next_cycle(ctx, fshow("BUBBLE"));
+                // It's a load which did not page fault.
+                debugLog.record_next_cycle(ctx, fshow("LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+
+                // Check if the the load result is either in the cache or the store buffer or the write buffer.
+                reqToSB.send(ctx, tagged Valid initSBSearch(bundle));
+                searchToWB.send(ctx, tagged Valid initWBSearch(bundle));
+                loadToDCache.send(ctx, tagged Valid initDCacheLoad(bundle));
+
+            end
+            else if (bundle.isStore && !tokIsPoisoned(tok) && !bundle.isJunk)
+            begin
                 
-                // Don't dequeue the MemQ.
-                bundleFromMemQ.noDeq(ctx);
+                // A store which did not page fault.
+                debugLog.record_next_cycle(ctx, fshow("STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
-                // Don't enqueue anything into the commitQ.
-                bundleToCommitQ.noEnq(ctx);
+                // Tell the store buffer about this new store.
+                reqToSB.send(ctx, tagged Valid initSBComplete(bundle));
 
-                // Don't report any writebacks.
-                writebackToDec.send(ctx, tagged Invalid);
+                // No load to the DCache. (The write buffer will do the store after it leaves the store buffer.)
+                loadToDCache.send(ctx, tagged Invalid);
+                searchToWB.send(ctx, tagged Invalid);
 
-                // No requests for the store buffer or cache.
-                reqToSB.send(ctx, tagged Invalid);
-                reqToDCache.send(ctx, tagged Invalid);
-                
-                // Stall the pipeline for the sb + dcache response.
-                stage1State <= tagged MEM1_stall ctx;
+                // Add it to the CommitQ already completed.
+                bundleFromDMemQ.doDeq(ctx);
+                eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(tok)));
+                allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, True));
+
 
             end
             else
             begin
 
-                // The MemQ has an instruction in it... and the CommitQ has room.
-                let bundle = bundleFromMemQ.peek(ctx);
-                let tok = bundle.token;
+                // Not a memory operation. (Or a faulted memory operation.)
+                debugLog.record_next_cycle(ctx, fshow("NO-MEMORY ") + fshow(tok));
 
+                // Don't tell the cache/SB/WB about it.
+                reqToSB.send(ctx, tagged Invalid);
+                searchToWB.send(ctx, tagged Invalid);
+                loadToDCache.send(ctx, tagged Invalid);
 
-                // Let's see if we should contact the store buffer.
-                if (bundle.isLoad)
-                begin
-
-                    // Check if the store buffer has the data for this load.
-                    debugLog.record_next_cycle(ctx, fshow("SB LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                    reqToSB.send(ctx, tagged Valid (CACHE_INPUT {token: tok, reqType: tagged CACHE_loadData tuple2(?/*passthru*/, bundle.effAddr)}));
-
-                end
-                else if (bundle.isStore)
-                begin
-                    
-                    // Tell the store buffer about this new store.
-                    debugLog.record_next_cycle(ctx, fshow("SB STORE ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                    reqToSB.send(ctx, tagged Valid (CACHE_INPUT {token: tok, reqType: tagged CACHE_writeData tuple2(?/*passthru*/, bundle.effAddr)}));
-
-                end
-                else
-                begin
-
-                    // Nothing to tell the store buffer.
-                    debugLog.record_next_cycle(ctx, fshow("NO-MEMORY ") + fshow(tok));
-                    reqToSB.send(ctx, tagged Invalid);
-
-                end
-
-                // Send it to the next stage.
-                stage2Q.enq(ctx);
+                // Add it to the CommitQ already completed.
+                bundleFromDMemQ.doDeq(ctx);
+                eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(tok)));
+                allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, True));
 
             end
 
         end
+        else
+        begin
+
+            // A bubble.
+            debugLog.record_next_cycle(ctx, fshow("BUBBLE"));
+
+            // No requests for the store buffer or dcache.
+            reqToSB.send(ctx, tagged Invalid);
+            loadToDCache.send(ctx, tagged Invalid);
+            searchToWB.send(ctx, tagged Invalid);
+            
+            // Propogate the bubble.
+            bundleFromDMemQ.noDeq(ctx);
+            allocToCommitQ.send(ctx, tagged Invalid);
+            eventMem.recordEvent(ctx, tagged Invalid);
+
+        end
+
+        // Get the sb + wb + dcache response in the next stage.
+        stage2Q.enq(ctx);
 
     endrule
 
 
-    // stage1_finishStall
+
+    // stage2_loadRsp
     
-    // Get the cache and SB responses and drop them.
-
-    // Note: if we know that the local controller won't tell us to start
-    // the same context again until this context is done, then we wouldn't
-    // have to stall the pipeline for this case.
-
-    rule stage1_finishStall (stage1State matches tagged MEM1_stall .ctx);
-
-        // assert all of these are Invalid.
-        let imm <- rspFromDCacheImmediate.receive(ctx);
-        let del <- rspFromDCacheDelayed.receive(ctx);
-        let sbr <- rspFromSB.receive(ctx);
-
-        // Unstall the pipeline.
-        stage1State <= tagged MEM1_ready;
-
-        // End of model cycle. (Path 3)
-        eventMem.recordEvent(ctx, tagged Invalid);
-        localCtrl.endModelCycle(ctx, 3);
-
-    endrule
-
-
-    // stage2_storeBufferRsp
-    
-    // Get the store buffer response and send it to the cache.
+    // Get the dcache and store buffer response and enqueue it into the CommitQ.
     // If we are in this stage we know that the MemQ is not empty, and the CommitQ is not full.
 
-    rule stage2_storeBufferRsp (stage2State matches tagged MEM2_ready);
+    rule stage2_loadRsp (True);
 
         // Get our local context from the previous stage.
         let ctx = stage2Q.first();
         stage2Q.deq();
-
-        // assert bundleFromMemQ.canDeq(). Otherwise we wouldn't be here.
-        let bundle = bundleFromMemQ.peek(ctx);
         
-        // Get the response from the store buffer.
-        let m_rsp <- rspFromSB.receive(ctx);
+        // Get the responses from the store buffer and dcache.
+        let m_sb_rsp <- rspFromSB.receive(ctx);
+        let m_wb_rsp <- rspFromWB.receive(ctx);
+        let m_dc_rsp <- loadRspFromDCache.receive(ctx);
 
-        case (m_rsp) matches
-            tagged Invalid:
-            begin
-
-                // It was a non-memory operation, or we are stalled.
-                // Either way, there's nothing to tell the cache.
-                reqToDCache.send(ctx, tagged Invalid);
-
-            end
-            tagged Valid .rsp:
-            begin
-            
-                case (rsp) matches
-                    tagged SB_HIT .tok:
-                    begin
-
-                        // We found the data in the Store buffer, 
-                        // so we don't have to ask the DCache.
-                        debugLog.record(ctx, fshow("SB HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                        reqToDCache.send(ctx, tagged Invalid);
-
-                    end
-                    tagged SB_MISS .tok:
-                    begin
-
-                        // We missed in the store buffer, so ask the DCache.
-                        debugLog.record(ctx, fshow("SB MISS, DCACHE LOAD ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                        reqToDCache.send(ctx, tagged Valid CACHE_INPUT {token: tok, reqType: tagged CACHE_loadData tuple2(?, bundle.effAddr)});
-
-                    end
-                    tagged SB_STALL .tok:
-                    begin
-                        
-                        // The store buffe is full, so we'll retry this request next cycle.
-                        debugLog.record(ctx, fshow("SB STALL ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.effAddr));
-                        reqToDCache.send(ctx, tagged Invalid);
-                        
-                        // Stall this stage for the dcache response.
-                        stage2State <= tagged MEM2_stall ctx;
-
-                    end
-                endcase
-            end
-        endcase
-        
-        // Either way, pass it on to the next stage.
-        stage3Q.enq(ctx);
-
-    endrule
-
-
-    rule stage2_finishStall (stage2State matches tagged MEM2_stall .ctx);
-
-        // assert these are Invalid.
-        let imm <- rspFromDCacheImmediate.receive(ctx);
-        let del <- rspFromDCacheDelayed.receive(ctx);
-
-        // Unstall the pipeline.
-        stage2State <= tagged MEM2_ready;
-
-        // End of model cycle. (Path 4)
-        eventMem.recordEvent(ctx, tagged Invalid);
-        localCtrl.endModelCycle(ctx, 4);
-
-    endrule
-
-
-    // stage3_dcacheRsp
-    
-    // Get the DCache responses (if any). When the DCache comes 
-    // back we can ask the functional partition to do the actual operation.
-
-    // Note
-
-    rule stage3_dcacheRsp (True);
-
-        // Get our local state from the context.
-        let ctx = stage3Q.first();
-        stage3Q.deq();
-        Reg#(Bool) stalled = ctx_stalled[ctx];
-
-        // Check the DCache responses.
-        let m_imm <- rspFromDCacheImmediate.receive(ctx);
-        let m_del <- rspFromDCacheDelayed.receive(ctx);
-
-        // assert !isValid(m_imm) && !isValid(m_del)
-
-        case (m_del) matches
-
-            tagged Invalid:
-            begin
-
-                // No delayed response, so check the immediate response.
-
-                case (m_imm) matches
-
-                    tagged Invalid:
-                    begin
-
-                        // No cache response.
-                        if (stalled)
-                        begin
-
-                            // It's because we're still stalled on a miss.
-                            finishCycleStall(ctx);
-
-                        end
-                        else
-                        begin
-
-                            // It's because it was a non-memory op. 
-                            // Just go to the next stage.
-                            makeDTransReq(ctx);
-
-                        end
-
-                    end
-                    
-                    tagged Valid .rsp:
-                    begin
-
-                        case (rsp) matches
-                        
-                            tagged CACHE_hit .*:
-                            begin
-                            
-                                // A hit! Go on to the next stage via 
-                                makeDTransReq(ctx);
-                                
-                            end
-
-                            tagged CACHE_missServicing .*:
-                            begin
-
-                                // This module will no longer check the MemQ 
-                                // until a response comes back.
-                                stalled <= True;
-                                finishCycleStall(ctx);
-
-                            end
-
-                            tagged CACHE_hitServicing .*:
-                            begin
-
-                                noAction;
-                                
-                            end
-
-                            tagged CACHE_missRetry .*:
-                            begin
-
-                                // We must retry our request.
-                                // Don't dequeue the MemQ and try again next cycle.
-                                finishCycleStall(ctx);
-                            end
-
-                        endcase
-
-                    end
-
-                endcase
-
-            end
-
-            tagged Valid .rsp:
-            begin
-
-                // assert stalled == True
-                // assert m_imm == Invalid
-
-                // It came back, so we can resume normal operations.
-                stalled <= False;
-                makeDTransReq(ctx);
-
-
-            end
-
-        endcase
-
-    endrule
-
-
-    // stage4_dtransRsp
-    
-    // Get the physical address from the functional partition. 
-    // Ask it to begin the actual load/store operation.
-
-    rule stage4_dtransRsp (True);
-
-        // Get the response from the functional partition.
-        let rsp = doDTranslate.getResp();
-        doDTranslate.deq();
-
-        // Get our local state from the context.
-        let tok = rsp.token;
-        let ctx = tokContextId(tok);
-
-        // assert bundleFromMemQ.canDeq(). Otherwise we wouldn't be here.
-        let bundle = bundleFromMemQ.peek(ctx);
-
-        // Wait for all translation responses.  Stay in this state if more are
-        // coming.  Otherwise, do the operation.
-        if (! rsp.hasMore)
+        if (m_sb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged SB_hit)
         begin
 
-            if (bundle.isLoad)
-            begin
-
-                debugLog.record(ctx, fshow("FUNCP-REQ LOAD ") + fshow(tok));
-                doLoads.makeReq(initFuncpReqDoLoads(rsp.token));
-
-            end
-            else if (bundle.isStore)
-            begin
-
-                debugLog.record(ctx, fshow("FUNCP-REQ STORE ") + fshow(tok));
-                doStores.makeReq(initFuncpReqDoStores(rsp.token));
-
-            end
+            // We found the data in the Store buffer, 
+            // so we don't have to look at the DCache response or Write Buffer response.
+            // (Stores in the SB are always younger than those.)
+            debugLog.record(ctx, fshow("SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
+            
+            // Send it to the commitQ already completed.
+            bundleFromDMemQ.doDeq(ctx);
+            allocToCommitQ.send(ctx, tagged Valid tuple2(rsp.bundle, True));
+            eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(rsp.bundle.token)));
+            
+            // Send the writeback to decode.
+            writebackToDec.send(ctx, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+            
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(ctx, 1);
 
         end
-
-    endrule
-
-
-    // stage5_loadRsp
-    
-    // Get the load response and pass it to the commit queue.
-    // Also signals Decode that the register has been written back.
-    
-    rule stage5_loadRsp (True);
-    
-        // Get the response from the functional partition
-        let rsp = doLoads.getResp();
-        doLoads.deq();
-        let ctx = tokContextId(rsp.token);
-
-        // assert fromMemQ.peek() is valid. Otherwise we wouldn't be here.
-        let bundle = bundleFromMemQ.peek(ctx);
-
-        finishCycle(rsp.token, bundle);
-
-    endrule
-
-
-    // stage5_storeRsp
-    
-    // Get the store response and pass it to the commit queue.
-    // Let's favor loads over stores, arbitrarily. 
-    // (This has no impact on simulation results.)
-
-    (* descending_urgency="stage5_loadRsp, stage5_storeRsp"  *)
-    rule stage5_storeRsp (True);
-
-        // Get the response from the functional partition.
-        let rsp = doStores.getResp();
-        doStores.deq();
-        let ctx = tokContextId(rsp.token);
+        else if (m_wb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged WB_hit)
+        begin
         
-        // assert fromMemQ.peek() is valid. Otherwise we wouldn't be here.
-        let bundle = bundleFromMemQ.peek(ctx);
-        
-        finishCycle(rsp.token, bundle);
+            // We found the data in the Store buffer, 
+            // so we don't have to look at the DCache response.
+            debugLog.record(ctx, fshow("WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
+            // Send it to the commitQ already completed.
+            bundleFromDMemQ.doDeq(ctx);
+            allocToCommitQ.send(ctx, tagged Valid tuple2(rsp.bundle, True));
+            eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(rsp.bundle.token)));
+            
+            // Send the writeback to decode.
+            writebackToDec.send(ctx, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+            
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(ctx, 2);
+
+        end
+        else if (m_dc_rsp matches tagged Valid .rsp)
+        begin
+        
+            // Let's see if the DCache found it.
+            let bundle = rsp.bundle;
+            let tok = rsp.bundle.token;
+
+            case (rsp.rspType) matches
+
+                tagged DCACHE_hit:
+                begin
+
+                    // Well, the cache found it.
+                    debugLog.record(ctx, fshow("SB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+
+                    // Send it to the commitQ already completed.
+                    bundleFromDMemQ.doDeq(ctx);
+                    allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, True));
+                    eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(bundle.token)));
+
+                    // Send the writeback to decode.
+                    writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests));
+
+                    // End of model cycle. (Path 2)
+                    localCtrl.endModelCycle(ctx, 2);
+
+                end
+
+                tagged DCACHE_miss:
+                begin
+                
+                    // The cache missed, but is handling it. 
+                    debugLog.record(ctx, fshow("SB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+
+                    // Send it to the commitQ but incomplete.
+                    bundleFromDMemQ.doDeq(ctx);
+                    allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, False));
+                    eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(rsp.bundle.token)));
+
+                    // No writebacks to report.
+                    writebackToDec.send(ctx, tagged Invalid);
+
+                    // End of model cycle. (Path 3)
+                    localCtrl.endModelCycle(ctx, 3);
+
+                end
+
+                tagged DCACHE_retry:
+                begin
+                
+                    // The SB/WB Missed, and the cache needs us to retry.
+                    debugLog.record(ctx, fshow("SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                
+                    // Don't pass it on to the next stage.
+                    bundleFromDMemQ.noDeq(ctx);
+                    allocToCommitQ.send(ctx, tagged Invalid);
+                    eventMem.recordEvent(ctx, tagged Invalid);
+
+                    // No writebacks to report.
+                    writebackToDec.send(ctx, tagged Invalid);
+
+                    // End of model cycle. (Path 4)
+                    localCtrl.endModelCycle(ctx, 4);
+
+                end
+
+            endcase
+        
+        end
+        else
+        begin
+
+            // Otherwise we're just here because of something that wasn't a load.
+            debugLog.record(ctx, fshow("NON-LOAD FINISH "));
+        
+            // Don't report any writebacks.
+            writebackToDec.send(ctx, tagged Invalid);
+
+            // End of model cycle. (Path 5)
+            localCtrl.endModelCycle(ctx, 5);
+        end
+        
     endrule
 
 endmodule
+

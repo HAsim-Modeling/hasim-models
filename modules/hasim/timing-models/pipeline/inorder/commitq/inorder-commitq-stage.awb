@@ -1,0 +1,13 @@
+%AWB_START
+
+%name Inorder Commit Queue Stage
+%desc Inorder Commit Queue Stage
+%provides commitq_stage
+
+%attributes hasim model pipeline inorder
+
+%public  inorder-commitq-stage.bsv
+
+%param CQ_NUM_SLOTS 8 "Number of slots for the commit queue."
+
+%AWB_END

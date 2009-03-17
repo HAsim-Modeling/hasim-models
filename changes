@@ -2384,3 +2384,86 @@ Directory modules/hasim/timing-models/caches/null-caches
 ** PCCalc calls rewind/fault
 
 Michael P.
+
+----------
+pellauer    Date: Tue Mar 17 15:36:14 EDT 2009  CSN: CSN-hasim-models-100
+                  Tue Mar 17 19:36:14 UTC 2009
+
+
+Directory config/pm/hasim-models/l1-caches
+ null_l1_caches.apm        Locally Modified           99 
+ l1_caches.apm             Locally Modified           99 
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified           99 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified           99 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified           99 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified           99 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified           99 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ commitq/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.awb Locally Added               0 
+ inorder-commitq-stage.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder.awb               Locally Modified           99 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified           99 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.bsv      Locally Modified           99 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches.awb             Locally Modified           99 
+ l1-caches.bsv             Locally Modified           99 
+
+Directory modules/hasim/timing-models/caches
+ write-buffers/            Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/write-buffers
+ blocking/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.awb Locally Added               0 
+ write-buffer-blocking.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified           99 
+
+Directory modules/hasim/timing-models/caches/store-buffers
+ multi-entry/              Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.awb Locally Added               0 
+ store-buffer-multi-entry.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.awb             Locally Added               0 
+ dtlb-null.bsv             Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ dcache-null.bsv           Locally Modified           99 
+ icache-null.bsv           Locally Modified           99 
+
+
+* Backend re-organization to support non-blocking caches.
+* Model IPC with perfect cache now varies from .55 to .85 depending on dependencies and branch predictor accuracy.
+* Added DTLB (currently always hits). The backend itself supports resteers.
+* Added realistic store-buffer which supports out-of-order machines. Decode stage allocates slots inorder.
+* Added write buffer which performs committed stores in order. The DMem stage now checks the DCache/SB/WB in parallel.
+* Instructions from the wrong epoch are no longer dropped in EXE, but flow through as nops until they reach commit. 
+  This straightens out a lot of interactions with faults and store buffer slots.
+
+Michael P.

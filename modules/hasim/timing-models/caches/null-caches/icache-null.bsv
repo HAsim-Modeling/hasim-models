@@ -112,8 +112,8 @@ module [HASIM_MODULE] mkICache();
 	immToFet.send(ctx, tagged Valid initICacheHit(bundle, rsp.instruction));
 	delToFet.send(ctx, tagged Invalid);
 
-        // End of model cycle. (Path 1)
-        localCtrl.endModelCycle(ctx, 1);
+        // End of model cycle. (Path 2)
+        localCtrl.endModelCycle(ctx, 2);
      
     endrule
 

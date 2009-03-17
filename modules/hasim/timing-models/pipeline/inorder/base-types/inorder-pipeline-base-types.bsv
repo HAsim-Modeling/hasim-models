@@ -42,16 +42,13 @@ typedef struct
 
     // Registers written (and now available)
     Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs;
-    // Token killed and won't be seen again
-    Bool tokKilled;
 }
 BUS_MESSAGE
     deriving (Bits, Eq);
 
 function BUS_MESSAGE genBusMessage(TOKEN tok,
-                                   Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs,
-                                   Bool killed);
-    return BUS_MESSAGE { token: tok, destRegs: destRegs, tokKilled: killed };
+                                   Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs);
+    return BUS_MESSAGE { token: tok, destRegs: destRegs };
 endfunction
 
 

@@ -30,6 +30,7 @@ import Vector::*;
 `include "asim/provides/hasim_isa.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
 `include "asim/provides/funcp_interface.bsh"
 
@@ -72,7 +73,7 @@ module [HASIM_MODULE] mkExecute ();
     // ****** Ports ******
 
     PORT_STALL_RECV_MULTICTX#(BUNDLE) bundleFromIssueQ <- mkPortStallRecv_MultiCtx("IssueQ");
-    PORT_STALL_SEND_MULTICTX#(BUNDLE)     bundleToMemQ <- mkPortStallSend_MultiCtx("MemQ");
+    PORT_STALL_SEND_MULTICTX#(DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_MultiCtx("DTLBQ");
 
     PORT_SEND_MULTICTX#(Tuple2#(TOKEN, ISA_ADDRESS)) rewindToFet <- mkPortSend_MultiCtx("Exe_to_Fet_rewind");
     PORT_SEND_MULTICTX#(BRANCH_PRED_TRAIN)          trainingToBP <- mkPortSend_MultiCtx("Exe_to_BP_training");
@@ -263,18 +264,18 @@ module [HASIM_MODULE] mkExecute ();
                 begin
 
                     //
-                    // Bad path due to branch.  Drop the incoming token.
+                    // Bad path due to branch.  Mark the token as junk and send it on.
                     //
+                    //
+                    bundleToMemQ.doEnq(ctx, initDMemBundle(tok, bundle.effAddr, True, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
+
                     // Dequeue the IssueQ
                     bundleFromIssueQ.doDeq(ctx);
                     // Tell decode the instruction was dropped, so its dests are "ready."
-                    writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests, True));
+                    writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests));
 
                 end
                 
-                // Don't enqueue anything in the MemQ.
-                bundleToMemQ.noEnq(ctx);
-
                 // Propogate the bubble.
                 rewindToFet.send(ctx, tagged Invalid);
                 trainingToBP.send(ctx, tagged Invalid);
@@ -444,7 +445,7 @@ module [HASIM_MODULE] mkExecute ();
             debugLog.record(ctx, fshow(tok) + fshow(": marking dest regs valid"));
 
             // Send the writeback to decode.
-            writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests, False));
+            writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests));
 
         end
 
@@ -452,7 +453,7 @@ module [HASIM_MODULE] mkExecute ();
         bundle.token = tok;
 
         // Enqueue the instuction in the MemQ.
-        bundleToMemQ.doEnq(ctx, bundle);
+        bundleToMemQ.doEnq(ctx, initDMemBundle(bundle.token, bundle.effAddr, False, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
 
         // End the model cycle. (Path 3)
         eventExe.recordEvent(ctx, tagged Valid zeroExtend(pack(tok.index)));

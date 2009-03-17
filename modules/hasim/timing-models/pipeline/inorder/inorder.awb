@@ -3,7 +3,7 @@
 %name Inorder Pipeline
 %desc Inorder Pipeline
 %provides hasim_pipeline
-%requires fetch_stage imem_stage pccalc_stage instq_stage decode_stage execute_stage dmem_stage commit_stage branch_predictor store_buffer pipeline_base_types
+%requires fetch_stage imem_stage pccalc_stage instq_stage decode_stage execute_stage dmem_stage commitq_stage commit_stage branch_predictor store_buffer write_buffer pipeline_base_types
 
 %attributes hasim model pipeline inorder
 
