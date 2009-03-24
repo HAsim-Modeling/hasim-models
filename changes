@@ -2504,3 +2504,16 @@ Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
   Next to do is implementing it.
   
 Michael P.
+
+----------
+pellauer    Date: Tue Mar 24 14:01:55 EDT 2009  CSN: CSN-hasim-models-102
+                  Tue Mar 24 18:01:55 UTC 2009
+
+
+Directory modules/hasim/timing-models/caches/null-caches
+ dcache-null.bsv           Locally Modified          100 
+
+
+* Remove doLoads from null dcache.
+
+Michael P.

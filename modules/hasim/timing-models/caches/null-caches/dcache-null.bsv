@@ -15,15 +15,6 @@ import Vector::*;
 module [HASIM_MODULE] mkDCache();
 
 
-    // ****** Soft Connections ******
-
-    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoads  <- mkConnection_Client("funcp_doLoads");
-    // Connection_Client#(FUNCP_REQ_DO_STORES,FUNCP_RSP_DO_STORES) doStores <- mkConnection_Client("funcp_doSpeculativeStores");
-
-    // ****** UnModel State ******
-    
-    FIFO#(DMEM_BUNDLE) stage2Q <- mkFIFO();
-
     // ****** Ports ******
 
     // Incoming port from CPU with speculative stores
@@ -108,6 +99,8 @@ module [HASIM_MODULE] mkDCache();
                 // Propogate the bubble.
 	        loadRspImmToCPU.send(ctx, tagged Invalid);
 	        loadRspDelToCPU.send(ctx, tagged Invalid);
+                
+                // End of model cycle. (Path 1)
                 localCtrl.endModelCycle(ctx, 1);
 
 	    end
@@ -119,40 +112,19 @@ module [HASIM_MODULE] mkDCache();
                 // An actual cache would do something with the physical 
                 // address to determine hit or miss. We always hit.
 
-                // Pass it to the next stage through the functional partition, 
-                // which actually retrieves the instruction.
-                doLoads.makeReq(initFuncpReqDoLoads(req.token));
-                stage2Q.enq(req);
+	        loadRspImmToCPU.send(ctx, tagged Valid initDCacheLoadHit(req));
+	        loadRspDelToCPU.send(ctx, tagged Invalid);
+
+                // End of model cycle. (Path 2)
+                localCtrl.endModelCycle(ctx, 2);
 
 	    end
 
         endcase
          
-
-    endrule
-
-    rule stage2_loadRsp (True);
-        
-        // Get the response from the functional partition.
-        let rsp = doLoads.getResp();
-        doLoads.deq();
-
-        let bundle = stage2Q.first();
-        stage2Q.deq();
-        
-        // Update the bundle with the latest token info.
-        bundle.token = rsp.token;
-
-        // Get our context from the token.
-        let ctx = tokContextId(rsp.token);
-
-        // Always hit.
-	loadRspImmToCPU.send(ctx, tagged Valid initDCacheLoadHit(bundle));
-	loadRspDelToCPU.send(ctx, tagged Invalid);
-
-        // End of model cycle. (Path 2)
-        localCtrl.endModelCycle(ctx, 2);
      
+
     endrule
+
 
 endmodule
