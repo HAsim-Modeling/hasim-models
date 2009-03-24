@@ -1,0 +1,28 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Pseudo-Random DCache
+# %desc Pseudo-Random DCache using LFSR
+# %provides hasim_dcache
+#
+# %attributes hasim model caches
+#
+# %public dcache-pseudorandom.bsv
+# %private dcache-pseudorandom.dic
+#
+# %param --dynamic DCACHE_LOAD_RETRY_CHANCE 2 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+# %param --dynamic DCACHE_LOAD_MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+# %param --dynamic DCACHE_STORE_RETRY_CHANCE 2 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+# %param --dynamic DCACHE_STORE_MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+# %param DCACHE_MISS_PENALTY 10 "Number of cycles for a miss to return. Must be greater than 0."
+# %param --dynamic DCACHE_LOAD_SEED 17 "Bit 8 seed for pseudo-random number."
+# %param --dynamic DCACHE_STORE_SEED 27 "Bit 8 seed for pseudo-random number."
+#
+# %AWB_END
+# */

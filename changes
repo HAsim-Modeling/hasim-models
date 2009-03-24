@@ -2467,3 +2467,40 @@ Directory modules/hasim/timing-models/caches/null-caches
   This straightens out a lot of interactions with faults and store buffer slots.
 
 Michael P.
+
+----------
+pellauer    Date: Tue Mar 24 13:34:53 EDT 2009  CSN: CSN-hasim-models-101
+                  Tue Mar 24 17:34:53 UTC 2009
+
+
+Directory config/pm/hasim-models/l1-caches
+ pseudorandom_l1_caches.apm Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          100 
+
+Directory modules/hasim/timing-models/caches
+ pseudorandom-caches/      Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.awb   Locally Added               0 
+ icache-pseudorandom.bsv   Locally Added               0 
+ dcache-pseudorandom.dic   Locally Added               0 
+ dcache-pseudorandom.awb   Locally Added               0 
+ dcache-pseudorandom.bsv   Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.awb Locally Modified          100 
+ store-buffer-multi-entry.bsv Locally Modified          100 
+
+
+* Add pseudo-random DCache model. This uses Dynamic parameters to set cache 
+  miss rate/retry rate. Also features many nice statistics.
+* doLoads has been moved to DMem stage from DCache. This resolves issues 
+  where a WB hit with a D$ retry would result in doLoads not getting called.
+* Increase store buffer size to 8 as 4 seemed to be causing strange behavior.
+* Fix off-by-one error in store buffer credit.
+* Pseudo-random ICache is currently a skeleton (null cache). 
+  Next to do is implementing it.
+  
+Michael P.

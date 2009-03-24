@@ -62,11 +62,13 @@ import FIFOF::*;
 //   Path 3: The MemQ is empty, or the CommitQ is full, so there's a bubble.
 //   Path 4: The Store Buffer is full, so there's a bubble and we retry next cycle.
 
-
 module [HASIM_MODULE] mkDMem ();
 
     TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_mem.out");
 
+    // ****** Soft Connections ******
+
+    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoads  <- mkConnection_Client("funcp_doLoads");
 
     // ****** Ports *****
     
@@ -89,6 +91,7 @@ module [HASIM_MODULE] mkDMem ();
     // ****** UnModel State ******
     
     FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
+    FIFO#(Bool)       stage3Q <- mkFIFO();
 
 
     // ****** Local Controller ******
@@ -239,16 +242,15 @@ module [HASIM_MODULE] mkDMem ();
             // (Stores in the SB are always younger than those.)
             debugLog.record(ctx, fshow("SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
             
-            // Send it to the commitQ already completed.
-            bundleFromDMemQ.doDeq(ctx);
-            allocToCommitQ.send(ctx, tagged Valid tuple2(rsp.bundle, True));
-            eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(rsp.bundle.token)));
-            
             // Send the writeback to decode.
             writebackToDec.send(ctx, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
             
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(ctx, 1);
+            // Pass it to the next stage through the functional partition, 
+            // which actually retrieves the data.
+            doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
+
+            // Tell the next stage it was a hit:
+            stage3Q.enq(True);
 
         end
         else if (m_wb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged WB_hit)
@@ -258,16 +260,15 @@ module [HASIM_MODULE] mkDMem ();
             // so we don't have to look at the DCache response.
             debugLog.record(ctx, fshow("WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
-            // Send it to the commitQ already completed.
-            bundleFromDMemQ.doDeq(ctx);
-            allocToCommitQ.send(ctx, tagged Valid tuple2(rsp.bundle, True));
-            eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(rsp.bundle.token)));
-            
             // Send the writeback to decode.
             writebackToDec.send(ctx, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
             
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(ctx, 2);
+            // Pass it to the next stage through the functional partition, 
+            // which actually retrieves the data.
+            doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
+
+            // Tell the next stage it was a hit:
+            stage3Q.enq(True);
 
         end
         else if (m_dc_rsp matches tagged Valid .rsp)
@@ -285,17 +286,15 @@ module [HASIM_MODULE] mkDMem ();
                     // Well, the cache found it.
                     debugLog.record(ctx, fshow("SB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
-                    // Send it to the commitQ already completed.
-                    bundleFromDMemQ.doDeq(ctx);
-                    allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, True));
-                    eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(bundle.token)));
-
                     // Send the writeback to decode.
                     writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests));
 
-                    // End of model cycle. (Path 2)
-                    localCtrl.endModelCycle(ctx, 2);
+                    // Pass it to the next stage through the functional partition, 
+                    // which actually retrieves the data.
+                    doLoads.makeReq(initFuncpReqDoLoads(tok));
 
+                    // Tell the next stage it was a hit:
+                    stage3Q.enq(True);
                 end
 
                 tagged DCACHE_miss:
@@ -304,16 +303,16 @@ module [HASIM_MODULE] mkDMem ();
                     // The cache missed, but is handling it. 
                     debugLog.record(ctx, fshow("SB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
-                    // Send it to the commitQ but incomplete.
-                    bundleFromDMemQ.doDeq(ctx);
-                    allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, False));
-                    eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(rsp.bundle.token)));
-
                     // No writebacks to report.
                     writebackToDec.send(ctx, tagged Invalid);
 
-                    // End of model cycle. (Path 3)
-                    localCtrl.endModelCycle(ctx, 3);
+                    // Pass it to the next stage through the functional partition, 
+                    // which actually retrieves the data.
+                    doLoads.makeReq(initFuncpReqDoLoads(tok));
+                    
+                    // Tell the next stage it was a miss:
+                    stage3Q.enq(False);
+
 
                 end
 
@@ -323,7 +322,7 @@ module [HASIM_MODULE] mkDMem ();
                     // The SB/WB Missed, and the cache needs us to retry.
                     debugLog.record(ctx, fshow("SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
                 
-                    // Don't pass it on to the next stage.
+                    // Don't pass it on to the commitQ. Don't do the load to the functional partition.
                     bundleFromDMemQ.noDeq(ctx);
                     allocToCommitQ.send(ctx, tagged Invalid);
                     eventMem.recordEvent(ctx, tagged Invalid);
@@ -331,8 +330,8 @@ module [HASIM_MODULE] mkDMem ();
                     // No writebacks to report.
                     writebackToDec.send(ctx, tagged Invalid);
 
-                    // End of model cycle. (Path 4)
-                    localCtrl.endModelCycle(ctx, 4);
+                    // End of model cycle. (Path 1)
+                    localCtrl.endModelCycle(ctx, 1);
 
                 end
 
@@ -348,10 +347,39 @@ module [HASIM_MODULE] mkDMem ();
             // Don't report any writebacks.
             writebackToDec.send(ctx, tagged Invalid);
 
-            // End of model cycle. (Path 5)
-            localCtrl.endModelCycle(ctx, 5);
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(ctx, 2);
         end
         
+    endrule
+    
+    rule stage3_loadRsp (True);
+    
+        // Get hit/miss from previous stage.
+        let hit = stage3Q.first();
+        stage3Q.deq();
+        
+        // Get the response from the functional partition.
+        let rsp = doLoads.getResp();
+        doLoads.deq();
+        
+        // Get our context from the token.
+        let ctx = tokContextId(rsp.token);
+        
+        // assert DMemQ.canDeq
+        let bundle = bundleFromDMemQ.peek(ctx);
+
+        // Update the bundle with the new token.
+        bundle.token = rsp.token;
+        
+        // Send it to the commitQ, completed if we got a hit.
+        allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, hit));
+        bundleFromDMemQ.doDeq(ctx);
+        eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(bundle.token)));
+        
+        // End of model cycle. (Path 3)
+        localCtrl.endModelCycle(ctx, 3);
+    
     endrule
 
 endmodule

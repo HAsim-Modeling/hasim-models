@@ -1,0 +1,46 @@
+
+[Global]
+SaveParameters=0
+Description=Pseudo-Random L1 caches (using LFSRs)
+File=pseudorandom_l1_caches
+Version=2.1
+Name=Pseudo-Random L1 caches
+Type=HAsim
+Class=Asim::Model
+
+[Model]
+DefaultAttributes=hasim model caches l1
+model=Split (Instruction and Data)
+
+
+
+[Split (Instruction and Data)/Requires]
+hasim_dcache=Pseudo-Random DCache
+hasim_icache=Pseudo-Random ICache
+hasim_itlb=Null ITLB
+memory_base_types=Memory Base Types
+hasim_dtlb=Null DTLB
+
+[Split (Instruction and Data)]
+File=modules/hasim/timing-models/caches/l1-caches/l1-caches.awb
+Packagehint=hasim-models
+
+[Null ITLB]
+File=modules/hasim/timing-models/caches/translation-buffers/null/itlb-null.awb
+Packagehint=hasim-models
+
+[Memory Base Types]
+File=modules/hasim/timing-models/caches/cache-types/memory-base-types.awb
+Packagehint=hasim-models
+
+[Null DTLB]
+File=modules/hasim/timing-models/caches/translation-buffers/null/dtlb-null.awb
+Packagehint=hasim-models
+
+[Pseudo-Random DCache]
+File=modules/hasim/timing-models/caches/pseudorandom-caches/dcache-pseudorandom.awb
+Packagehint=hasim-models
+
+[Pseudo-Random ICache]
+File=modules/hasim/timing-models/caches/pseudorandom-caches/icache-pseudorandom.awb
+Packagehint=hasim-models

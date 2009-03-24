@@ -66,7 +66,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     MULTICTX#(Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS)))) ctx_physAddress <- mkMultiCtx(mkReg(replicate(Invalid)));
 
     MULTICTX#(Reg#(SB_INDEX)) ctx_oldestCommitted   <- mkMultiCtx(mkReg(0));
-    MULTICTX#(Reg#(SB_INDEX)) ctx_oldestUncommitted <- mkMultiCtx(mkReg(0));
+    MULTICTX#(Reg#(SB_INDEX)) ctx_numToCommit       <- mkMultiCtx(mkReg(0));
     MULTICTX#(Reg#(SB_INDEX)) ctx_nextFreeSlot      <- mkMultiCtx(mkReg(0));
 
     function Bool empty(CONTEXT_ID ctx) = ctx_nextFreeSlot[ctx] == ctx_oldestCommitted[ctx];
@@ -147,20 +147,20 @@ module [HASIM_MODULE] mkStoreBuffer ();
         end
         
         // Calculate the credit for decode.
-        if ((new_free + 1) != oldestCommitted)
-        begin
-
-            // Tell decode still have room.
-            debugLog.record_next_cycle(ctx, fshow("SEND CREDIT"));
-            creditToDecode.send(ctx, tagged Valid (?));
-
-        end
-        else
+        if (((new_free + 2) == oldestCommitted) || ((new_free + 1) == oldestCommitted)) // Plus 2 because we assume it takes a cycle for the credit to arrive. Should really be +L+1 where L is latency of credit.
         begin
 
             // Tell decode we're full.
             debugLog.record_next_cycle(ctx, fshow("NO CREDIT"));
             creditToDecode.send(ctx, tagged Invalid);
+
+        end
+        else
+        begin
+
+            // Tell decode still have room.
+            debugLog.record_next_cycle(ctx, fshow("SEND CREDIT"));
+            creditToDecode.send(ctx, tagged Valid (?));
         
         end
         
@@ -302,7 +302,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         // Get our local state based on the current context.
         Reg#(SB_INDEX) nextFreeSlot = ctx_nextFreeSlot[ctx];
         Reg#(SB_INDEX) oldestCommitted = ctx_oldestCommitted[ctx];
-        Reg#(SB_INDEX) oldestUncommitted = ctx_oldestUncommitted[ctx];
+        Reg#(SB_INDEX) numToCommit = ctx_numToCommit[ctx];
 
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = ctx_tokID[ctx];
 
@@ -314,10 +314,10 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
             // Invalidate the requested entry. We assume drop/dealloc requests come in allocation order.
             debugLog.record(ctx, fshow("DROP REQ ") + fshow(req.token));
-            tokID[oldestUncommitted] <= tagged Invalid;
+            tokID[oldestCommitted + numToCommit] <= tagged Invalid;
 
             // Record that the commit path has work to do.
-            oldestUncommitted <= oldestUncommitted + 1;
+            numToCommit <= numToCommit + 1;
         
         end
         else if (m_dealloc matches tagged Valid .req &&& req.reqType == SB_writeback)
@@ -325,10 +325,10 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
             // Update the token with the latest value.
             debugLog.record(ctx, fshow("DEALLOC REQ ") + fshow(req.token));
-            tokID[oldestUncommitted] <= tagged Valid req.token;
+            tokID[oldestCommitted + numToCommit] <= tagged Valid req.token;
 
             // Record that the commit path has work to do.
-            oldestUncommitted <= oldestUncommitted + 1;
+            numToCommit <= numToCommit + 1;
         
         end
         
@@ -346,7 +346,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         // Get our local state based on the current context.
         Reg#(SB_INDEX) nextFreeSlot = ctx_nextFreeSlot[ctx];
         Reg#(SB_INDEX) oldestCommitted = ctx_oldestCommitted[ctx];
-        Reg#(SB_INDEX) oldestUncommitted = ctx_oldestUncommitted[ctx];
+        Reg#(SB_INDEX) numToCommit = ctx_numToCommit[ctx];
 
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = ctx_tokID[ctx];
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = ctx_physAddress[ctx];
@@ -356,9 +356,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         let write_buff_has_credit = isValid(m_credit);
 
         // We need to dealloc if we have pending commmits.
-        let need_to_dealloc = (oldestCommitted != oldestUncommitted);
-
-        if (need_to_dealloc)
+        if (numToCommit != 0)
         begin
             case (tokID[oldestCommitted]) matches
                 tagged Invalid:
@@ -367,6 +365,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     // If the oldest committed token is invalid then it was dropped. Just move over it.
                     debugLog.record(ctx, fshow("JUNK DROPPED"));
                     oldestCommitted <= oldestCommitted + 1;
+                    numToCommit <= numToCommit - 1;
                     
                     // No guys to commit.
                     storeToWriteQ.send(ctx, tagged Invalid);
@@ -384,6 +383,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         // Dequeue the old entry.
                         tokID[oldestCommitted] <= tagged Invalid;
                         oldestCommitted <= oldestCommitted + 1;
+                        numToCommit <= numToCommit - 1;
 
                         // Send it to the writeBuffer.
                         storeToWriteQ.send(ctx, tagged Valid tuple2(tok, phys_addr));

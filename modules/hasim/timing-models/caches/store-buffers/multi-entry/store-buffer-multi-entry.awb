@@ -7,4 +7,4 @@
 
 %public store-buffer-multi-entry.bsv
 
-%param SB_NUM_ENTRIES 4 "Number of store buffer entries."
+%param SB_NUM_ENTRIES 8 "Number of store buffer entries."

@@ -1,0 +1,19 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Pseudo-Random ICache
+# %desc Pseudo-Random ICache using LFSR
+# %provides hasim_icache
+#
+# %attributes hasim model caches
+#
+# %public icache-pseudorandom.bsv
+#
+# %AWB_END
+# */
