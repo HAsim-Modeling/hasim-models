@@ -20,9 +20,14 @@ import hasim_common::*;
 import hasim_modellib::*;
 import hasim_isa::*;
 `include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/chip_base_types.bsh"
 
 import Vector::*;
 import FShow::*;
+
+// Mapping from cpu id to context ids and back.
+function CPU_INSTANCE_ID tokCpuInstanceId(TOKEN tok) = tokContextId(tok);
+function CONTEXT_ID getContextId(CPU_INSTANCE_ID cpu_iid) = cpu_iid;
 
 typedef Bit#(1) UNIT;
 

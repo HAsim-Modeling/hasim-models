@@ -30,6 +30,7 @@ import FIFO::*;
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/funcp_interface.bsh"
@@ -45,12 +46,12 @@ import FIFOF::*;
 // mkDMem
 
 
-// Multi-context DMem module which interacts with a store buffer and a data cache. 
+// Multiplexed DMem module which interacts with a store buffer and a data cache. 
 // Note that this version assumes that the cache is blocking.
 
 // The module may block on either the cache or the store buffer response.
 
-// This module is pipelined across contexts. Stages:
+// This module is pipelined across instances. Stages:
 
 // Stage 1* -> Stage 2** -> Stage 3 -> Stage 4 -> Stage 5
 // * Stage 1 stalls on a bubble from the MemQ. It dequeues the cache response.
@@ -64,7 +65,7 @@ import FIFOF::*;
 
 module [HASIM_MODULE] mkDMem ();
 
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_mem.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_mem.out");
 
     // ****** Soft Connections ******
 
@@ -72,32 +73,32 @@ module [HASIM_MODULE] mkDMem ();
 
     // ****** Ports *****
     
-    PORT_STALL_RECV_MULTICTX#(DMEM_BUNDLE)         bundleFromDMemQ <- mkPortStallRecv_MultiCtx("DMemQ");
-    PORT_RECV_MULTICTX#(VOID)                    creditFromCommitQ <- mkPortRecv_MultiCtx("commitQ_credit", 1);
+    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)       bundleFromDMemQ   <- mkPortStallRecv_Multiplexed("DMemQ");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                    creditFromCommitQ <- mkPortRecv_Multiplexed("commitQ_credit", 1);
 
 
-    PORT_SEND_MULTICTX#(DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_MultiCtx("CPU_to_DCache_load");
-    PORT_SEND_MULTICTX#(SB_INPUT)                   reqToSB        <- mkPortSend_MultiCtx("DMem_to_SB_req");
-    PORT_SEND_MULTICTX#(WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_MultiCtx("DMem_to_WB_search");
-    PORT_SEND_MULTICTX#(Tuple2#(DMEM_BUNDLE, Bool)) allocToCommitQ <- mkPortSend_MultiCtx("commitQ_alloc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_Multiplexed("CPU_to_DCache_load");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_INPUT)                   reqToSB        <- mkPortSend_Multiplexed("DMem_to_SB_req");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_Multiplexed("DMem_to_WB_search");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Bool)) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
 
-    PORT_SEND_MULTICTX#(BUS_MESSAGE)                writebackToDec <- mkPortSend_MultiCtx("DMem_to_Dec_hit_writeback");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
 
     // Zero-latency response ports for stage 2.
-    PORT_RECV_MULTICTX#(DCACHE_LOAD_OUTPUT_IMMEDIATE)  loadRspFromDCache <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_load_immediate", 0);
-    PORT_RECV_MULTICTX#(WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvGuarded_MultiCtx("WB_to_DMem_rsp", 0);
-    PORT_RECV_MULTICTX#(SB_OUTPUT)                     rspFromSB         <- mkPortRecvGuarded_MultiCtx("SB_to_DMem_rsp", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE)  loadRspFromDCache <- mkPortRecvGuarded_Multiplexed("DCache_to_CPU_load_immediate", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvGuarded_Multiplexed("WB_to_DMem_rsp", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)                     rspFromSB         <- mkPortRecvGuarded_Multiplexed("SB_to_DMem_rsp", 0);
 
     // ****** UnModel State ******
     
-    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
     FIFO#(Bool)       stage3Q <- mkFIFO();
 
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS) inports  = newVector();
-    Vector#(5, PORT_CONTROLS) outports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromDMemQ.ctrl;
     inports[1]  = creditFromCommitQ.ctrl;
     outports[0] = loadToDCache.ctrl;
@@ -106,11 +107,11 @@ module [HASIM_MODULE] mkDMem ();
     outports[3] = searchToWB.ctrl;
     outports[4] = bundleFromDMemQ.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     // ****** Events and Stats ******
 
-    EVENT_RECORDER_MULTICTX eventMem <- mkEventRecorder_MultiCtx(`EVENTS_DMEM_INSTRUCTION_MEM);
+    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventMem <- mkEventRecorder_Multiplexed(`EVENTS_DMEM_INSTRUCTION_MEM);
 
     
     // ****** Rules ******
@@ -128,17 +129,17 @@ module [HASIM_MODULE] mkDMem ();
     rule stage1_begin (True);
     
         // Begin a model cycle.
-        let ctx <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(ctx);
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
     
         // Let's see if we have room in our output buffers.
-        let credit_from_commitQ <- creditFromCommitQ.receive(ctx);
+        let credit_from_commitQ <- creditFromCommitQ.receive(cpu_iid);
     
-        if (isValid(credit_from_commitQ) && bundleFromDMemQ.canDeq(ctx))
+        if (isValid(credit_from_commitQ) && bundleFromDMemQ.canDeq(cpu_iid))
         begin
 
             // The DMemQ has an instruction in it... and the CommitQ has room.
-            let bundle = bundleFromDMemQ.peek(ctx);
+            let bundle = bundleFromDMemQ.peek(cpu_iid);
             let tok = bundle.token;
 
             // Let's see if we should contact the store buffer and dcache.
@@ -146,31 +147,31 @@ module [HASIM_MODULE] mkDMem ();
             begin
 
                 // It's a load which did not page fault.
-                debugLog.record_next_cycle(ctx, fshow("LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, fshow("LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                 // Check if the the load result is either in the cache or the store buffer or the write buffer.
-                reqToSB.send(ctx, tagged Valid initSBSearch(bundle));
-                searchToWB.send(ctx, tagged Valid initWBSearch(bundle));
-                loadToDCache.send(ctx, tagged Valid initDCacheLoad(bundle));
+                reqToSB.send(cpu_iid, tagged Valid initSBSearch(bundle));
+                searchToWB.send(cpu_iid, tagged Valid initWBSearch(bundle));
+                loadToDCache.send(cpu_iid, tagged Valid initDCacheLoad(bundle));
 
             end
             else if (bundle.isStore && !tokIsPoisoned(tok) && !bundle.isJunk)
             begin
                 
                 // A store which did not page fault.
-                debugLog.record_next_cycle(ctx, fshow("STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, fshow("STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                 // Tell the store buffer about this new store.
-                reqToSB.send(ctx, tagged Valid initSBComplete(bundle));
+                reqToSB.send(cpu_iid, tagged Valid initSBComplete(bundle));
 
                 // No load to the DCache. (The write buffer will do the store after it leaves the store buffer.)
-                loadToDCache.send(ctx, tagged Invalid);
-                searchToWB.send(ctx, tagged Invalid);
+                loadToDCache.send(cpu_iid, tagged Invalid);
+                searchToWB.send(cpu_iid, tagged Invalid);
 
                 // Add it to the CommitQ already completed.
-                bundleFromDMemQ.doDeq(ctx);
-                eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(tok)));
-                allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, True));
+                bundleFromDMemQ.doDeq(cpu_iid);
+                eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(tok)));
+                allocToCommitQ.send(cpu_iid, tagged Valid tuple2(bundle, True));
 
 
             end
@@ -178,17 +179,17 @@ module [HASIM_MODULE] mkDMem ();
             begin
 
                 // Not a memory operation. (Or a faulted memory operation.)
-                debugLog.record_next_cycle(ctx, fshow("NO-MEMORY ") + fshow(tok));
+                debugLog.record_next_cycle(cpu_iid, fshow("NO-MEMORY ") + fshow(tok));
 
                 // Don't tell the cache/SB/WB about it.
-                reqToSB.send(ctx, tagged Invalid);
-                searchToWB.send(ctx, tagged Invalid);
-                loadToDCache.send(ctx, tagged Invalid);
+                reqToSB.send(cpu_iid, tagged Invalid);
+                searchToWB.send(cpu_iid, tagged Invalid);
+                loadToDCache.send(cpu_iid, tagged Invalid);
 
                 // Add it to the CommitQ already completed.
-                bundleFromDMemQ.doDeq(ctx);
-                eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(tok)));
-                allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, True));
+                bundleFromDMemQ.doDeq(cpu_iid);
+                eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(tok)));
+                allocToCommitQ.send(cpu_iid, tagged Valid tuple2(bundle, True));
 
             end
 
@@ -197,22 +198,22 @@ module [HASIM_MODULE] mkDMem ();
         begin
 
             // A bubble.
-            debugLog.record_next_cycle(ctx, fshow("BUBBLE"));
+            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
 
             // No requests for the store buffer or dcache.
-            reqToSB.send(ctx, tagged Invalid);
-            loadToDCache.send(ctx, tagged Invalid);
-            searchToWB.send(ctx, tagged Invalid);
+            reqToSB.send(cpu_iid, tagged Invalid);
+            loadToDCache.send(cpu_iid, tagged Invalid);
+            searchToWB.send(cpu_iid, tagged Invalid);
             
             // Propogate the bubble.
-            bundleFromDMemQ.noDeq(ctx);
-            allocToCommitQ.send(ctx, tagged Invalid);
-            eventMem.recordEvent(ctx, tagged Invalid);
+            bundleFromDMemQ.noDeq(cpu_iid);
+            allocToCommitQ.send(cpu_iid, tagged Invalid);
+            eventMem.recordEvent(cpu_iid, tagged Invalid);
 
         end
 
         // Get the sb + wb + dcache response in the next stage.
-        stage2Q.enq(ctx);
+        stage2Q.enq(cpu_iid);
 
     endrule
 
@@ -226,13 +227,13 @@ module [HASIM_MODULE] mkDMem ();
     rule stage2_loadRsp (True);
 
         // Get our local context from the previous stage.
-        let ctx = stage2Q.first();
+        let cpu_iid = stage2Q.first();
         stage2Q.deq();
         
         // Get the responses from the store buffer and dcache.
-        let m_sb_rsp <- rspFromSB.receive(ctx);
-        let m_wb_rsp <- rspFromWB.receive(ctx);
-        let m_dc_rsp <- loadRspFromDCache.receive(ctx);
+        let m_sb_rsp <- rspFromSB.receive(cpu_iid);
+        let m_wb_rsp <- rspFromWB.receive(cpu_iid);
+        let m_dc_rsp <- loadRspFromDCache.receive(cpu_iid);
 
         if (m_sb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged SB_hit)
         begin
@@ -240,10 +241,10 @@ module [HASIM_MODULE] mkDMem ();
             // We found the data in the Store buffer, 
             // so we don't have to look at the DCache response or Write Buffer response.
             // (Stores in the SB are always younger than those.)
-            debugLog.record(ctx, fshow("SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
+            debugLog.record(cpu_iid, fshow("SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
             
             // Send the writeback to decode.
-            writebackToDec.send(ctx, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
             
             // Pass it to the next stage through the functional partition, 
             // which actually retrieves the data.
@@ -258,10 +259,10 @@ module [HASIM_MODULE] mkDMem ();
         
             // We found the data in the Store buffer, 
             // so we don't have to look at the DCache response.
-            debugLog.record(ctx, fshow("WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
+            debugLog.record(cpu_iid, fshow("WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
             // Send the writeback to decode.
-            writebackToDec.send(ctx, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
             
             // Pass it to the next stage through the functional partition, 
             // which actually retrieves the data.
@@ -284,10 +285,10 @@ module [HASIM_MODULE] mkDMem ();
                 begin
 
                     // Well, the cache found it.
-                    debugLog.record(ctx, fshow("SB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                    debugLog.record(cpu_iid, fshow("SB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                     // Send the writeback to decode.
-                    writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests));
+                    writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
 
                     // Pass it to the next stage through the functional partition, 
                     // which actually retrieves the data.
@@ -301,10 +302,10 @@ module [HASIM_MODULE] mkDMem ();
                 begin
                 
                     // The cache missed, but is handling it. 
-                    debugLog.record(ctx, fshow("SB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                    debugLog.record(cpu_iid, fshow("SB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                     // No writebacks to report.
-                    writebackToDec.send(ctx, tagged Invalid);
+                    writebackToDec.send(cpu_iid, tagged Invalid);
 
                     // Pass it to the next stage through the functional partition, 
                     // which actually retrieves the data.
@@ -320,18 +321,18 @@ module [HASIM_MODULE] mkDMem ();
                 begin
                 
                     // The SB/WB Missed, and the cache needs us to retry.
-                    debugLog.record(ctx, fshow("SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                    debugLog.record(cpu_iid, fshow("SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
                 
                     // Don't pass it on to the commitQ. Don't do the load to the functional partition.
-                    bundleFromDMemQ.noDeq(ctx);
-                    allocToCommitQ.send(ctx, tagged Invalid);
-                    eventMem.recordEvent(ctx, tagged Invalid);
+                    bundleFromDMemQ.noDeq(cpu_iid);
+                    allocToCommitQ.send(cpu_iid, tagged Invalid);
+                    eventMem.recordEvent(cpu_iid, tagged Invalid);
 
                     // No writebacks to report.
-                    writebackToDec.send(ctx, tagged Invalid);
+                    writebackToDec.send(cpu_iid, tagged Invalid);
 
                     // End of model cycle. (Path 1)
-                    localCtrl.endModelCycle(ctx, 1);
+                    localCtrl.endModelCycle(cpu_iid, 1);
 
                 end
 
@@ -342,13 +343,13 @@ module [HASIM_MODULE] mkDMem ();
         begin
 
             // Otherwise we're just here because of something that wasn't a load.
-            debugLog.record(ctx, fshow("NON-LOAD FINISH "));
+            debugLog.record(cpu_iid, fshow("NON-LOAD FINISH "));
         
             // Don't report any writebacks.
-            writebackToDec.send(ctx, tagged Invalid);
+            writebackToDec.send(cpu_iid, tagged Invalid);
 
             // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(ctx, 2);
+            localCtrl.endModelCycle(cpu_iid, 2);
         end
         
     endrule

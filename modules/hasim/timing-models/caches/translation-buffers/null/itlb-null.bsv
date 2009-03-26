@@ -10,6 +10,7 @@ import FIFO::*;
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/fpga_components.bsh"
 
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
 // mkITLB
@@ -21,7 +22,7 @@ module [HASIM_MODULE] mkITLB();
 
     // UnModel State
     
-    FIFO#(IMEM_BUNDLE) stage2Q <- mkFIFO();
+    FIFO#(Tuple2#(CPU_INSTANCE_ID, IMEM_BUNDLE)) stage2Q <- mkFIFO();
 
 
     // ****** Soft Connections *******
@@ -33,28 +34,28 @@ module [HASIM_MODULE] mkITLB();
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_RECV_MULTICTX#(IMEM_BUNDLE) reqFromFet <- mkPortRecv_MultiCtx("CPU_to_ITLB_req", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_BUNDLE) reqFromFet <- mkPortRecv_Multiplexed("CPU_to_ITLB_req", 0);
 
     // Outgoing ports to CPU
-    PORT_SEND_MULTICTX#(ITLB_OUTPUT) rspToIMem <- mkPortSend_MultiCtx("ITLB_to_CPU_rsp");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT) rspToIMem <- mkPortSend_Multiplexed("ITLB_to_CPU_rsp");
 
 
     // ****** Local Controller ******
 
-    Vector#(1, PORT_CONTROLS) inports = newVector();
-    Vector#(1, PORT_CONTROLS) outports = newVector();
+    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
+    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0] = reqFromFet.ctrl;
     outports[0] = rspToIMem.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     rule stage1_instReq (True);
 
         // Begin a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
+        let cpu_iid <- localCtrl.startModelCycle();
 
         // read input port
-        let req_from_cpu <- reqFromFet.receive(ctx);
+        let req_from_cpu <- reqFromFet.receive(cpu_iid);
 
         // check request type
         case (req_from_cpu) matches
@@ -62,8 +63,8 @@ module [HASIM_MODULE] mkITLB();
 	    begin
 
                 // Propogate the bubble.
-	        rspToIMem.send(ctx, tagged Invalid);
-                localCtrl.endModelCycle(ctx, 1);
+	        rspToIMem.send(cpu_iid, tagged Invalid);
+                localCtrl.endModelCycle(cpu_iid, 1);
 
 	    end
 	    tagged Valid .req:
@@ -78,7 +79,7 @@ module [HASIM_MODULE] mkITLB();
                 doITranslate.makeReq(initFuncpReqDoITranslate(req.token, req.virtualAddress));
                 
                 // We assume the responses come back in order. Is this bad?
-                stage2Q.enq(req);
+                stage2Q.enq(tuple2(cpu_iid, req));
 
 	    end
 
@@ -89,7 +90,7 @@ module [HASIM_MODULE] mkITLB();
      
     rule stage2_instRsp (True);
         
-        let req = stage2Q.first();
+        match { .cpu_iid, .req} = stage2Q.first();
         stage2Q.deq();
         
         // Get the response from the functional partition.
@@ -99,14 +100,11 @@ module [HASIM_MODULE] mkITLB();
         // Update with the latest token.
         req.token = rsp.token;
 
-        // Get our context from the token.
-        let ctx = tokContextId(rsp.token);
-
         // Always hit.
-	rspToIMem.send(ctx, tagged Valid initITLBHit(req, rsp.physicalAddress));
+	rspToIMem.send(cpu_iid, tagged Valid initITLBHit(req, rsp.physicalAddress));
 
         // End of model cycle. (Path 2)
-        localCtrl.endModelCycle(ctx, 2);
+        localCtrl.endModelCycle(cpu_iid, 2);
      
     endrule
 

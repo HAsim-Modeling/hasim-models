@@ -10,6 +10,7 @@ import Vector::*;
 `include "asim/provides/fpga_components.bsh"
 `include "asim/provides/funcp_interface.bsh"
 
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
 module [HASIM_MODULE] mkDCache();
@@ -18,26 +19,26 @@ module [HASIM_MODULE] mkDCache();
     // ****** Ports ******
 
     // Incoming port from CPU with speculative stores
-    PORT_RECV_MULTICTX#(DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_load", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_load", 0);
 
     // Incoming port from CPU with committed stores
-    PORT_RECV_MULTICTX#(DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_store", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_store", 0);
 
     // Outgoing port to CPU with speculative immediate response
-    PORT_SEND_MULTICTX#(DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_load_immediate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_immediate");
 
     // Outgoing port to CPU with speculative delayed response
-    PORT_SEND_MULTICTX#(DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_load_delayed");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_delayed");
 
     // Outgpong port to CPU with commit immediate response
-    PORT_SEND_MULTICTX#(DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_store_immediate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_immediate");
 
     // Outgoing port to CPU with commit delayed response
-    PORT_SEND_MULTICTX#(DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_store_delayed");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
 
     // communication with local controller
-    Vector#(2, PORT_CONTROLS) inports = newVector();
-    Vector#(4, PORT_CONTROLS) outports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
+    Vector#(4, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = storeReqFromCPU.ctrl;
     outports[0] = loadRspImmToCPU.ctrl;
@@ -45,7 +46,7 @@ module [HASIM_MODULE] mkDCache();
     outports[2] = storeRspImmToCPU.ctrl;
     outports[3] = storeRspDelToCPU.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     // ****** Rules ******
 
@@ -56,10 +57,10 @@ module [HASIM_MODULE] mkDCache();
     rule stage1_loadReq (True);
 
         // Begin a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
+        let cpu_iid <- localCtrl.startModelCycle();
 
         // read store input port
-        let store_from_cpu <- storeReqFromCPU.receive(ctx);
+        let store_from_cpu <- storeReqFromCPU.receive(cpu_iid);
 
         // check request type
         case (store_from_cpu) matches
@@ -68,8 +69,8 @@ module [HASIM_MODULE] mkDCache();
 	    begin
 
                 // Propogate the bubble.
-	        storeRspImmToCPU.send(ctx, tagged Invalid);
-	        storeRspDelToCPU.send(ctx, tagged Invalid);
+	        storeRspImmToCPU.send(cpu_iid, tagged Invalid);
+	        storeRspDelToCPU.send(cpu_iid, tagged Invalid);
 
 	    end
 
@@ -80,15 +81,15 @@ module [HASIM_MODULE] mkDCache();
                 // An actual cache would do something with the physical 
                 // address to determine hit or miss. We always hit.
 
-	        storeRspImmToCPU.send(ctx, tagged Valid initDCacheStoreOk(tok));
-	        storeRspDelToCPU.send(ctx, tagged Invalid);
+	        storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
+	        storeRspDelToCPU.send(cpu_iid, tagged Invalid);
 
 	    end
 
         endcase
 
         // read load input port
-        let msg_from_cpu <- loadReqFromCPU.receive(ctx);
+        let msg_from_cpu <- loadReqFromCPU.receive(cpu_iid);
 
         // check request type
         case (msg_from_cpu) matches
@@ -97,11 +98,11 @@ module [HASIM_MODULE] mkDCache();
 	    begin
 
                 // Propogate the bubble.
-	        loadRspImmToCPU.send(ctx, tagged Invalid);
-	        loadRspDelToCPU.send(ctx, tagged Invalid);
+	        loadRspImmToCPU.send(cpu_iid, tagged Invalid);
+	        loadRspDelToCPU.send(cpu_iid, tagged Invalid);
                 
-                // End of model cycle. (Path 1)
-                localCtrl.endModelCycle(ctx, 1);
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
 
 	    end
 
@@ -112,11 +113,11 @@ module [HASIM_MODULE] mkDCache();
                 // An actual cache would do something with the physical 
                 // address to determine hit or miss. We always hit.
 
-	        loadRspImmToCPU.send(ctx, tagged Valid initDCacheLoadHit(req));
-	        loadRspDelToCPU.send(ctx, tagged Invalid);
+	        loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadHit(req));
+	        loadRspDelToCPU.send(cpu_iid, tagged Invalid);
 
                 // End of model cycle. (Path 2)
-                localCtrl.endModelCycle(ctx, 2);
+            localCtrl.endModelCycle(cpu_iid, 2);
 
 	    end
 
@@ -125,6 +126,5 @@ module [HASIM_MODULE] mkDCache();
      
 
     endrule
-
 
 endmodule

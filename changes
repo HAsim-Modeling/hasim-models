@@ -2517,3 +2517,78 @@ Directory modules/hasim/timing-models/caches/null-caches
 * Remove doLoads from null dcache.
 
 Michael P.
+
+----------
+ruhler      Date: Thu Mar 26 13:41:36 EDT 2009  CSN: CSN-hasim-models-103
+                  Thu Mar 26 17:41:36 UTC 2009
+
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.awb      Locally Modified          102 
+ base-types/               Locally Added               0 
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Added               0 
+ chip-base-types.bsv       Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified          102 
+ rob.bsv                   Locally Modified          102 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          102 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          102 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          102 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          102 
+ itlb-null.bsv             Locally Modified          102 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ dcache-null.bsv           Locally Modified          102 
+ icache-null.bsv           Locally Modified          102 
+
+
+Changed modules to use *MULTIPLEXED with the number of instances NUM_CPUS in
+place of *MULTICTX. Multiplexed state is named as fooPool instead of ctx_foo.
+CPU_INSTANCE_ID replaces CONTEXT_ID. cpu_iid replaces ctx. Added functions for
+the trivial mapping from CONTEXT_ID to CPU_INSTANCE_ID and back. Added new
+chip_base_types which defines NUM_CPUS and CPU_INSTANCE_ID.
+

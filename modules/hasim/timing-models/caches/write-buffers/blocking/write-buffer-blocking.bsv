@@ -36,6 +36,7 @@ import FIFO::*;
 // ****** Timing Model imports ******
 
 `include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
@@ -52,39 +53,39 @@ typedef Bit#(TLog#(`WB_NUM_ENTRIES)) WB_INDEX;
 
 module [HASIM_MODULE] mkWriteBuffer ();
 
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_writebuffer.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_writebuffer.out");
 
 
     // ****** Model State (per Context) ******
     
-    MULTICTX#(Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))))    ctx_buff   <- mkMultiCtx(mkReg(replicate(Invalid)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))))    buffPool   <- mkMultiplexed(mkReg(replicate(Invalid)));
 
-    MULTICTX#(Reg#(WB_INDEX)) ctx_head <- mkMultiCtx(mkReg(0));
-    MULTICTX#(Reg#(WB_INDEX)) ctx_tail <- mkMultiCtx(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(WB_INDEX)) headPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(WB_INDEX)) tailPool <- mkMultiplexed(mkReg(0));
 
-    function Bool empty(CONTEXT_ID ctx) = ctx_head[ctx] == ctx_tail[ctx];
-    function Bool full(CONTEXT_ID ctx)  = ctx_head[ctx] == ctx_tail[ctx] + 1;
+    function Bool empty(CPU_INSTANCE_ID cpu_iid) = headPool[cpu_iid] == tailPool[cpu_iid];
+    function Bool full(CPU_INSTANCE_ID cpu_iid)  = headPool[cpu_iid] == tailPool[cpu_iid] + 1;
 
-    MULTICTX#(Reg#(Bool)) ctx_stalled <- mkMultiCtx(mkReg(False));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Bool)) stalledPool <- mkMultiplexed(mkReg(False));
     
     
     // ****** UnModel Pipeline State ******
 
-    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
-    FIFO#(CONTEXT_ID) stage3Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
     
     Reg#(Vector#(NUM_CONTEXTS, Bool)) stallForStoreRsp <- mkReg(replicate(False));
 
     // ****** Ports ******
 
-    PORT_RECV_MULTICTX#(WB_ENTRY)      enqFromSB  <- mkPortRecv_MultiCtx("SB_to_WB_enq", 1);
-    PORT_RECV_MULTICTX#(WB_SEARCH_INPUT) loadReqFromDMem <- mkPortRecv_MultiCtx("DMem_to_WB_search", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_ENTRY)      enqFromSB  <- mkPortRecv_Multiplexed("SB_to_WB_enq", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_INPUT) loadReqFromDMem <- mkPortRecv_Multiplexed("DMem_to_WB_search", 0);
 
-    PORT_SEND_MULTICTX#(VOID)          creditToSB <- mkPortSend_MultiCtx("WB_to_SB_credit");
-    PORT_SEND_MULTICTX#(DCACHE_STORE_INPUT) storeReqToDCache <- mkPortSend_MultiCtx("CPU_to_DCache_store");
-    PORT_SEND_MULTICTX#(WB_SEARCH_OUTPUT)   rspToDMem     <- mkPortSend_MultiCtx("WB_to_DMem_rsp");
-    PORT_RECV_MULTICTX#(DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_store_immediate", 0);
-    PORT_RECV_MULTICTX#(DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecvGuarded_MultiCtx("DCache_to_CPU_store_delayed", 0);
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)          creditToSB <- mkPortSend_Multiplexed("WB_to_SB_credit");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)   rspToDMem     <- mkPortSend_Multiplexed("WB_to_DMem_rsp");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvGuarded_Multiplexed("DCache_to_CPU_store_immediate", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecvGuarded_Multiplexed("DCache_to_CPU_store_delayed", 0);
 
     // ****** Soft Connections ******
     
@@ -93,14 +94,14 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS) inports  = newVector();
-    Vector#(2, PORT_CONTROLS) outports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = enqFromSB.ctrl;
     inports[1]  = loadReqFromDMem.ctrl;
     outports[0] = creditToSB.ctrl;
     outports[1] = storeReqToDCache.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Rules ******
@@ -111,21 +112,21 @@ module [HASIM_MODULE] mkWriteBuffer ();
     rule stage1_search (True);
 
         // Start a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(ctx);
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
 
-        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = ctx_buff[ctx];
+        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool[cpu_iid];
 
         // See if the DMem is searching.
-        let m_req <- loadReqFromDMem.receive(ctx);
+        let m_req <- loadReqFromDMem.receive(cpu_iid);
 
         case (m_req) matches
             tagged Invalid:
             begin
 
                 // Propogate the bubble.
-                debugLog.record_next_cycle(ctx, fshow("NO SEARCH"));
-                rspToDMem.send(ctx, Invalid);
+                debugLog.record_next_cycle(cpu_iid, fshow("NO SEARCH"));
+                rspToDMem.send(cpu_iid, Invalid);
 
             end
             tagged Valid .bundle:
@@ -154,17 +155,17 @@ module [HASIM_MODULE] mkWriteBuffer ();
                 begin
 
                     // We've got that address in the store buffer.
-                    debugLog.record_next_cycle(ctx, fshow("LOAD HIT ") + fshow(bundle.token));
+                    debugLog.record_next_cycle(cpu_iid, fshow("LOAD HIT ") + fshow(bundle.token));
 
-                    rspToDMem.send(ctx, tagged Valid initWBHit(bundle));
+                    rspToDMem.send(cpu_iid, tagged Valid initWBHit(bundle));
 
                 end
                 else
                 begin
 
                     // We don't have it.
-                    debugLog.record_next_cycle(ctx, fshow("LOAD MISS ") + fshow(bundle.token));
-                    rspToDMem.send(ctx, tagged Valid initWBMiss(bundle));
+                    debugLog.record_next_cycle(cpu_iid, fshow("LOAD MISS ") + fshow(bundle.token));
+                    rspToDMem.send(cpu_iid, tagged Valid initWBMiss(bundle));
 
                 end
 
@@ -172,24 +173,24 @@ module [HASIM_MODULE] mkWriteBuffer ();
         endcase
         
         // Continue to the next stage.
-        stage2Q.enq(ctx);
+        stage2Q.enq(cpu_iid);
 
     endrule
 
     rule stage2_alloc (True);
     
 
-        let ctx = stage2Q.first();
+        let cpu_iid = stage2Q.first();
         stage2Q.deq();
 
         // Get our local state based on the current context.
-        Reg#(WB_INDEX) tail = ctx_tail[ctx];
-        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = ctx_buff[ctx];
-        Reg#(WB_INDEX) head = ctx_head[ctx];
-        Reg#(Bool) stalled = ctx_stalled[ctx];
+        Reg#(WB_INDEX) tail = tailPool[cpu_iid];
+        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool[cpu_iid];
+        Reg#(WB_INDEX) head = headPool[cpu_iid];
+        Reg#(Bool) stalled = stalledPool[cpu_iid];
 
         // Check if the store buffer is enq'ing a new write.
-        let m_enq <- enqFromSB.receive(ctx);
+        let m_enq <- enqFromSB.receive(cpu_iid);
         
         let new_tail = tail;
         
@@ -197,15 +198,15 @@ module [HASIM_MODULE] mkWriteBuffer ();
         begin
         
             // Allocate a new slot.
-            // assert !full(ctx)
-            debugLog.record(ctx, fshow("ALLOC ") + fshow(tok));
+            // assert !full(cpu_iid)
+            debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
             buff[tail] <= tagged Valid tuple2(tok, addr);
 
             new_tail = tail + 1;
             
             // Tell the functional partition to commit the store.
             commitStores.makeReq(initFuncpReqCommitStores(tok));
-            stallForStoreRsp[ctx] <= True;
+            stallForStoreRsp[cpu_iid] <= True;
         
         end
         
@@ -214,16 +215,16 @@ module [HASIM_MODULE] mkWriteBuffer ();
         begin
 
             // Tell the SB we still have room.
-            debugLog.record(ctx, fshow("SEND CREDIT"));
-            creditToSB.send(ctx, tagged Valid (?));
+            debugLog.record(cpu_iid, fshow("SEND CREDIT"));
+            creditToSB.send(cpu_iid, tagged Valid (?));
 
         end
         else
         begin
 
             // Tell the SB we're full.
-            debugLog.record(ctx, fshow("NO CREDIT"));
-            creditToSB.send(ctx, tagged Invalid);
+            debugLog.record(cpu_iid, fshow("NO CREDIT"));
+            creditToSB.send(cpu_iid, tagged Invalid);
         
         end
         
@@ -233,11 +234,11 @@ module [HASIM_MODULE] mkWriteBuffer ();
         
         // If we were empty we're done. (The new allocation doesn't count.) 
         // Otherwise the next stage will try to deallocate the oldest write.
-        if (empty(ctx) || stalled)
+        if (empty(cpu_iid) || stalled)
         begin
 
             // No request to the DCache.
-            storeReqToDCache.send(ctx, tagged Invalid);
+            storeReqToDCache.send(cpu_iid, tagged Invalid);
 
         end
         else
@@ -245,12 +246,12 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
             // Request a store of the oldest write.
             match {.tok, .phys_addr} = validValue(buff[head]);
-            storeReqToDCache.send(ctx, tagged Valid initDCacheStore(tok, phys_addr));
+            storeReqToDCache.send(cpu_iid, tagged Valid initDCacheStore(tok, phys_addr));
 
         end
 
         // Continue to the next stage.
-        stage3Q.enq(ctx);
+        stage3Q.enq(cpu_iid);
 
     endrule
 
@@ -258,23 +259,23 @@ module [HASIM_MODULE] mkWriteBuffer ();
     rule stage3_storeRsp (!stallForStoreRsp[stage3Q.first()]);
     
         // Get our context from the previous stage.
-        let ctx = stage3Q.first();
+        let cpu_iid = stage3Q.first();
         stage3Q.deq();
     
         // Get our local state based on the current context.
-        Reg#(WB_INDEX) head = ctx_head[ctx];
-        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = ctx_buff[ctx];
-        Reg#(Bool) stalled = ctx_stalled[ctx];
+        Reg#(WB_INDEX) head = headPool[cpu_iid];
+        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool[cpu_iid];
+        Reg#(Bool) stalled = stalledPool[cpu_iid];
 
 
         // Get the responses from the DCache.
-        let m_imm_rsp <- immediateRspFromDCache.receive(ctx);
-        let m_del_rsp <- delayedRspFromDCache.receive(ctx);
+        let m_imm_rsp <- immediateRspFromDCache.receive(cpu_iid);
+        let m_del_rsp <- delayedRspFromDCache.receive(cpu_iid);
         
         if (stalled &&& m_del_rsp matches tagged Valid .rsp)
         begin
         
-            debugLog.record(ctx, fshow("STORE FILL"));
+            debugLog.record(cpu_iid, fshow("STORE FILL"));
             // We're no longer stalled. We'll retry the store next cycle.
             stalled <= False;
         
@@ -287,7 +288,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
                 tagged DCACHE_ok:
                 begin
                     
-                    debugLog.record(ctx, fshow("STORE OK"));
+                    debugLog.record(cpu_iid, fshow("STORE OK"));
                     // Dequeue the buffer.
                     buff[head] <= tagged Invalid;
                     head <= head + 1;
@@ -297,7 +298,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
                 tagged DCACHE_delay:
                 begin
                     
-                    debugLog.record(ctx, fshow("STORE DELAY"));
+                    debugLog.record(cpu_iid, fshow("STORE DELAY"));
                     // Stall on a response
                     stalled <= True;
                     
@@ -306,7 +307,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
                 tagged DCACHE_retryStore:
                 begin
                 
-                    debugLog.record(ctx, fshow("STORE RETRY"));
+                    debugLog.record(cpu_iid, fshow("STORE RETRY"));
                     // No change. Try again next cycle.
                     noAction;
                 
@@ -318,7 +319,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
 
         // End of model cycle. (Path 1)
-        localCtrl.endModelCycle(ctx, 1);
+        localCtrl.endModelCycle(cpu_iid, 1);
 
     endrule
     
@@ -328,8 +329,8 @@ module [HASIM_MODULE] mkWriteBuffer ();
         commitStores.deq();
         let tok = rsp.token;
         
-        let ctx = tokContextId(tok);
-        stallForStoreRsp[ctx] <= False;
+        let cpu_iid = tokCpuInstanceId(tok);
+        stallForStoreRsp[cpu_iid] <= False;
     
     endrule
 

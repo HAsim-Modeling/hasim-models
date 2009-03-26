@@ -30,6 +30,7 @@ import FIFO::*;
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/funcp_interface.bsh"
@@ -64,7 +65,7 @@ typedef enum
 
 // Certain instructions must stall the pipeline either before or after their execution.
 
-// This module is pipelined across contexts. Stages:
+// This module is pipelined across instance. Stages:
 
 // Stage 1 -> Stage 2* -> Stage 3 
 // * Stage 2 stalls once for each instruction until it gets a
@@ -78,21 +79,21 @@ typedef enum
 
 module [HASIM_MODULE] mkDecode ();
 
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_decode.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_decode.out");
 
 
     // ****** Ports *****
 
-    PORT_STALL_RECV_MULTICTX#(FETCH_BUNDLE) bundleFromInstQ <- mkPortStallRecv_MultiCtx("DecQ");
-    PORT_STALL_SEND_MULTICTX#(BUNDLE)        bundleToIssueQ <- mkPortStallSend_MultiCtx("IssueQ");
-    PORT_SEND_MULTICTX#(TOKEN)                    allocToSB <- mkPortSend_MultiCtx("Dec_to_SB_alloc");
+    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE) bundleFromInstQ <- mkPortStallRecv_Multiplexed("DecQ");
+    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, BUNDLE)        bundleToIssueQ <- mkPortStallSend_Multiplexed("IssueQ");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN)                    allocToSB <- mkPortSend_Multiplexed("Dec_to_SB_alloc");
     
-    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromExe <- mkPortRecv_MultiCtx("Exe_to_Dec_writeback", 1); //0?
-    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromMemHit <- mkPortRecv_MultiCtx("DMem_to_Dec_hit_writeback", 1); //0?
-    PORT_RECV_MULTICTX#(BUS_MESSAGE) writebackFromMemMiss <- mkPortRecv_MultiCtx("DMem_to_Dec_miss_writeback", 1); //0?
-    PORT_RECV_MULTICTX#(TOKEN)       writebackFromCom <- mkPortRecv_MultiCtx("Com_to_Dec_writeback", 1); //0?
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackFromExe <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1); //0?
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackFromMemHit <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1); //0?
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1); //0?
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)       writebackFromCom <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1); //0?
 
-    PORT_RECV_MULTICTX#(VOID)        creditFromSB <- mkPortRecv_MultiCtx("SB_to_Dec_credit", 1); //0?
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)        creditFromSB <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1); //0?
 
 
     // ****** Soft Connections ******
@@ -103,8 +104,8 @@ module [HASIM_MODULE] mkDecode ();
  
     // ****** Local Controller ******
 
-    Vector#(7, PORT_CONTROLS) inports  = newVector();
-    Vector#(3, PORT_CONTROLS) outports = newVector();
+    Vector#(7, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromInstQ.ctrl;
     inports[1]  = writebackFromExe.ctrl;
     inports[2]  = writebackFromMemHit.ctrl;
@@ -116,10 +117,10 @@ module [HASIM_MODULE] mkDecode ();
     outports[1] = bundleFromInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     // ****** Events ******
-    EVENT_RECORDER_MULTICTX eventDec <- mkEventRecorder_MultiCtx(`EVENTS_DECODE_INSTRUCTION_DECODE);
+    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventDec <- mkEventRecorder_Multiplexed(`EVENTS_DECODE_INSTRUCTION_DECODE);
 
     // ****** Model State (per Context) ******
 
@@ -136,17 +137,17 @@ module [HASIM_MODULE] mkDecode ();
     for (Integer i = maxInitReg; i < numFuncpPhyRegisters; i = i + 1)
         prfValidInit[i] = False;
     
-    MULTICTX#(COUNTER#(TOKEN_INDEX_SIZE))              ctx_numInstrsInFlight <- mkMultiCtx(mkLCounter(0));
-    MULTICTX#(Reg#(Bool))                                  ctx_drainingAfter <- mkMultiCtx(mkReg(False));
-    MULTICTX#(Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES))) ctx_memoDependencies <- mkMultiCtx(mkReg(Invalid));
-    MULTICTX#(Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)))      ctx_prfValid <- mkMultiCtx(mkReg(prfValidInit));
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(TOKEN_INDEX_SIZE))              numInstrsInFlightPool <- mkMultiplexed(mkLCounter(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Bool))                                  drainingAfterPool <- mkMultiplexed(mkReg(False));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES))) memoDependenciesPool <- mkMultiplexed(mkReg(Invalid));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)))      prfValidPool <- mkMultiplexed(mkReg(prfValidInit));
 
     // ****** UnModel Pipeline State ******
     
     Reg#(DEC2_STATE) stage2State <- mkReg(DEC2_ready);
     
-    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
-    FIFO#(CONTEXT_ID) stage3Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
     
     // ***** Helper Functions ******
     
@@ -158,8 +159,8 @@ module [HASIM_MODULE] mkDecode ();
     actionvalue
 
         // Extract local state from the context.
-        let ctx = tokContextId(tok);
-        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = ctx_prfValid[ctx];
+        let cpu_iid = tokCpuInstanceId(tok);
+        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = prfValidPool[cpu_iid];
 
         // Check if each source register is ready.
         Bool rdy = True;
@@ -171,7 +172,7 @@ module [HASIM_MODULE] mkDecode ();
 
                 if (! prfValid[pr])
                 begin
-                    debugLog.record(ctx, fshow(tok) + $format(": PR %0d (AR %0d) not ready", pr, ar));
+                    debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) not ready", pr, ar));
                 end
             end
         end
@@ -186,9 +187,9 @@ module [HASIM_MODULE] mkDecode ();
     // If an instruction is marked drainBefore, then we must wait until
     // the instructions older than it have committed.
 
-    function Bool readyDrainBefore(CONTEXT_ID ctx, ISA_INSTRUCTION inst);
+    function Bool readyDrainBefore(CPU_INSTANCE_ID cpu_iid, ISA_INSTRUCTION inst);
     
-        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = ctx_numInstrsInFlight[ctx];
+        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
     
         if (isaDrainBefore(inst))
             return numInstrsInFlight.value() == 0;
@@ -203,10 +204,10 @@ module [HASIM_MODULE] mkDecode ();
     // then we must wait until instructions older than the next instruction
     // have committed.
     
-    function Bool readyDrainAfter(CONTEXT_ID ctx);
+    function Bool readyDrainAfter(CPU_INSTANCE_ID cpu_iid);
     
-        Reg#(Bool)                     drainingAfter = ctx_drainingAfter[ctx];
-        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = ctx_numInstrsInFlight[ctx];
+        Reg#(Bool)                     drainingAfter = drainingAfterPool[cpu_iid];
+        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
     
         if (drainingAfter)
             return numInstrsInFlight.value() == 0;
@@ -223,9 +224,9 @@ module [HASIM_MODULE] mkDecode ();
     action
         
         // Extract local state from the context.
-        let ctx = tokContextId(tok);
-        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = ctx_prfValid[ctx];
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = ctx_numInstrsInFlight[ctx];
+        let cpu_iid = tokCpuInstanceId(tok);
+        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = prfValidPool[cpu_iid];
+        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
 
         // Update the scoreboard.
         Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
@@ -235,7 +236,7 @@ module [HASIM_MODULE] mkDecode ();
             if (dstmap[i] matches tagged Valid { .ar, .pr })
             begin
                 prf_valid[pr] = False;
-                debugLog.record(ctx, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
+                debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
             end
         end
         prfValid <= prf_valid;
@@ -278,20 +279,20 @@ module [HASIM_MODULE] mkDecode ();
     rule stage1_writebacks (True);
 
         // Begin model cycle.
-        let ctx <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(ctx);
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
         
         
         // Extract our local state from the context.
-        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = ctx_prfValid[ctx];
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = ctx_numInstrsInFlight[ctx];
+        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = prfValidPool[cpu_iid];
+        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
 
         // Record how many registers have been written or instructions killed.
         Integer instrs_removed = 0;
         Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
 
         // Process writes from EXE
-        let bus_exe <- writebackFromExe.receive(ctx);
+        let bus_exe <- writebackFromExe.receive(cpu_iid);
         if (bus_exe matches tagged Valid .msg)
         begin
             for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
@@ -301,14 +302,14 @@ module [HASIM_MODULE] mkDecode ();
                 begin
 
                     prf_valid[pr] = True;
-                    debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
+                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
 
                 end
             end
         end
 
         // Process writes from MEM hits
-        let bus_memh <- writebackFromMemHit.receive(ctx);
+        let bus_memh <- writebackFromMemHit.receive(cpu_iid);
         if (bus_memh matches tagged Valid .msg)
         begin
             for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
@@ -318,7 +319,7 @@ module [HASIM_MODULE] mkDecode ();
                 begin
 
                     prf_valid[pr] = True;
-                    debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
+                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
 
                 end
 
@@ -326,7 +327,7 @@ module [HASIM_MODULE] mkDecode ();
         end
 
         // Process writes from MEM misses.
-        let bus_memm <- writebackFromMemMiss.receive(ctx);
+        let bus_memm <- writebackFromMemMiss.receive(cpu_iid);
         if (bus_memm matches tagged Valid .msg)
         begin
             for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
@@ -336,7 +337,7 @@ module [HASIM_MODULE] mkDecode ();
                 begin
 
                     prf_valid[pr] = True;
-                    debugLog.record_next_cycle(ctx, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
+                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
 
                 end
 
@@ -344,11 +345,11 @@ module [HASIM_MODULE] mkDecode ();
         end
     
         // Process writes from Com. These can't have been retired.
-        let commit <- writebackFromCom.receive(ctx);
+        let commit <- writebackFromCom.receive(cpu_iid);
         if (commit matches tagged Valid .commit_tok)
         begin
 
-            debugLog.record_next_cycle(ctx, fshow(commit_tok) + $format(": Commit"));
+            debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
             numInstrsInFlight.down();
 
         end
@@ -357,7 +358,7 @@ module [HASIM_MODULE] mkDecode ();
         prfValid <= prf_valid;
 
         // Pass to the next stage.
-        stage2Q.enq(ctx);
+        stage2Q.enq(cpu_iid);
         
     endrule
 
@@ -371,18 +372,18 @@ module [HASIM_MODULE] mkDecode ();
     rule stage2_dependencies (stage2State == DEC2_ready);
 
         // Get the context from the previous stage.
-        let ctx = stage2Q.first();
+        let cpu_iid = stage2Q.first();
         
         // Extract local state from the context.
-        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = ctx_memoDependencies[ctx];
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
 
-        if (bundleToIssueQ.canEnq(ctx) && bundleFromInstQ.canDeq(ctx))
+        if (bundleToIssueQ.canEnq(cpu_iid) && bundleFromInstQ.canDeq(cpu_iid))
         begin
             
             // Issue Q has space and there's an instruction waiting.
                 
             // There is... 
-            let bundle = bundleFromInstQ.peek(ctx);
+            let bundle = bundleFromInstQ.peek(cpu_iid);
             let tok = bundle.token;
 
             // Let's get the dependencies, if we haven't already.                
@@ -400,7 +401,7 @@ module [HASIM_MODULE] mkDecode ();
 
                // We have the dependencies, advance this context to the next stage.
                stage2Q.deq();
-               stage3Q.enq(ctx);
+               stage3Q.enq(cpu_iid);
 
             end
 
@@ -409,22 +410,22 @@ module [HASIM_MODULE] mkDecode ();
         begin
 
             // There's a bubble. Nothing we can do.
-            debugLog.record(ctx, fshow("BUBBLE"));
-            eventDec.recordEvent(ctx, tagged Invalid);
+            debugLog.record(cpu_iid, fshow("BUBBLE"));
+            eventDec.recordEvent(cpu_iid, tagged Invalid);
             stage2Q.deq();
             
             // No allocation to the store buffer.
-            let m_credit <- creditFromSB.receive(ctx);
-            allocToSB.send(ctx, tagged Invalid);
+            let m_credit <- creditFromSB.receive(cpu_iid);
+            allocToSB.send(cpu_iid, tagged Invalid);
 
             // Don't dequeue the InstQ.
-            bundleFromInstQ.noDeq(ctx);
+            bundleFromInstQ.noDeq(cpu_iid);
 
             // Don't enqueue anything to the IssueQ. 
-            bundleToIssueQ.noEnq(ctx);
+            bundleToIssueQ.noEnq(cpu_iid);
             
             // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(ctx, 1);
+            localCtrl.endModelCycle(cpu_iid, 1);
 
         end
 
@@ -437,14 +438,14 @@ module [HASIM_MODULE] mkDecode ();
     rule stage2_dependenciesRsp (stage2State == DEC2_depsRsp);
     
         // Get the stalled context.
-        let ctx = stage2Q.first();
+        let cpu_iid = stage2Q.first();
 
         // Get the response from the functional partition.
         let rsp = getDependencies.getResp();
         getDependencies.deq();
         
         // Extract local state from the context.
-        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = ctx_memoDependencies[ctx];
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
     
         // Update dependencies.
         memoDependencies <= tagged Valid rsp;
@@ -454,7 +455,7 @@ module [HASIM_MODULE] mkDecode ();
         stage2Q.deq();
 
         // Pass it to the next stage.
-        stage3Q.enq(ctx);
+        stage3Q.enq(cpu_iid);
         
     endrule
 
@@ -468,19 +469,19 @@ module [HASIM_MODULE] mkDecode ();
     rule stage3_attemptIssue (True);
     
         // Extract our local state from the context.
-        let ctx = stage3Q.first();
+        let cpu_iid = stage3Q.first();
         stage3Q.deq();
-        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = ctx_memoDependencies[ctx];
-        Reg#(Bool)                                  drainingAfter = ctx_drainingAfter[ctx];
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
+        Reg#(Bool)                                  drainingAfter = drainingAfterPool[cpu_iid];
         
         // assert memoDependencies == Valid
         let rsp = validValue(memoDependencies);
-        // assert bundleFromInstQ.canDeq(ctx)
-        let fetchbundle = bundleFromInstQ.peek(ctx);
+        // assert bundleFromInstQ.canDeq(cpu_iid)
+        let fetchbundle = bundleFromInstQ.peek(cpu_iid);
         let tok = fetchbundle.token;
         
         // Get the store buffer credit in case it's a store...
-        let m_credit <- creditFromSB.receive(ctx);
+        let m_credit <- creditFromSB.receive(cpu_iid);
         let sb_has_credit = isValid(m_credit);
         
         // If it's a store, we need to be able to allocate a slot in the store buffer.
@@ -490,22 +491,22 @@ module [HASIM_MODULE] mkDecode ();
         // Check if we can issue.
         let data_ready <- readyToGo(tok, rsp.srcMap);
 
-        if (data_ready && store_ready && readyDrainAfter(ctx) && readyDrainBefore(ctx, fetchbundle.inst))
+        if (data_ready && store_ready && readyDrainAfter(cpu_iid) && readyDrainBefore(cpu_iid, fetchbundle.inst))
         begin
 
             // Yep... we're ready to send it. Make sure to send the newer token from the FP.
             let bundle = makeBundle(rsp.token, fetchbundle, rsp.dstMap);
-            debugLog.record(ctx, fshow(tok) + fshow(": SEND INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
-            eventDec.recordEvent(ctx, tagged Valid zeroExtend(pack(tok.index)));
+            debugLog.record(cpu_iid, fshow(tok) + fshow(": SEND INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
+            eventDec.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
             
             // If it's a store, reserve a slot in the store buffer.
             if (inst_is_store)
             begin
-                allocToSB.send(ctx, tagged Valid tok);
+                allocToSB.send(cpu_iid, tagged Valid tok);
             end
             else
             begin
-                allocToSB.send(ctx, tagged Invalid);
+                allocToSB.send(cpu_iid, tagged Invalid);
             end
             
             // Update the scoreboard to reflect this instruction issuing.
@@ -515,29 +516,29 @@ module [HASIM_MODULE] mkDecode ();
             drainingAfter <= isaDrainAfter(fetchbundle.inst);
 
             // Dequeue the InstQ.
-            bundleFromInstQ.doDeq(ctx);
+            bundleFromInstQ.doDeq(cpu_iid);
 
             // Enqueue the decoded instruction in the IssueQ.
-            bundleToIssueQ.doEnq(ctx, bundle);
+            bundleToIssueQ.doEnq(cpu_iid, bundle);
 
             // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(ctx, 2);
+            localCtrl.endModelCycle(cpu_iid, 2);
 
         end
         else
         begin
 
             // Nope, we're waiting on an older instruction to write its results.
-            debugLog.record(ctx, fshow(tok) + fshow(": STALL ON DEPENDENCY"));
-            eventDec.recordEvent(ctx, tagged Invalid);
+            debugLog.record(cpu_iid, fshow(tok) + fshow(": STALL ON DEPENDENCY"));
+            eventDec.recordEvent(cpu_iid, tagged Invalid);
             
             // Propogate the bubble.
-            bundleFromInstQ.noDeq(ctx);
-            bundleToIssueQ.noEnq(ctx);
-            allocToSB.send(ctx, tagged Invalid);
+            bundleFromInstQ.noDeq(cpu_iid);
+            bundleToIssueQ.noEnq(cpu_iid);
+            allocToSB.send(cpu_iid, tagged Invalid);
             
             // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(ctx, 3);
+            localCtrl.endModelCycle(cpu_iid, 3);
 
         end
 

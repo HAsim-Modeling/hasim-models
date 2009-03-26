@@ -11,6 +11,7 @@ import FIFO::*;
 `include "asim/provides/hasim_isa.bsh"
 `include "asim/provides/fpga_components.bsh"
 
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
 // mkICache
@@ -22,7 +23,7 @@ module [HASIM_MODULE] mkICache();
 
     // ***** Unmodel State ******
     
-    FIFO#(IMEM_BUNDLE) stage2Q <- mkFIFO();
+    FIFO#(Tuple2#(CPU_INSTANCE_ID, IMEM_BUNDLE)) stage2Q <- mkFIFO();
 
 
     // ****** Soft Connections *******
@@ -34,30 +35,30 @@ module [HASIM_MODULE] mkICache();
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_RECV_MULTICTX#(ICACHE_INPUT) pcFromFet <- mkPortRecv_MultiCtx("CPU_to_ICache_req", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT) pcFromFet <- mkPortRecv_Multiplexed("CPU_to_ICache_req", 0);
 
     // Outgoing ports to CPU
-    PORT_SEND_MULTICTX#(ICACHE_OUTPUT_IMMEDIATE) immToFet <- mkPortSend_MultiCtx("ICache_to_CPU_immediate");
-    PORT_SEND_MULTICTX#(ICACHE_OUTPUT_DELAYED)   delToFet <- mkPortSend_MultiCtx("ICache_to_CPU_delayed");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immToFet <- mkPortSend_Multiplexed("ICache_to_CPU_immediate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)   delToFet <- mkPortSend_Multiplexed("ICache_to_CPU_delayed");
 
 
     // ****** Local Controller ******
 
-    Vector#(1, PORT_CONTROLS) inports = newVector();
-    Vector#(2, PORT_CONTROLS) outports = newVector();
+    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0] = pcFromFet.ctrl;
     outports[0] = immToFet.ctrl;
     outports[1] = delToFet.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     rule stage1_instReq (True);
 
         // Begin a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
+        let cpu_iid <- localCtrl.startModelCycle();
 
         // read input port
-        let msg_from_cpu <- pcFromFet.receive(ctx);
+        let msg_from_cpu <- pcFromFet.receive(cpu_iid);
 
         // check request type
         case (msg_from_cpu) matches
@@ -66,9 +67,9 @@ module [HASIM_MODULE] mkICache();
 	    begin
 
                 // Propogate the bubble.
-	        immToFet.send(ctx, tagged Invalid);
-	        delToFet.send(ctx, tagged Invalid);
-                localCtrl.endModelCycle(ctx, 1);
+	        immToFet.send(cpu_iid, tagged Invalid);
+	        delToFet.send(cpu_iid, tagged Invalid);
+                localCtrl.endModelCycle(cpu_iid, 1);
 
 	    end
 
@@ -82,7 +83,7 @@ module [HASIM_MODULE] mkICache();
                 // Pass it to the next stage through the functional partition, 
                 // which actually retrieves the instruction.
                 getInstruction.makeReq(initFuncpReqGetInstruction(req.token));
-                stage2Q.enq(req);
+                stage2Q.enq(tuple2(cpu_iid, req));
                         
 
 	    end
@@ -98,22 +99,18 @@ module [HASIM_MODULE] mkICache();
         let rsp = getInstruction.getResp();
         getInstruction.deq();
 
-        let bundle = stage2Q.first();
+        match {.cpu_iid, .bundle} = stage2Q.first();
         stage2Q.deq();
         
         // Update the bundle with the latest token info.
         bundle.token = rsp.token;
 
-        // Get our context from the token.
-        let ctx = tokContextId(rsp.token);
-
-
         // Always hit.
-	immToFet.send(ctx, tagged Valid initICacheHit(bundle, rsp.instruction));
-	delToFet.send(ctx, tagged Invalid);
+	immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));
+	delToFet.send(cpu_iid, tagged Invalid);
 
         // End of model cycle. (Path 2)
-        localCtrl.endModelCycle(ctx, 2);
+        localCtrl.endModelCycle(cpu_iid, 2);
      
     endrule
 

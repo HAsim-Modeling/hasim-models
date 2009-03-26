@@ -36,6 +36,7 @@ import FIFOF::*;
 
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
@@ -50,48 +51,48 @@ module [HASIM_MODULE] mkCommitQueue
     // interface:
         ();
     
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_commitq.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_commitq.out");
 
 
     // ****** Model State (per Context) ******
 
     // Which tokens are allocated.
-    MULTICTX#(Reg#(Vector#(NUM_TOKENS, Bool)))            ctx_allocated   <- mkMultiCtx(mkReg(replicate(False)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(NUM_TOKENS, Bool)))            allocatedPool   <- mkMultiplexed(mkReg(replicate(False)));
     
     // Which tokens are complete? (Ready to issue)
-    MULTICTX#(Reg#(Vector#(NUM_TOKENS, Bool)))            ctx_complete    <- mkMultiCtx(mkReg(replicate(False)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(NUM_TOKENS, Bool)))            completePool    <- mkMultiplexed(mkReg(replicate(False)));
 
     // Token destinations.
     // Should this be block ram?
-    MULTICTX#(LUTRAM#(TOKEN_ID, Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)))) ctx_dests <- mkMultiCtx(mkLUTRAM(replicate(tagged Invalid)));
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(TOKEN_ID, Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)))) destsPool <- mkMultiplexed(mkLUTRAM(replicate(tagged Invalid)));
 
     // How many slots are taken?
-    MULTICTX#(Reg#(TOKEN_ID))                 ctx_numElems    <- mkMultiCtx(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_ID))                 numElemsPool    <- mkMultiplexed(mkReg(0));
     
     // What's the oldest token we know about? (The next one which should issue when it's ready.)
-    MULTICTX#(Reg#(TOKEN_ID))                 ctx_oldestTok <- mkMultiCtx(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_ID))                 oldestTokPool <- mkMultiplexed(mkReg(0));
 
     // Queues to rendezvous with instructions.
-    MULTICTX#(FIFOF#(DMEM_BUNDLE))   ctx_bundleQ <- mkMultiCtx(mkUGSizedFIFOF(`CQ_NUM_SLOTS));
+    MULTIPLEXED#(NUM_CPUS, FIFOF#(DMEM_BUNDLE))   bundleQPool <- mkMultiplexed(mkUGSizedFIFOF(`CQ_NUM_SLOTS));
 
     // ****** UnModel State ******
     
-    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
-    FIFO#(CONTEXT_ID) stage3Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTICTX#(Tuple2#(DMEM_BUNDLE, Bool)) allocateFromDMem <- mkPortRecv_MultiCtx("commitQ_alloc", 0);
-    PORT_RECV_MULTICTX#(DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_MultiCtx("DCache_to_CPU_load_delayed", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Bool)) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 0);
 
-    PORT_STALL_SEND_MULTICTX#(DMEM_BUNDLE) bundleToRetireQ <- mkPortStallSend_MultiCtx("RetireQ");
-    PORT_SEND_MULTICTX#(VOID)               creditToDMem <- mkPortSend_MultiCtx("commitQ_credit");
-    PORT_SEND_MULTICTX#(BUS_MESSAGE)        writebackToDec <- mkPortSend_MultiCtx("DMem_to_Dec_miss_writeback");
+    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) bundleToRetireQ <- mkPortStallSend_Multiplexed("RetireQ");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)               creditToDMem <- mkPortSend_Multiplexed("commitQ_credit");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)        writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_miss_writeback");
 
     // ****** Local Controller ******
 
-    Vector#(3, PORT_CONTROLS) inports  = newVector();
-    Vector#(3, PORT_CONTROLS) outports = newVector();
+    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = allocateFromDMem.ctrl;
     inports[1]  = rspFromDCacheDelayed.ctrl;
     inports[2]  = bundleToRetireQ.ctrl;
@@ -99,7 +100,7 @@ module [HASIM_MODULE] mkCommitQueue
     outports[1] = bundleToRetireQ.ctrl;
     outports[2] = writebackToDec.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Rules ******
@@ -113,31 +114,31 @@ module [HASIM_MODULE] mkCommitQueue
     rule stage1_deallocate (True);
     
         // Start a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(ctx);
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
             
-        // Get our local state based on the current context.
-        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = ctx_allocated[ctx];
-        Reg#(Vector#(NUM_TOKENS, Bool)) complete  = ctx_complete[ctx];
-        let dests = ctx_dests[ctx];
+        // Get our local state based on the current instance.
+        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = allocatedPool[cpu_iid];
+        Reg#(Vector#(NUM_TOKENS, Bool)) complete  = completePool[cpu_iid];
+        let dests = destsPool[cpu_iid];
 
-        Reg#(TOKEN_ID)  numElems = ctx_numElems[ctx];
-        Reg#(TOKEN_ID) oldestTok = ctx_oldestTok[ctx];
+        Reg#(TOKEN_ID)  numElems = numElemsPool[cpu_iid];
+        Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
 
-        FIFOF#(DMEM_BUNDLE) bundleQ = ctx_bundleQ[ctx];
+        FIFOF#(DMEM_BUNDLE) bundleQ = bundleQPool[cpu_iid];
     
         // Let's see if the oldest token has been completed.
         // If so, send it to the retireQ.
 
-        if (bundleToRetireQ.canEnq(ctx) && allocated[oldestTok] &&& complete[oldestTok])
+        if (bundleToRetireQ.canEnq(cpu_iid) && allocated[oldestTok] &&& complete[oldestTok])
         begin
 
             // It's ready to go.
             let bundle = bundleQ.first();
-            debugLog.record_next_cycle(ctx, fshow("SEND READY: ") + fshow(bundle.token));
+            debugLog.record_next_cycle(cpu_iid, fshow("SEND READY: ") + fshow(bundle.token));
             
             // Send it to the retire queue.
-            bundleToRetireQ.doEnq(ctx, bundle);
+            bundleToRetireQ.doEnq(cpu_iid, bundle);
             
             // Deallocate this token.
             bundleQ.deq();
@@ -150,38 +151,38 @@ module [HASIM_MODULE] mkCommitQueue
         begin
             
             // We're not ready to send anything to the retireQ.
-            debugLog.record_next_cycle(ctx, fshow("NO SEND"));
-            bundleToRetireQ.noEnq(ctx);
+            debugLog.record_next_cycle(cpu_iid, fshow("NO SEND"));
+            bundleToRetireQ.noEnq(cpu_iid);
 
         end
         
         // Now let's check for miss responses from the ICache.
-        let m_complete <- rspFromDCacheDelayed.receive(ctx);
+        let m_complete <- rspFromDCacheDelayed.receive(cpu_iid);
         
         if (m_complete matches tagged Valid .rsp)
         begin
         
             // We've got a new response.
-            debugLog.record_next_cycle(ctx, fshow("COMPLETE: ") + fshow(rsp.token));
+            debugLog.record_next_cycle(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.token));
             
             // Mark this token as complete.
             TOKEN_ID tok_id = tokTokenId(rsp.token);
             complete[tok_id] <= True; // Note: this is harmless if this was already true. In a real completion buffer we would NOT want to override an earlier completion. IE the SB hit, so drop the cache miss response when it finally comes.
             
             // Tell Decode to writeback the destination.
-            writebackToDec.send(ctx, tagged Valid genBusMessage(rsp.token, dests.sub(tok_id)));
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.token, dests.sub(tok_id)));
 
         end
         else
         begin
 
             // No writebacks to report.
-            writebackToDec.send(ctx, tagged Invalid);
+            writebackToDec.send(cpu_iid, tagged Invalid);
 
         end
 
-        // Pass this context to the next stage.
-        stage2Q.enq(ctx);
+        // Pass this instance to the next stage.
+        stage2Q.enq(cpu_iid);
 
     endrule
     
@@ -196,22 +197,22 @@ module [HASIM_MODULE] mkCommitQueue
 
     rule stage2_allocate (True);
 
-        // Get our context from the previous stage.
-        let ctx = stage2Q.first();
+        // Get our instance from the previous stage.
+        let cpu_iid = stage2Q.first();
         stage2Q.deq();
         
-        // Get our local state based on the context.
-        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = ctx_allocated[ctx];
-        Reg#(Vector#(NUM_TOKENS, Bool)) complete  = ctx_complete[ctx];
-        let dests = ctx_dests[ctx];
+        // Get our local state based on the instance.
+        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = allocatedPool[cpu_iid];
+        Reg#(Vector#(NUM_TOKENS, Bool)) complete  = completePool[cpu_iid];
+        let dests = destsPool[cpu_iid];
 
-        Reg#(TOKEN_ID)    numElems = ctx_numElems[ctx];
-        Reg#(TOKEN_ID) oldestTok = ctx_oldestTok[ctx];
+        Reg#(TOKEN_ID)    numElems = numElemsPool[cpu_iid];
+        Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
 
-        FIFOF#(DMEM_BUNDLE) bundleQ = ctx_bundleQ[ctx];
+        FIFOF#(DMEM_BUNDLE) bundleQ = bundleQPool[cpu_iid];
 
         // Check for any new allocations.
-        let m_alloc <- allocateFromDMem.receive(ctx);
+        let m_alloc <- allocateFromDMem.receive(cpu_iid);
         let new_num_elems = numElems;
 
         // If we just allocated the oldest guy, then this will tell us there's no need to search.
@@ -222,7 +223,7 @@ module [HASIM_MODULE] mkCommitQueue
 
             // A new allocation.
             let tok = bundle.token;
-            debugLog.record(ctx, fshow("ALLOC: ") + fshow(tok) + $format(" COMPLETE: %0b", pack(comp)));
+            debugLog.record(cpu_iid, fshow("ALLOC: ") + fshow(tok) + $format(" COMPLETE: %0b", pack(comp)));
             bundleQ.enq(bundle);
             complete[tokTokenId(tok)] <= comp;
             allocated[tokTokenId(tok)] <= True;
@@ -237,16 +238,16 @@ module [HASIM_MODULE] mkCommitQueue
         begin
         
             // We still have room.
-            debugLog.record(ctx, fshow("SEND CREDIT"));
-            creditToDMem.send(ctx, tagged Valid (?));
+            debugLog.record(cpu_iid, fshow("SEND CREDIT"));
+            creditToDMem.send(cpu_iid, tagged Valid (?));
 
         end
         else
         begin
 
             // We're full.
-            debugLog.record(ctx, fshow("NO CREDIT"));
-            creditToDMem.send(ctx, tagged Invalid);
+            debugLog.record(cpu_iid, fshow("NO CREDIT"));
+            creditToDMem.send(cpu_iid, tagged Invalid);
 
         end
         
@@ -257,13 +258,13 @@ module [HASIM_MODULE] mkCommitQueue
         if (new_num_elems != 0 && !(allocated[oldestTok] || allocating_oldest))
         begin
             // We have to search for it.
-            stage3Q.enq(ctx);
+            stage3Q.enq(cpu_iid);
         end
         else
         begin
             // We know it. 
             // End of Model Cycle. (path 1)
-            localCtrl.endModelCycle(ctx, 1);
+            localCtrl.endModelCycle(cpu_iid, 1);
         end
             
     endrule
@@ -277,12 +278,12 @@ module [HASIM_MODULE] mkCommitQueue
 
     rule stage3_findOldest (True);
     
-        // Get our context from the FIFO.
-        let ctx = stage3Q.first();
+        // Get our instance from the FIFO.
+        let cpu_iid = stage3Q.first();
         
-        // Get our local state based on the current context.
-        Reg#(TOKEN_ID) oldestTok = ctx_oldestTok[ctx];
-        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = ctx_allocated[ctx];
+        // Get our local state based on the current instance.
+        Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
+        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = allocatedPool[cpu_iid];
     
         // Check for the oldest allocated token.
         if (allocated[oldestTok])
@@ -291,7 +292,7 @@ module [HASIM_MODULE] mkCommitQueue
             // We've found it.
             stage3Q.deq();
             // End of model cycle. (path 2)
-            localCtrl.endModelCycle(ctx, 2);
+            localCtrl.endModelCycle(cpu_iid, 2);
 
         end
         else

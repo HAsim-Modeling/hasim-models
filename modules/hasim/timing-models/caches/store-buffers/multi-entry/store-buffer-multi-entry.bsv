@@ -36,6 +36,7 @@ import FIFO::*;
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 
 
@@ -48,7 +49,7 @@ typedef Bit#(TLog#(`SB_NUM_ENTRIES)) SB_INDEX;
 // This uses an associative memory. Therefore it is best for small sizes. 
 // Larger sizes would want to use BRAM or LUTRAM and sequentially search the RAMs.
 
-// This module is pipelined across contexts. Stages:
+// This module is pipelined across instances. Stages:
 // Stage 1 -> Stage 2
 // These stages will never stall.
 
@@ -57,40 +58,40 @@ typedef Bit#(TLog#(`SB_NUM_ENTRIES)) SB_INDEX;
 
 module [HASIM_MODULE] mkStoreBuffer ();
 
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_storebuffer.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_storebuffer.out");
 
 
     // ****** Model State (per Context) ******
     
-    MULTICTX#(Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))))       ctx_tokID       <- mkMultiCtx(mkReg(replicate(Invalid)));
-    MULTICTX#(Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS)))) ctx_physAddress <- mkMultiCtx(mkReg(replicate(Invalid)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))) tokIDPool       <- mkMultiplexed(mkReg(replicate(Invalid)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS)))) physAddressPool <- mkMultiplexed(mkReg(replicate(Invalid)));
 
-    MULTICTX#(Reg#(SB_INDEX)) ctx_oldestCommitted   <- mkMultiCtx(mkReg(0));
-    MULTICTX#(Reg#(SB_INDEX)) ctx_numToCommit       <- mkMultiCtx(mkReg(0));
-    MULTICTX#(Reg#(SB_INDEX)) ctx_nextFreeSlot      <- mkMultiCtx(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) oldestCommittedPool   <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) numToCommitPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) nextFreeSlotPool      <- mkMultiplexed(mkReg(0));
 
-    function Bool empty(CONTEXT_ID ctx) = ctx_nextFreeSlot[ctx] == ctx_oldestCommitted[ctx];
-    function Bool full(CONTEXT_ID ctx)  = ctx_oldestCommitted[ctx] == ctx_nextFreeSlot[ctx] + 1;
+    function Bool empty(CPU_INSTANCE_ID cpu_iid) = nextFreeSlotPool[cpu_iid] == oldestCommittedPool[cpu_iid];
+    function Bool full(CPU_INSTANCE_ID cpu_iid)  = oldestCommittedPool[cpu_iid] == nextFreeSlotPool[cpu_iid] + 1;
 
 
     // ****** UnModel Pipeline State ******
 
-    FIFO#(CONTEXT_ID) stage2Q <- mkFIFO();
-    FIFO#(CONTEXT_ID) stage3Q <- mkFIFO();
-    FIFO#(CONTEXT_ID) stage4Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
+    FIFO#(CPU_INSTANCE_ID) stage4Q <- mkFIFO();
     
-    Reg#(Vector#(NUM_CONTEXTS, Bool)) stallForStoreRsp <- mkReg(replicate(False));
+    Reg#(Vector#(NUM_CPUS, Bool)) stallForStoreRsp <- mkReg(replicate(False));
 
     // ****** Ports ******
 
-    PORT_RECV_MULTICTX#(TOKEN)             allocFromDec    <- mkPortRecv_MultiCtx("Dec_to_SB_alloc", 1);
-    PORT_RECV_MULTICTX#(SB_INPUT)          reqFromDMem     <- mkPortRecv_MultiCtx("DMem_to_SB_req", 0);
-    PORT_RECV_MULTICTX#(SB_DEALLOC_INPUT)  deallocFromCom  <- mkPortRecv_MultiCtx("Com_to_SB_dealloc", 1);
-    PORT_RECV_MULTICTX#(VOID)            creditFromWriteQ  <- mkPortRecv_MultiCtx("WB_to_SB_credit", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             allocFromDec    <- mkPortRecv_Multiplexed("Dec_to_SB_alloc", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_INPUT)          reqFromDMem     <- mkPortRecv_Multiplexed("DMem_to_SB_req", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_DEALLOC_INPUT)  deallocFromCom  <- mkPortRecv_Multiplexed("Com_to_SB_dealloc", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)            creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
 
-    PORT_SEND_MULTICTX#(SB_OUTPUT)      rspToDMem     <- mkPortSend_MultiCtx("SB_to_DMem_rsp");
-    PORT_SEND_MULTICTX#(VOID)          creditToDecode <- mkPortSend_MultiCtx("SB_to_Dec_credit");
-    PORT_SEND_MULTICTX#(WB_ENTRY)       storeToWriteQ <- mkPortSend_MultiCtx("SB_to_WB_enq");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)      rspToDMem     <- mkPortSend_Multiplexed("SB_to_DMem_rsp");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_ENTRY)       storeToWriteQ <- mkPortSend_Multiplexed("SB_to_WB_enq");
 
     // ****** Soft Connections ******
     
@@ -98,8 +99,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(4, PORT_CONTROLS) inports  = newVector();
-    Vector#(3, PORT_CONTROLS) outports = newVector();
+    Vector#(4, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = reqFromDMem.ctrl;
     inports[1]  = allocFromDec.ctrl;
     inports[2]  = deallocFromCom.ctrl;
@@ -108,7 +109,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     outports[1] = creditToDecode.ctrl;
     outports[2] = storeToWriteQ.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Rules ******
@@ -116,18 +117,18 @@ module [HASIM_MODULE] mkStoreBuffer ();
     rule stage1_alloc (True);
     
         // Start a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(ctx);
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = ctx_nextFreeSlot[ctx];
-        Reg#(SB_INDEX) oldestCommitted = ctx_oldestCommitted[ctx];
+        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = ctx_tokID[ctx];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = ctx_physAddress[ctx];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = physAddressPool[cpu_iid];
 
         // Check if the decode is allocating a new slot.
-        let m_alloc <- allocFromDec.receive(ctx);
+        let m_alloc <- allocFromDec.receive(cpu_iid);
         
         let new_free = nextFreeSlot;
         
@@ -135,8 +136,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
         begin
         
             // Allocate a new slot.
-            // assert !full(ctx)
-                        debugLog.record(ctx, fshow("ALLOC ") + fshow(tok));
+            // assert !full(cpu_iid)
+                        debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
             tokID[nextFreeSlot] <= tagged Valid tok;
 
             // We don't know its effective address yet.
@@ -151,16 +152,16 @@ module [HASIM_MODULE] mkStoreBuffer ();
         begin
 
             // Tell decode we're full.
-            debugLog.record_next_cycle(ctx, fshow("NO CREDIT"));
-            creditToDecode.send(ctx, tagged Invalid);
+            debugLog.record_next_cycle(cpu_iid, fshow("NO CREDIT"));
+            creditToDecode.send(cpu_iid, tagged Invalid);
 
         end
         else
         begin
 
             // Tell decode still have room.
-            debugLog.record_next_cycle(ctx, fshow("SEND CREDIT"));
-            creditToDecode.send(ctx, tagged Valid (?));
+            debugLog.record_next_cycle(cpu_iid, fshow("SEND CREDIT"));
+            creditToDecode.send(cpu_iid, tagged Valid (?));
         
         end
         
@@ -170,7 +171,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
 
         // Continue to the next stage.
-        stage2Q.enq(ctx);
+        stage2Q.enq(cpu_iid);
 
     endrule
 
@@ -179,23 +180,24 @@ module [HASIM_MODULE] mkStoreBuffer ();
     
     rule stage2_search (True);
 
-        let ctx = stage2Q.first();
+        let cpu_iid = stage2Q.first();
         stage2Q.deq();
 
         // Get our local state based on the current context.
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = ctx_tokID[ctx];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = ctx_physAddress[ctx];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID =
+tokIDPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = physAddressPool[cpu_iid];
 
         // See if the DMem is completing or searching.
-        let m_req <- reqFromDMem.receive(ctx);
+        let m_req <- reqFromDMem.receive(cpu_iid);
 
         case (m_req) matches
             tagged Invalid:
             begin
 
                 // Propogate the bubble.
-                debugLog.record(ctx, fshow("NO SEARCH"));
-                rspToDMem.send(ctx, Invalid);
+                debugLog.record(cpu_iid, fshow("NO SEARCH"));
+                rspToDMem.send(cpu_iid, Invalid);
 
             end
             tagged Valid .req:
@@ -234,17 +236,17 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
 
                         // We've got that address in the store buffer.
-                        debugLog.record(ctx, fshow("LOAD HIT ") + fshow(req.bundle.token));
+                        debugLog.record(cpu_iid, fshow("LOAD HIT ") + fshow(req.bundle.token));
 
-                        rspToDMem.send(ctx, tagged Valid initSBHit(req.bundle));
+                        rspToDMem.send(cpu_iid, tagged Valid initSBHit(req.bundle));
 
                     end
                     else
                     begin
 
                         // We don't have it.
-                        debugLog.record(ctx, fshow("LOAD MISS ") + fshow(req.bundle.token));
-                        rspToDMem.send(ctx, tagged Valid initSBMiss(req.bundle));
+                        debugLog.record(cpu_iid, fshow("LOAD MISS ") + fshow(req.bundle.token));
+                        rspToDMem.send(cpu_iid, tagged Valid initSBMiss(req.bundle));
 
                     end
 
@@ -253,7 +255,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 begin
 
                     // A completion of a previously allocated store.
-                    debugLog.record(ctx, fshow("COMPLETE STORE ") + fshow(req.bundle.token));
+                    debugLog.record(cpu_iid, fshow("COMPLETE STORE ") + fshow(req.bundle.token));
 
                     // Update with the actual physical address.
                     // (A real store buffer would also record the value.)
@@ -277,10 +279,10 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     doStores.makeReq(initFuncpReqDoStores(req.bundle.token));
 
                     // Don't end the model cycle until the store response has come in.
-                    stallForStoreRsp[ctx] <= True;
+                    stallForStoreRsp[cpu_iid] <= True;
 
                     // No need for a response.
-                    rspToDMem.send(ctx, tagged Invalid);
+                    rspToDMem.send(cpu_iid, tagged Invalid);
 
                 end
 
@@ -289,31 +291,31 @@ module [HASIM_MODULE] mkStoreBuffer ();
         endcase
         
         // Continue to the next stage.
-        stage3Q.enq(ctx);
+        stage3Q.enq(cpu_iid);
 
     endrule
     
     rule stage3_dealloc (True);
     
         // Get our context from the previous stage.
-        let ctx = stage3Q.first();
+        let cpu_iid = stage3Q.first();
         stage3Q.deq();
     
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = ctx_nextFreeSlot[ctx];
-        Reg#(SB_INDEX) oldestCommitted = ctx_oldestCommitted[ctx];
-        Reg#(SB_INDEX) numToCommit = ctx_numToCommit[ctx];
+        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
+        Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = ctx_tokID[ctx];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = tokIDPool[cpu_iid];
 
         // See if we're getting a deallocation request.
-        let m_dealloc <- deallocFromCom.receive(ctx);
+        let m_dealloc <- deallocFromCom.receive(cpu_iid);
         
         if (m_dealloc matches tagged Valid .req &&& req.reqType == SB_drop)
         begin
 
             // Invalidate the requested entry. We assume drop/dealloc requests come in allocation order.
-            debugLog.record(ctx, fshow("DROP REQ ") + fshow(req.token));
+            debugLog.record(cpu_iid, fshow("DROP REQ ") + fshow(req.token));
             tokID[oldestCommitted + numToCommit] <= tagged Invalid;
 
             // Record that the commit path has work to do.
@@ -324,7 +326,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         begin
 
             // Update the token with the latest value.
-            debugLog.record(ctx, fshow("DEALLOC REQ ") + fshow(req.token));
+            debugLog.record(cpu_iid, fshow("DEALLOC REQ ") + fshow(req.token));
             tokID[oldestCommitted + numToCommit] <= tagged Valid req.token;
 
             // Record that the commit path has work to do.
@@ -333,26 +335,26 @@ module [HASIM_MODULE] mkStoreBuffer ();
         end
         
         // Finish up in the next stage.
-        stage4Q.enq(ctx);
+        stage4Q.enq(cpu_iid);
         
     endrule
     
     rule stage4_commit (!stallForStoreRsp[stage4Q.first()]);
     
         // Get our context from the previous stage.
-        let ctx = stage4Q.first();
+        let cpu_iid = stage4Q.first();
         stage4Q.deq();
     
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = ctx_nextFreeSlot[ctx];
-        Reg#(SB_INDEX) oldestCommitted = ctx_oldestCommitted[ctx];
-        Reg#(SB_INDEX) numToCommit = ctx_numToCommit[ctx];
+        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
+        Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = ctx_tokID[ctx];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = ctx_physAddress[ctx];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = tokIDPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = physAddressPool[cpu_iid];
 
         // See if the Write Buffer has room.
-        let m_credit <- creditFromWriteQ.receive(ctx);
+        let m_credit <- creditFromWriteQ.receive(cpu_iid);
         let write_buff_has_credit = isValid(m_credit);
 
         // We need to dealloc if we have pending commmits.
@@ -363,12 +365,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 begin
                 
                     // If the oldest committed token is invalid then it was dropped. Just move over it.
-                    debugLog.record(ctx, fshow("JUNK DROPPED"));
+                    debugLog.record(cpu_iid, fshow("JUNK DROPPED"));
                     oldestCommitted <= oldestCommitted + 1;
                     numToCommit <= numToCommit - 1;
                     
                     // No guys to commit.
-                    storeToWriteQ.send(ctx, tagged Invalid);
+                    storeToWriteQ.send(cpu_iid, tagged Invalid);
 
                 end
                 tagged Valid .tok:
@@ -378,7 +380,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
 
                         // It's got room. Let's send the oldest store.
-                        debugLog.record(ctx, fshow("DEALLOC ") + fshow(tok));
+                        debugLog.record(cpu_iid, fshow("DEALLOC ") + fshow(tok));
 
                         // Dequeue the old entry.
                         tokID[oldestCommitted] <= tagged Invalid;
@@ -386,15 +388,15 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         numToCommit <= numToCommit - 1;
 
                         // Send it to the writeBuffer.
-                        storeToWriteQ.send(ctx, tagged Valid tuple2(tok, phys_addr));
+                        storeToWriteQ.send(cpu_iid, tagged Valid tuple2(tok, phys_addr));
 
                     end
                     else
                     begin
                     
                         // No room to commit this guy.
-                        debugLog.record(ctx, fshow("DEALLOC STALL ") + fshow(tok));
-                        storeToWriteQ.send(ctx, tagged Invalid);
+                        debugLog.record(cpu_iid, fshow("DEALLOC STALL ") + fshow(tok));
+                        storeToWriteQ.send(cpu_iid, tagged Invalid);
                     
                     end
                     
@@ -407,12 +409,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
         begin
 
             // No guys to commit.
-            debugLog.record(ctx, fshow("NO DEALLOC"));
-            storeToWriteQ.send(ctx, tagged Invalid);
+            debugLog.record(cpu_iid, fshow("NO DEALLOC"));
+            storeToWriteQ.send(cpu_iid, tagged Invalid);
         
         end
         
-        localCtrl.endModelCycle(ctx, 1);
+        localCtrl.endModelCycle(cpu_iid, 1);
 
     endrule
     
@@ -422,8 +424,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
         doStores.deq();
         let tok = rsp.token;
         
-        let ctx = tokContextId(tok);
-        stallForStoreRsp[ctx] <= False;
+        let cpu_iid = tokCpuInstanceId(tok);
+        stallForStoreRsp[cpu_iid] <= False;
     
     endrule
 

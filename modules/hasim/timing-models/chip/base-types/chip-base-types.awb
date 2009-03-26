@@ -1,0 +1,11 @@
+%AWB_START
+
+%name Chip Base Types
+%desc Chip Base Types
+%provides chip_base_types
+
+%attributes hasim model chip 
+
+%public chip-base-types.bsv
+
+%AWB_END

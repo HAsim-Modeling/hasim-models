@@ -36,6 +36,7 @@ import Vector::*;
 // ****** Timing Model imports *****
 
 `include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
@@ -64,26 +65,26 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Model State (per Context) ******
 
-    MULTICTX#(Reg#(IMEM_ITLB_EPOCH)) ctx_iTLBEpoch <- mkMultiCtx(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH)) iTLBEpochPool <- mkMultiplexed(mkReg(0));
 
 
     // ****** Ports ******
 
-    PORT_RECV_MULTICTX#(ITLB_OUTPUT) rspFromITLB <- mkPortRecv_MultiCtx("ITLB_to_CPU_rsp", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                                   rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 0);
 
-    PORT_SEND_MULTICTX#(ICACHE_INPUT)              physAddrToICache <- mkPortSend_MultiCtx("CPU_to_ICache_req");
-    PORT_SEND_MULTICTX#(Tuple3#(TOKEN, IMEM_ITLB_EPOCH, ISA_ADDRESS)) faultToPCCalc    <- mkPortSend_MultiCtx("IMem_to_Fet_fault");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                                  physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_req");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, IMEM_ITLB_EPOCH, ISA_ADDRESS))  faultToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_fault");
 
 
     // ****** Local Controller ******
         
-    Vector#(1, PORT_CONTROLS) inports  = newVector();
-    Vector#(2, PORT_CONTROLS) outports = newVector();
+    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = rspFromITLB.ctrl;
     outports[0] = physAddrToICache.ctrl;
     outports[1] = faultToPCCalc.ctrl;
     
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Rules ******
@@ -98,13 +99,13 @@ module [HASIM_MODULE] mkIMem
     rule stage1_iTLBRsp (True);
 
         // Start a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
+        let cpu_iid <- localCtrl.startModelCycle();
         
         // Get our local state using the current context.
-        Reg#(IMEM_ITLB_EPOCH) iTLBEpoch = ctx_iTLBEpoch[ctx];
+        Reg#(IMEM_ITLB_EPOCH) iTLBEpoch = iTLBEpochPool[cpu_iid];
         
         // See if there's a response from the ITLB.
-        let m_rsp <- rspFromITLB.receive(ctx);
+        let m_rsp <- rspFromITLB.receive(cpu_iid);
         
         if (m_rsp matches tagged Valid .rsp &&& rsp.bundle.iTLBEpoch == iTLBEpoch)
         begin
@@ -121,29 +122,29 @@ module [HASIM_MODULE] mkIMem
                 iTLBEpoch <= iTLBEpoch + 1;
 
                 // No physical address to load.
-                physAddrToICache.send(ctx, tagged Invalid);
+                physAddrToICache.send(cpu_iid, tagged Invalid);
 
                 // Redirect the PC to the handler.
                 // TODO: We have no way of getting a handler address currently. 
                 //       Instead just redirect back to the faulting PC.
                 //       This at least works for pseudo-random TLB models.
-                faultToPCCalc.send(ctx, tagged Valid tuple3(rsp.bundle.token, rsp.bundle.iCacheEpoch, rsp.bundle.virtualAddress));
+                faultToPCCalc.send(cpu_iid, tagged Valid tuple3(rsp.bundle.token, rsp.bundle.iCacheEpoch, rsp.bundle.virtualAddress));
 
                 // End of model cycle. (Path 1)
-                localCtrl.endModelCycle(ctx, 1);
+                localCtrl.endModelCycle(cpu_iid, 1);
 
             end
             else
             begin
 
                 // It was a successful translation. No need to resteer.
-                faultToPCCalc.send(ctx, tagged Invalid);
+                faultToPCCalc.send(cpu_iid, tagged Invalid);
 
                 // Send the physical address on to the ICache.
-                physAddrToICache.send(ctx, tagged Valid initICacheLoad(rsp.bundle));
+                physAddrToICache.send(cpu_iid, tagged Valid initICacheLoad(rsp.bundle));
 
                 // End of model cycle. (Path 2)
-                localCtrl.endModelCycle(ctx, 2);
+                localCtrl.endModelCycle(cpu_iid, 2);
 
             end
 
@@ -152,13 +153,13 @@ module [HASIM_MODULE] mkIMem
         begin
         
             // It's a bubble or a request from the wrong epoch.
-            faultToPCCalc.send(ctx, tagged Invalid);
+            faultToPCCalc.send(cpu_iid, tagged Invalid);
 
             // Send the physical address on to the ICache.
-            physAddrToICache.send(ctx, tagged Invalid);
+            physAddrToICache.send(cpu_iid, tagged Invalid);
 
             // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(ctx, 3);
+            localCtrl.endModelCycle(cpu_iid, 3);
 
         end
     

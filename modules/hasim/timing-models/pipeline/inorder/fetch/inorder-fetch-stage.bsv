@@ -36,6 +36,7 @@ import Vector::*;
 // ****** Timing Model imports *****
 
 `include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/memory_base_types.bsh"
@@ -64,14 +65,14 @@ import Vector::*;
 
 module [HASIM_MODULE] mkFetch ();
 
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_fetch.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_fetch.out");
 
 
     // ****** Model State (per Context) ******
 
-    MULTICTX#(Reg#(ISA_ADDRESS))        ctx_pc          <- mkMultiCtx(mkReg(`PROGRAM_START_ADDR));
-    MULTICTX#(Reg#(IMEM_ITLB_EPOCH))   ctx_iTLBEpoch   <- mkMultiCtx(mkReg(0));
-    MULTICTX#(Reg#(IMEM_ICACHE_EPOCH)) ctx_iCacheEpoch <- mkMultiCtx(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS))       pcPool          <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
+    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH))   iTLBEpochPool   <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ICACHE_EPOCH)) iCacheEpochPool <- mkMultiplexed(mkReg(0));
 
 
     // ****** Soft Connections ******
@@ -84,31 +85,31 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTICTX#(VOID)                              creditFromInstQ <- mkPortRecvInitial_MultiCtx("InstQ_to_Fet_credit", 1, (?));
-    PORT_RECV_MULTICTX#(Tuple3#(ISA_ADDRESS, IMEM_ITLB_EPOCH, IMEM_ICACHE_EPOCH)) newPCFromPCCalc <- mkPortRecv_MultiCtx("PCCalc_to_Fet_newpc", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                              creditFromInstQ <- mkPortRecvInitial_Multiplexed("InstQ_to_Fet_credit", 1, (?));
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(ISA_ADDRESS, IMEM_ITLB_EPOCH, IMEM_ICACHE_EPOCH)) newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
 
-    PORT_SEND_MULTICTX#(ITLB_INPUT) pcToITLB <- mkPortSend_MultiCtx("CPU_to_ITLB_req");
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, ISA_ADDRESS)) pcToBP <- mkPortSend_MultiCtx("Fet_to_BP_pc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
 
 
     // ****** Local Controller ******
         
-    Vector#(2, PORT_CONTROLS) inports  = newVector();
-    Vector#(2, PORT_CONTROLS) outports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = creditFromInstQ.ctrl;
     inports[1]  = newPCFromPCCalc.ctrl;
     outports[0] = pcToITLB.ctrl;
     outports[1] = pcToBP.ctrl;
     
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Events and Stats ******
 
-    EVENT_RECORDER_MULTICTX eventFet <- mkEventRecorder_MultiCtx(`EVENTS_FETCH_INSTRUCTION_FET);
+    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventFet <- mkEventRecorder_Multiplexed(`EVENTS_FETCH_INSTRUCTION_FET);
 
-    STAT_RECORDER_MULTICTX statCycles  <- mkStatCounter_MultiCtx(`STATS_FETCH_TOTAL_CYCLES);
-    STAT_RECORDER_MULTICTX statFet     <- mkStatCounter_MultiCtx(`STATS_FETCH_INSTS_FETCHED);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statCycles  <- mkStatCounter_Multiplexed(`STATS_FETCH_TOTAL_CYCLES);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statFet     <- mkStatCounter_Multiplexed(`STATS_FETCH_INSTS_FETCHED);
 
 
     // ****** Rules ******
@@ -121,18 +122,18 @@ module [HASIM_MODULE] mkFetch ();
     rule stage1_tokenReq (True);
 
         // Start a new model cycle
-        let ctx <- localCtrl.startModelCycle();
-        statCycles.incr(ctx);
-        debugLog.nextModelCycle(ctx);
-        modelCycle.send(ctx);
+        let cpu_iid <- localCtrl.startModelCycle();
+        statCycles.incr(cpu_iid);
+        debugLog.nextModelCycle(cpu_iid);
+        modelCycle.send(cpu_iid);
         
         // Get our local state using the context.
-        Reg#(ISA_ADDRESS)                pc = ctx_pc[ctx];
-        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = ctx_iTLBEpoch[ctx];
-        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = ctx_iCacheEpoch[ctx];
+        Reg#(ISA_ADDRESS)                pc = pcPool[cpu_iid];
+        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = iTLBEpochPool[cpu_iid];
+        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
         
         // Get the next PC
-        let m_newPC <- newPCFromPCCalc.receive(ctx);
+        let m_newPC <- newPCFromPCCalc.receive(cpu_iid);
         
         // Update the PC and front end epochs.
         if (m_newPC matches tagged Valid {.new_pc, .itlb_epoch, .icache_epoch})
@@ -145,31 +146,31 @@ module [HASIM_MODULE] mkFetch ();
         end
 
         // See if we have room in the instructionQ.
-        let m_credit <- creditFromInstQ.receive(ctx);
+        let m_credit <- creditFromInstQ.receive(cpu_iid);
         
         if (isValid(m_credit))
         begin
         
             // The instructionQ still has room...
             // Request a new token which we can send to the ICache.
-            newInFlight.makeReq(initFuncpReqNewInFlight(ctx));
+            newInFlight.makeReq(initFuncpReqNewInFlight(getContextId(cpu_iid)));
 
         end
         else
         begin
 
             // The instructionQ is full... Nothing we can do.
-            debugLog.record_next_cycle(ctx, $format("BUBBLE"));
-            eventFet.recordEvent(ctx, tagged Invalid);
+            debugLog.record_next_cycle(cpu_iid, $format("BUBBLE"));
+            eventFet.recordEvent(cpu_iid, tagged Invalid);
             
             // Don't send anything to the ITLB.
             
             // Don't request a new address translation or branch prediction.
-            pcToITLB.send(ctx, tagged Invalid);
-            pcToBP.send(ctx, tagged Invalid);
+            pcToITLB.send(cpu_iid, tagged Invalid);
+            pcToBP.send(cpu_iid, tagged Invalid);
 
             // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(ctx, 1);
+            localCtrl.endModelCycle(cpu_iid, 1);
 
         end
 
@@ -189,22 +190,22 @@ module [HASIM_MODULE] mkFetch ();
 
         // Get our context from the token.
         let tok = rsp.newToken;
-        let ctx = tokContextId(tok);
+        let cpu_iid = tokCpuInstanceId(tok);
 
         // Get our local state using the current context id.
-        Reg#(ISA_ADDRESS)                pc = ctx_pc[ctx];
-        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = ctx_iTLBEpoch[ctx];
-        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = ctx_iCacheEpoch[ctx];
+        Reg#(ISA_ADDRESS)                pc = pcPool[cpu_iid];
+        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = iTLBEpochPool[cpu_iid];
+        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
 
         // Send the current PC to the ITLB and Branch predictor.
-        pcToITLB.send(ctx, tagged Valid initIMemBundle(tok, iTLBEpoch, iCacheEpoch, pc));
-        pcToBP.send(ctx, tagged Valid tuple2(tok, pc));
+        pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(tok, iTLBEpoch, iCacheEpoch, pc));
+        pcToBP.send(cpu_iid, tagged Valid tuple2(tok, pc));
         
         // End of model cycle. (Path 2)
-        eventFet.recordEvent(ctx, tagged Valid truncate(pc));
-        statFet.incr(ctx);
-        debugLog.record(ctx, fshow("FETCH: ") + fshow(tok) + $format(" ADDR:0x%h", pc));
-        localCtrl.endModelCycle(ctx, 2);
+        eventFet.recordEvent(cpu_iid, tagged Valid truncate(pc));
+        statFet.incr(cpu_iid);
+        debugLog.record(cpu_iid, fshow("FETCH: ") + fshow(tok) + $format(" ADDR:0x%h", pc));
+        localCtrl.endModelCycle(cpu_iid, 2);
 
     endrule
 

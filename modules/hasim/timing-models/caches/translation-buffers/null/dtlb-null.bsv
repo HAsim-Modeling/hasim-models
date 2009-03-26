@@ -10,6 +10,7 @@ import FIFO::*;
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/fpga_components.bsh"
 
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
 // mkDTLB
@@ -21,7 +22,7 @@ module [HASIM_MODULE] mkDTLB();
 
     // UnModel State
     
-    FIFO#(DMEM_BUNDLE) stage2Q <- mkFIFO();
+    FIFO#(Tuple2#(CPU_INSTANCE_ID, DMEM_BUNDLE)) stage2Q <- mkFIFO();
 
 
     // ****** Soft Connections *******
@@ -33,34 +34,34 @@ module [HASIM_MODULE] mkDTLB();
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_STALL_RECV_MULTICTX#(DMEM_BUNDLE) reqFromInQ <- mkPortStallRecv_MultiCtx("DTLBQ");
+    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) reqFromInQ <- mkPortStallRecv_Multiplexed("DTLBQ");
 
     // Outgoing ports to CPU
-    PORT_STALL_SEND_MULTICTX#(DMEM_BUNDLE) rspToOutQ <- mkPortStallSend_MultiCtx("DMemQ");
+    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) rspToOutQ <- mkPortStallSend_Multiplexed("DMemQ");
 
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS) inports = newVector();
-    Vector#(2, PORT_CONTROLS) outports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0] = reqFromInQ.ctrl;
     inports[1] = rspToOutQ.ctrl;
     outports[0] = rspToOutQ.ctrl;
     outports[1] = reqFromInQ.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     rule stage1_instReq (True);
 
         // Begin a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
+        let cpu_iid <- localCtrl.startModelCycle();
 
         // check request type
-        if (reqFromInQ.canDeq(ctx) && rspToOutQ.canEnq(ctx))
+        if (reqFromInQ.canDeq(cpu_iid) && rspToOutQ.canEnq(cpu_iid))
 	begin
         
             // See if it's a memory operation.
-            let req = reqFromInQ.peek(ctx);
+            let req = reqFromInQ.peek(cpu_iid);
             
             if ((req.isLoad || req.isStore) && !tokIsPoisoned(req.token) && !req.isJunk)
             begin
@@ -73,17 +74,17 @@ module [HASIM_MODULE] mkDTLB();
                 doDTranslate.makeReq(initFuncpReqDoDTranslate(req.token));
             
                 // We assume the responses come back in order. Is this bad?
-                stage2Q.enq(req);
+                stage2Q.enq(tuple2(cpu_iid, req));
             
             end
             else
             begin
             
                 // It's not a memory operation, or it's junk. Just send it on.
-	        rspToOutQ.doEnq(ctx, initDTLBHit(req, ?));
-                reqFromInQ.doDeq(ctx);
+	        rspToOutQ.doEnq(cpu_iid, initDTLBHit(req, ?));
+                reqFromInQ.doDeq(cpu_iid);
                 // End of model cycle. (Path 1)
-                localCtrl.endModelCycle(ctx, 1);
+                localCtrl.endModelCycle(cpu_iid, 1);
             
             end
 
@@ -92,10 +93,10 @@ module [HASIM_MODULE] mkDTLB();
 	begin
 
             // Propogate the bubble.
-	    rspToOutQ.noEnq(ctx);
-            reqFromInQ.noDeq(ctx);
+	    rspToOutQ.noEnq(cpu_iid);
+            reqFromInQ.noDeq(cpu_iid);
             // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(ctx, 2);
+            localCtrl.endModelCycle(cpu_iid, 2);
 
 	end
          
@@ -104,7 +105,7 @@ module [HASIM_MODULE] mkDTLB();
      
     rule stage2_instRsp (True);
         
-        let req = stage2Q.first();
+        match { .cpu_iid, .req } = stage2Q.first();
         stage2Q.deq();
         
         // Get the response from the functional partition.
@@ -114,15 +115,12 @@ module [HASIM_MODULE] mkDTLB();
         // Update with the latest token.
         req.token = rsp.token;
 
-        // Get our context from the token.
-        let ctx = tokContextId(rsp.token);
-
         // Always hit.
-	rspToOutQ.doEnq(ctx, initDTLBHit(req, rsp.physicalAddress));
-        reqFromInQ.doDeq(ctx);
+	rspToOutQ.doEnq(cpu_iid, initDTLBHit(req, rsp.physicalAddress));
+        reqFromInQ.doDeq(cpu_iid);
 
         // End of model cycle. (Path 3)
-        localCtrl.endModelCycle(ctx, 3);
+        localCtrl.endModelCycle(cpu_iid, 3);
      
     endrule
 

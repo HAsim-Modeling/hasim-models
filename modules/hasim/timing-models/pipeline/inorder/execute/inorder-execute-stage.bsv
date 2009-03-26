@@ -28,6 +28,7 @@ import Vector::*;
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/memory_base_types.bsh"
@@ -50,7 +51,7 @@ import Vector::*;
 
 // All operations, even non-memory ones, are sent to the MemQ.
 
-// This module is pipelined across contexts. Stages:
+// This module is pipelined across instances. Stages:
 
 // Stage 1 -> Stage 2
 // These stages never stall.
@@ -63,22 +64,22 @@ import Vector::*;
 
 module [HASIM_MODULE] mkExecute ();
 
-    TIMEP_DEBUG_FILE_MULTICTX debugLog <- mkTIMEPDebugFile_MultiCtx("pipe_execute.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_execute.out");
 
     // ****** Model State (per Context) ******
 
-    MULTICTX#(Reg#(TOKEN_EPOCH)) ctx_epoch <- mkMultiCtx(mkReg(initEpoch(0, 0)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_EPOCH)) epochPool <- mkMultiplexed(mkReg(initEpoch(0, 0)));
 
 
     // ****** Ports ******
 
-    PORT_STALL_RECV_MULTICTX#(BUNDLE) bundleFromIssueQ <- mkPortStallRecv_MultiCtx("IssueQ");
-    PORT_STALL_SEND_MULTICTX#(DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_MultiCtx("DTLBQ");
+    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, BUNDLE) bundleFromIssueQ <- mkPortStallRecv_Multiplexed("IssueQ");
+    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_Multiplexed("DTLBQ");
 
-    PORT_SEND_MULTICTX#(Tuple2#(TOKEN, ISA_ADDRESS)) rewindToFet <- mkPortSend_MultiCtx("Exe_to_Fet_rewind");
-    PORT_SEND_MULTICTX#(BRANCH_PRED_TRAIN)          trainingToBP <- mkPortSend_MultiCtx("Exe_to_BP_training");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) rewindToFet <- mkPortSend_Multiplexed("Exe_to_Fet_rewind");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN)          trainingToBP <- mkPortSend_Multiplexed("Exe_to_BP_training");
 
-    PORT_SEND_MULTICTX#(BUS_MESSAGE) writebackToDec <- mkPortSend_MultiCtx("Exe_to_Dec_writeback");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("Exe_to_Dec_writeback");
 
 
     // ****** Soft Connections ******
@@ -89,8 +90,8 @@ module [HASIM_MODULE] mkExecute ();
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS) inports  = newVector();
-    Vector#(5, PORT_CONTROLS) outports = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromIssueQ.ctrl;
     inports[1]  = bundleToMemQ.ctrl;
     outports[0] = bundleToMemQ.ctrl;
@@ -99,14 +100,14 @@ module [HASIM_MODULE] mkExecute ();
     outports[3] = trainingToBP.ctrl;
     outports[4] = bundleFromIssueQ.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Events and Stats ******
 
-    EVENT_RECORDER_MULTICTX eventExe <- mkEventRecorder_MultiCtx(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
+    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventExe <- mkEventRecorder_Multiplexed(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
 
-    STAT_RECORDER_MULTICTX statMispred <- mkStatCounter_MultiCtx(`STATS_EXECUTE_BPRED_MISPREDS);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMispred <- mkStatCounter_Multiplexed(`STATS_EXECUTE_BPRED_MISPREDS);
 
 
     // ****** Helper functions ******
@@ -117,8 +118,8 @@ module [HASIM_MODULE] mkExecute ();
 
     function Bool goodEpoch(TOKEN tok);
         
-        let ctx = tokContextId(tok);
-        let epoch = ctx_epoch[ctx];
+        let cpu_iid = tokCpuInstanceId(tok);
+        let epoch = epochPool[cpu_iid];
         return tokEpoch(tok) == epoch;
 
     endfunction
@@ -135,8 +136,8 @@ module [HASIM_MODULE] mkExecute ();
     action
         
         // Get our local state from the context.
-        let ctx = tokContextId(tok);
-        Reg#(TOKEN_EPOCH) epoch = ctx_epoch[ctx];
+        let cpu_iid = tokCpuInstanceId(tok);
+        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
         
         // Calculate the next PC.
         let tgt = rsp.instructionAddress + zeroExtend(rsp.instructionSize);
@@ -150,33 +151,33 @@ module [HASIM_MODULE] mkExecute ();
         if (branchAttr matches tagged NotBranch)
         begin
             // Don't rewind the PC or train the BP.
-            rewindToFet.send(ctx, tagged Invalid);
-            trainingToBP.send(ctx, tagged Invalid);
+            rewindToFet.send(cpu_iid, tagged Invalid);
+            trainingToBP.send(cpu_iid, tagged Invalid);
         end
         else if (branchAttr matches tagged BranchNotTaken .pred_tgt &&&
                  tgt == pred_tgt)
         begin
             // Treated non-branch instruction as a branch but got the right answer.
             // Train BP but no need to rewind
-            debugLog.record(ctx, fshow("NON-BRANCH PREDICTED NOT TAKEN BRANCH: ") + fshow(tok));
-            rewindToFet.send(ctx, tagged Invalid);
+            debugLog.record(cpu_iid, fshow("NON-BRANCH PREDICTED NOT TAKEN BRANCH: ") + fshow(tok));
+            rewindToFet.send(cpu_iid, tagged Invalid);
 
             train.predCorrect = True;
-            trainingToBP.send(ctx, tagged Valid train);
+            trainingToBP.send(cpu_iid, tagged Valid train);
         end
         else
         begin
         
             // Treated a non-branch as a branch and got the wrong answer.
-            debugLog.record(ctx, fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok));
-            statMispred.incr(ctx);
+            debugLog.record(cpu_iid, fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok));
+            statMispred.incr(cpu_iid);
 
             epoch.branch <= epoch.branch + 1;
 
             // Rewind the PC and train the BP.
-            rewindToFet.send(ctx, tagged Valid tuple2(tok, tgt));
+            rewindToFet.send(cpu_iid, tagged Valid tuple2(tok, tgt));
             train.predCorrect = False;
-            trainingToBP.send(ctx, tagged Valid train);
+            trainingToBP.send(cpu_iid, tagged Valid train);
 
         end
     endaction
@@ -191,41 +192,41 @@ module [HASIM_MODULE] mkExecute ();
     rule stage1_begin (True);
     
         // Get our local state from the context.
-        let ctx <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(ctx);
-        Reg#(TOKEN_EPOCH) epoch = ctx_epoch[ctx];
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
+        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
 
         // Do we have an instruction to execute, and a place to put it?
-        if (!bundleFromIssueQ.canDeq(ctx) || !bundleToMemQ.canEnq(ctx))
+        if (!bundleFromIssueQ.canDeq(cpu_iid) || !bundleToMemQ.canEnq(cpu_iid))
         begin
 
             // A bubble. 
-            debugLog.record_next_cycle(ctx, fshow("BUBBLE"));
+            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
 
             // Propogate the bubble.
-            bundleFromIssueQ.noDeq(ctx);
-            bundleToMemQ.noEnq(ctx);
-            rewindToFet.send(ctx, tagged Invalid);
-            trainingToBP.send(ctx, tagged Invalid);
-            writebackToDec.send(ctx, tagged Invalid);
+            bundleFromIssueQ.noDeq(cpu_iid);
+            bundleToMemQ.noEnq(cpu_iid);
+            rewindToFet.send(cpu_iid, tagged Invalid);
+            trainingToBP.send(cpu_iid, tagged Invalid);
+            writebackToDec.send(cpu_iid, tagged Invalid);
 
             // End the model cycle. (Path 1)
-            eventExe.recordEvent(ctx, tagged Invalid);
-            localCtrl.endModelCycle(ctx, 1);
+            eventExe.recordEvent(cpu_iid, tagged Invalid);
+            localCtrl.endModelCycle(cpu_iid, 1);
 
         end
         else
         begin
 
             // Yes... but is it something we should be executing?
-            let bundle = bundleFromIssueQ.peek(ctx);
+            let bundle = bundleFromIssueQ.peek(cpu_iid);
             let tok = bundle.token;
         
             if (goodEpoch(tok))
             begin
                 
                 // It's on the good path.            
-                debugLog.record_next_cycle(ctx, fshow("EXEC: ") + fshow(tok));
+                debugLog.record_next_cycle(cpu_iid, fshow("EXEC: ") + fshow(tok));
 
                 // Have the functional partition execute it.
                 // It will be returned to the next stage.
@@ -237,7 +238,7 @@ module [HASIM_MODULE] mkExecute ();
             
                 // We've got to flush.
             
-                debugLog.record_next_cycle(ctx, fshow("FLUSH: ") + fshow(tok));
+                debugLog.record_next_cycle(cpu_iid, fshow("FLUSH: ") + fshow(tok));
 
                 if (tokFaultEpoch(tok) != epoch.fault)
                 begin
@@ -255,9 +256,9 @@ module [HASIM_MODULE] mkExecute ();
                     //
                     epoch <= tokEpoch(tok);
                     // Don't dequeue the IssueQ.
-                    bundleFromIssueQ.noDeq(ctx);
+                    bundleFromIssueQ.noDeq(cpu_iid);
                     // Don't send any register writebacks.
-                    writebackToDec.send(ctx, tagged Invalid);
+                    writebackToDec.send(cpu_iid, tagged Invalid);
 
                 end
                 else
@@ -267,22 +268,22 @@ module [HASIM_MODULE] mkExecute ();
                     // Bad path due to branch.  Mark the token as junk and send it on.
                     //
                     //
-                    bundleToMemQ.doEnq(ctx, initDMemBundle(tok, bundle.effAddr, True, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
+                    bundleToMemQ.doEnq(cpu_iid, initDMemBundle(tok, bundle.effAddr, True, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
 
                     // Dequeue the IssueQ
-                    bundleFromIssueQ.doDeq(ctx);
+                    bundleFromIssueQ.doDeq(cpu_iid);
                     // Tell decode the instruction was dropped, so its dests are "ready."
-                    writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests));
+                    writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
 
                 end
                 
                 // Propogate the bubble.
-                rewindToFet.send(ctx, tagged Invalid);
-                trainingToBP.send(ctx, tagged Invalid);
+                rewindToFet.send(cpu_iid, tagged Invalid);
+                trainingToBP.send(cpu_iid, tagged Invalid);
 
                 // End the model cycle. (Path 2)
-                eventExe.recordEvent(ctx, tagged Invalid);
-                localCtrl.endModelCycle(ctx, 2);
+                eventExe.recordEvent(cpu_iid, tagged Invalid);
+                localCtrl.endModelCycle(cpu_iid, 2);
                 
             end
 
@@ -306,14 +307,14 @@ module [HASIM_MODULE] mkExecute ();
         // Get our local state from the context.
         let tok = rsp.token;
         let res = rsp.result;
-        let ctx = tokContextId(tok);
-        Reg#(TOKEN_EPOCH) epoch = ctx_epoch[ctx];
+        let cpu_iid = tokCpuInstanceId(tok);
+        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
 
         // assert bundleFromIssueQ.canDeq(), since otherwise we wouldn't go down this path.
-        let bundle = bundleFromIssueQ.peek(ctx);
+        let bundle = bundleFromIssueQ.peek(cpu_iid);
 
         // Dequeue the IssueQ.
-        bundleFromIssueQ.doDeq(ctx);
+        bundleFromIssueQ.doDeq(cpu_iid);
         
         // Let's begin to gather some training data for the branch predictor.
         let pc = bundle.pc;
@@ -327,29 +328,29 @@ module [HASIM_MODULE] mkExecute ();
             begin
             
                 // A branch was taken.
-                debugLog.record(ctx, fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch.branch));
+                debugLog.record(cpu_iid, fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch.branch));
                 train.exeResult = tagged BranchTaken addr;
 
                 if (bundle.branchAttr matches tagged BranchTaken .tgt &&& tgt == addr)
                 begin
                     
                     // It was predicted correctly. Train, but don't resteer.
-                    rewindToFet.send(ctx, tagged Invalid);
+                    rewindToFet.send(cpu_iid, tagged Invalid);
                     train.predCorrect = True;
-                    trainingToBP.send(ctx, tagged Valid train);
+                    trainingToBP.send(cpu_iid, tagged Valid train);
 
                 end
                 else
                 begin
                     
                     // The branch predictor predicted NotTaken.
-                    statMispred.incr(ctx);
+                    statMispred.incr(cpu_iid);
                     epoch.branch <= epoch.branch + 1;
 
                     // Rewind the PC to the actual target and train the BP.
-                    rewindToFet.send(ctx, tagged Valid tuple2(tok, addr));
+                    rewindToFet.send(cpu_iid, tagged Valid tuple2(tok, addr));
                     train.predCorrect = False;
-                    trainingToBP.send(ctx, tagged Valid train);
+                    trainingToBP.send(cpu_iid, tagged Valid train);
 
                 end
             end
@@ -357,7 +358,7 @@ module [HASIM_MODULE] mkExecute ();
             begin
             
                 // It was a branch, but it was not taken.
-                debugLog.record(ctx, fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+                debugLog.record(cpu_iid, fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
                 train.exeResult = tagged BranchNotTaken addr;
 
                 case (bundle.branchAttr) matches
@@ -365,22 +366,22 @@ module [HASIM_MODULE] mkExecute ();
                     begin
 
                         // The predictor got it right. No need to resteer.
-                        rewindToFet.send(ctx, tagged Invalid);
+                        rewindToFet.send(cpu_iid, tagged Invalid);
                         train.predCorrect = True;
-                        trainingToBP.send(ctx, tagged Valid train);
+                        trainingToBP.send(cpu_iid, tagged Valid train);
 
                     end
                     tagged BranchTaken .tgt:
                     begin
 
                         // The predictor got it wrong.
-                        statMispred.incr(ctx);
+                        statMispred.incr(cpu_iid);
                         epoch.branch <= epoch.branch + 1;
                         
                         // Resteer the PC to the actual destination and train.
-                        rewindToFet.send(ctx, tagged Valid tuple2(tok, addr));
+                        rewindToFet.send(cpu_iid, tagged Valid tuple2(tok, addr));
                         train.predCorrect = False;
-                        trainingToBP.send(ctx, tagged Valid train);
+                        trainingToBP.send(cpu_iid, tagged Valid train);
 
                     end
                     tagged NotBranch:
@@ -388,8 +389,8 @@ module [HASIM_MODULE] mkExecute ();
 
                         // The predictor was wrong, but it was harmless.
                         // Note: Should we train in this case?
-                        rewindToFet.send(ctx, tagged Invalid);
-                        trainingToBP.send(ctx, tagged Invalid);
+                        rewindToFet.send(cpu_iid, tagged Invalid);
+                        trainingToBP.send(cpu_iid, tagged Invalid);
 
                     end
 
@@ -401,7 +402,7 @@ module [HASIM_MODULE] mkExecute ();
             begin
                 
                 // The instruction was a memory operation to this address.
-                debugLog.record(ctx, fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea));
+                debugLog.record(cpu_iid, fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea));
 
                 // Update the bundle for the DMem module.
                 bundle.effAddr = ea;
@@ -421,9 +422,9 @@ module [HASIM_MODULE] mkExecute ();
             begin
                 
                 // Like a nop, but if this instruction commits, then simulation should end.
-                rewindToFet.send(ctx, tagged Invalid);
+                rewindToFet.send(cpu_iid, tagged Invalid);
                 bundle.isTerminate = tagged Valid pf;
-                trainingToBP.send(ctx, tagged Invalid);
+                trainingToBP.send(cpu_iid, tagged Invalid);
 
             end
             
@@ -433,19 +434,19 @@ module [HASIM_MODULE] mkExecute ();
         begin
 
             // The destinations won't be ready until the Mem stage is finished.
-            debugLog.record(ctx, fshow(tok) + fshow(": load -- dest regs not yet valid"));
+            debugLog.record(cpu_iid, fshow(tok) + fshow(": load -- dest regs not yet valid"));
             // No writebacks to report.
-            writebackToDec.send(ctx, tagged Invalid);
+            writebackToDec.send(cpu_iid, tagged Invalid);
 
         end
         else
         begin
 
             // The destinations of this token are ready.
-            debugLog.record(ctx, fshow(tok) + fshow(": marking dest regs valid"));
+            debugLog.record(cpu_iid, fshow(tok) + fshow(": marking dest regs valid"));
 
             // Send the writeback to decode.
-            writebackToDec.send(ctx, tagged Valid genBusMessage(tok, bundle.dests));
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
 
         end
 
@@ -453,11 +454,11 @@ module [HASIM_MODULE] mkExecute ();
         bundle.token = tok;
 
         // Enqueue the instuction in the MemQ.
-        bundleToMemQ.doEnq(ctx, initDMemBundle(bundle.token, bundle.effAddr, False, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
+        bundleToMemQ.doEnq(cpu_iid, initDMemBundle(bundle.token, bundle.effAddr, False, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
 
         // End the model cycle. (Path 3)
-        eventExe.recordEvent(ctx, tagged Valid zeroExtend(pack(tok.index)));
-        localCtrl.endModelCycle(ctx, 3);
+        eventExe.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
+        localCtrl.endModelCycle(cpu_iid, 3);
 
     endrule
 
