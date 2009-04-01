@@ -2592,3 +2592,58 @@ CPU_INSTANCE_ID replaces CONTEXT_ID. cpu_iid replaces ctx. Added functions for
 the trivial mapping from CONTEXT_ID to CPU_INSTANCE_ID and back. Added new
 chip_base_types which defines NUM_CPUS and CPU_INSTANCE_ID.
 
+
+----------
+pellauer    Date: Wed Apr  1 16:35:19 EDT 2009  CSN: CSN-hasim-models-104
+                  Wed Apr  1 20:35:19 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.awb Locally Modified          103 
+ inorder-commitq-stage.bsv Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          103 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.awb   Locally Modified          103 
+ inorder-instq-stage.bsv   Locally Modified          103 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.awb   Locally Modified          103 
+ icache-pseudorandom.bsv   Locally Modified          103 
+ icache-pseudorandom.dic   Locally Added               0 
+ dcache-pseudorandom.bsv   Locally Modified          103 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          103 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          103 
+
+
+* Support pseudo-random ICache. This fails to pass the "towers" benchmark for reasons 
+  that are well-known and a plan is in place to fix. Null caches are still the default
+  for regressions because of this.
+
+* Support moving the epoch from the functional partition to the timing model.
+
+Michael P.

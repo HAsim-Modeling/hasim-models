@@ -55,8 +55,6 @@ import Vector::*;
 // A completion buffer which rendezvous ICache miss responses with
 // the inorder instruction stream.
 
-// Also accepts the branch predictor attributes and rendezvous them.
-
 // This actually stores information per-token, but artificially limits
 // the number of slots using a counter. Gaps between tokens (which can happen because of rewinds and faults)
 // are handled using a sequential search.
@@ -92,8 +90,7 @@ module [HASIM_MODULE] mkInstructionQueue
     // What's the oldest token we know about? (The next one which should issue when it's ready.)
     MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_ID))                 oldestTokPool <- mkMultiplexed(mkReg(0));
 
-    // Queues to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, FIFOF#(BRANCH_ATTR))    attrQPool   <- mkMultiplexed(mkUGSizedFIFOF(`IQ_NUM_SLOTS));
+    // Queue to rendezvous with instructions.
     MULTIPLEXED#(NUM_CPUS, FIFOF#(FETCH_BUNDLE))   bundleQPool <- mkMultiplexed(mkUGSizedFIFOF(`IQ_NUM_SLOTS));
 
     // ****** UnModel State ******
@@ -103,21 +100,20 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, ISA_ADDRESS, Maybe#(ISA_INSTRUCTION))) allocateFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_allocate", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)                             rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)                                                 attrFromBP <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION)))   allocateFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_allocate", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)                         rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
 
     PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE) bundleToDecQ  <- mkPortStallSend_Multiplexed("DecQ");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)               creditToFetch <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
 
     // ****** Local Controller ******
 
-    Vector#(4, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
     Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+
     inports[0]  = allocateFromFetch.ctrl;
     inports[1]  = rspFromICacheDelayed.ctrl;
-    inports[2]  = attrFromBP.ctrl;
-    inports[3]  = bundleToDecQ.ctrl;
+    inports[2]  = bundleToDecQ.ctrl;
     outports[0] = creditToFetch.ctrl;
     outports[1] = bundleToDecQ.ctrl;
 
@@ -132,6 +128,7 @@ module [HASIM_MODULE] mkInstructionQueue
     // If so we send it to the decode queue.
     // We also check for miss responses from the ICache.
 
+    (* conservative_implicit_conditions *)
     rule stage1_deallocate (True);
     
         // Start a new model cycle.
@@ -145,7 +142,6 @@ module [HASIM_MODULE] mkInstructionQueue
         Reg#(TOKEN_ID)  numElems = numElemsPool[cpu_iid];
         Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
 
-        FIFOF#(BRANCH_ATTR)    attrQ = attrQPool[cpu_iid];
         FIFOF#(FETCH_BUNDLE) bundleQ = bundleQPool[cpu_iid];
     
         // Let's see if the oldest token has been completed.
@@ -160,11 +156,9 @@ module [HASIM_MODULE] mkInstructionQueue
             
             // Marshall it up and send it to the decode queue.
             bundle.inst = inst;
-            bundle.branchAttr = attrQ.first();
             bundleToDecQ.doEnq(cpu_iid, bundle);
             
             // Deallocate this token.
-            attrQ.deq();
             bundleQ.deq();
             allocated[oldestTok] <= False;
             numElems <= numElems - 1;
@@ -224,16 +218,7 @@ module [HASIM_MODULE] mkInstructionQueue
         Reg#(TOKEN_ID)    numElems = numElemsPool[cpu_iid];
         Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
 
-        FIFOF#(BRANCH_ATTR)    attrQ = attrQPool[cpu_iid];
         FIFOF#(FETCH_BUNDLE) bundleQ = bundleQPool[cpu_iid];
-    
-        // Get any attributes from the branch predictor.
-        let m_attr <- attrFromBP.receive(cpu_iid);
-    
-        if (m_attr matches tagged Valid .attr)
-        begin
-            attrQ.enq(attr);
-        end
 
         // Check for any new allocations.
         let m_alloc <- allocateFromFetch.receive(cpu_iid);
@@ -242,16 +227,16 @@ module [HASIM_MODULE] mkInstructionQueue
         // If we just allocated the oldest guy, then this will tell us there's no need to search.
         Bool allocating_oldest = False;
         
-        if (m_alloc matches tagged Valid {.tok, .addr, .comp})
+        if (m_alloc matches tagged Valid {.bundle, .comp})
         begin
 
             // A new allocation.
-            debugLog.record(cpu_iid, fshow("ALLOC: ") + fshow(tok) + $format(" ADDR:0x%h", addr) + $format(" COMPLETE: %0b", pack(isValid(comp))));
-            bundleQ.enq(FETCH_BUNDLE {token: tok, pc: addr, inst: ?, branchAttr: ?});
-            complete.upd(tokTokenId(tok), comp);
-            allocated[tokTokenId(tok)] <= True;
+            debugLog.record(cpu_iid, fshow("ALLOC: ") + fshow(bundle.token) + $format(" ADDR:0x%h", bundle.pc) + $format(" COMPLETE: %0b", pack(isValid(comp))));
+            bundleQ.enq(bundle);
+            complete.upd(tokTokenId(bundle.token), comp);
+            allocated[tokTokenId(bundle.token)] <= True;
             new_num_elems = numElems + 1;
-            allocating_oldest = tokTokenId(tok) == oldestTok;
+            allocating_oldest = tokTokenId(bundle.token) == oldestTok;
 
         end
         

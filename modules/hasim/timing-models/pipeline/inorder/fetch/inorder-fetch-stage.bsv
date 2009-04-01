@@ -70,9 +70,8 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Model State (per Context) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS))       pcPool          <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH))   iTLBEpochPool   <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ICACHE_EPOCH)) iCacheEpochPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS))    pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
+    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_EPOCH))  epochPool <- mkMultiplexed(mkReg(initIMemEpoch(0, 0, 0, 0)));
 
 
     // ****** Soft Connections ******
@@ -86,7 +85,7 @@ module [HASIM_MODULE] mkFetch ();
     // ****** Ports ******
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                              creditFromInstQ <- mkPortRecvInitial_Multiplexed("InstQ_to_Fet_credit", 1, (?));
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(ISA_ADDRESS, IMEM_ITLB_EPOCH, IMEM_ICACHE_EPOCH)) newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
@@ -128,20 +127,18 @@ module [HASIM_MODULE] mkFetch ();
         modelCycle.send(cpu_iid);
         
         // Get our local state using the context.
-        Reg#(ISA_ADDRESS)                pc = pcPool[cpu_iid];
-        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = iTLBEpochPool[cpu_iid];
-        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
+        Reg#(ISA_ADDRESS)         pc = pcPool[cpu_iid];
+        Reg#(IMEM_EPOCH)       epoch = epochPool[cpu_iid];
         
         // Get the next PC
         let m_newPC <- newPCFromPCCalc.receive(cpu_iid);
         
         // Update the PC and front end epochs.
-        if (m_newPC matches tagged Valid {.new_pc, .itlb_epoch, .icache_epoch})
+        if (m_newPC matches tagged Valid {.new_pc, .new_epoch})
         begin
 
-            pc <= new_pc;
-            iTLBEpoch   <= itlb_epoch;
-            iCacheEpoch <= icache_epoch;
+            pc    <= new_pc;
+            epoch <= new_epoch;
 
         end
 
@@ -193,12 +190,11 @@ module [HASIM_MODULE] mkFetch ();
         let cpu_iid = tokCpuInstanceId(tok);
 
         // Get our local state using the current context id.
-        Reg#(ISA_ADDRESS)                pc = pcPool[cpu_iid];
-        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = iTLBEpochPool[cpu_iid];
-        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
+        Reg#(ISA_ADDRESS)       pc = pcPool[cpu_iid];
+        Reg#(IMEM_EPOCH)     epoch = epochPool[cpu_iid];
 
         // Send the current PC to the ITLB and Branch predictor.
-        pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(tok, iTLBEpoch, iCacheEpoch, pc));
+        pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(tok, epoch, pc));
         pcToBP.send(cpu_iid, tagged Valid tuple2(tok, pc));
         
         // End of model cycle. (Path 2)

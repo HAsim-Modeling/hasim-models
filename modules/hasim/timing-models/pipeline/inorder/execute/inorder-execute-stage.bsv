@@ -76,7 +76,7 @@ module [HASIM_MODULE] mkExecute ();
     PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, BUNDLE) bundleFromIssueQ <- mkPortStallRecv_Multiplexed("IssueQ");
     PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_Multiplexed("DTLBQ");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) rewindToFet <- mkPortSend_Multiplexed("Exe_to_Fet_rewind");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindToFet <- mkPortSend_Multiplexed("Exe_to_Fet_rewind");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN)          trainingToBP <- mkPortSend_Multiplexed("Exe_to_BP_training");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("Exe_to_Dec_writeback");
@@ -116,11 +116,11 @@ module [HASIM_MODULE] mkExecute ();
     
     // Is a token in the correct epoch?
 
-    function Bool goodEpoch(TOKEN tok);
+    function Bool goodEpoch(BUNDLE bundle);
         
-        let cpu_iid = tokCpuInstanceId(tok);
+        let cpu_iid = tokCpuInstanceId(bundle.token);
         let epoch = epochPool[cpu_iid];
-        return tokEpoch(tok) == epoch;
+        return (bundle.branchEpoch == epoch.branch) && (bundle.faultEpoch == epoch.fault);
 
     endfunction
 
@@ -130,10 +130,12 @@ module [HASIM_MODULE] mkExecute ();
     // Used for handling branch prediction / rewind feedback
     // processing for all non-branch instructions.
 
-    function Action nonBranchPred(TOKEN tok,
+    function Action nonBranchPred(BUNDLE bundle,
                                   FUNCP_RSP_GET_RESULTS rsp,
                                   BRANCH_ATTR branchAttr);
     action
+    
+        let tok = bundle.token;
         
         // Get our local state from the context.
         let cpu_iid = tokCpuInstanceId(tok);
@@ -175,7 +177,7 @@ module [HASIM_MODULE] mkExecute ();
             epoch.branch <= epoch.branch + 1;
 
             // Rewind the PC and train the BP.
-            rewindToFet.send(cpu_iid, tagged Valid tuple2(tok, tgt));
+            rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, tgt));
             train.predCorrect = False;
             trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -222,7 +224,7 @@ module [HASIM_MODULE] mkExecute ();
             let bundle = bundleFromIssueQ.peek(cpu_iid);
             let tok = bundle.token;
         
-            if (goodEpoch(tok))
+            if (goodEpoch(bundle))
             begin
                 
                 // It's on the good path.            
@@ -240,7 +242,7 @@ module [HASIM_MODULE] mkExecute ();
             
                 debugLog.record_next_cycle(cpu_iid, fshow("FLUSH: ") + fshow(tok));
 
-                if (tokFaultEpoch(tok) != epoch.fault)
+                if (bundle.faultEpoch != epoch.fault)
                 begin
 
                     //
@@ -254,7 +256,7 @@ module [HASIM_MODULE] mkExecute ();
                     // The incoming token remains in decode and will be executed next
                     // cycle, now that it will appear to be on the good path.
                     //
-                    epoch <= tokEpoch(tok);
+                    epoch <= initEpoch(bundle.branchEpoch, bundle.faultEpoch);
                     // Don't dequeue the IssueQ.
                     bundleFromIssueQ.noDeq(cpu_iid);
                     // Don't send any register writebacks.
@@ -268,7 +270,7 @@ module [HASIM_MODULE] mkExecute ();
                     // Bad path due to branch.  Mark the token as junk and send it on.
                     //
                     //
-                    bundleToMemQ.doEnq(cpu_iid, initDMemBundle(tok, bundle.effAddr, True, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
+                    bundleToMemQ.doEnq(cpu_iid, initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, True, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
 
                     // Dequeue the IssueQ
                     bundleFromIssueQ.doDeq(cpu_iid);
@@ -348,7 +350,7 @@ module [HASIM_MODULE] mkExecute ();
                     epoch.branch <= epoch.branch + 1;
 
                     // Rewind the PC to the actual target and train the BP.
-                    rewindToFet.send(cpu_iid, tagged Valid tuple2(tok, addr));
+                    rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
                     train.predCorrect = False;
                     trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -379,7 +381,7 @@ module [HASIM_MODULE] mkExecute ();
                         epoch.branch <= epoch.branch + 1;
                         
                         // Resteer the PC to the actual destination and train.
-                        rewindToFet.send(cpu_iid, tagged Valid tuple2(tok, addr));
+                        rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
                         train.predCorrect = False;
                         trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -408,14 +410,14 @@ module [HASIM_MODULE] mkExecute ();
                 bundle.effAddr = ea;
 
                 // Use the standard branch prediction for non-branches.
-                nonBranchPred(tok, rsp, bundle.branchAttr);
+                nonBranchPred(bundle, rsp, bundle.branchAttr);
 
             end
             tagged RNop:
             begin
 
                 // The instruction was some kind of instruction we don't care about.
-                nonBranchPred(tok, rsp, bundle.branchAttr);
+                nonBranchPred(bundle, rsp, bundle.branchAttr);
 
             end
             tagged RTerminate .pf:
@@ -454,7 +456,7 @@ module [HASIM_MODULE] mkExecute ();
         bundle.token = tok;
 
         // Enqueue the instuction in the MemQ.
-        bundleToMemQ.doEnq(cpu_iid, initDMemBundle(bundle.token, bundle.effAddr, False, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
+        bundleToMemQ.doEnq(cpu_iid, initDMemBundle(bundle.token, bundle.effAddr, bundle.faultEpoch, False, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
 
         // End the model cycle. (Path 3)
         eventExe.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));

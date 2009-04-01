@@ -8,6 +8,6 @@
 
 %public  inorder-commitq-stage.bsv
 
-%param CQ_NUM_SLOTS 8 "Number of slots for the commit queue."
+%param CQ_NUM_SLOTS 4 "Number of slots for the commit queue."
 
 %AWB_END

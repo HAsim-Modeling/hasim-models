@@ -13,7 +13,13 @@
 #
 # %attributes hasim model caches
 #
-# %public icache-pseudorandom.bsv
+# %public  icache-pseudorandom.bsv
+# %private icache-pseudorandom.dic
+#
+# %param --dynamic ICACHE_RETRY_CHANCE 0 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+# %param --dynamic ICACHE_MISS_CHANCE 0 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+# %param ICACHE_MISS_PENALTY 10 "Number of cycles for a miss to return. Must be greater than 0."
+# %param --dynamic ICACHE_SEED 37 "Bit 8 seed for pseudo-random number."
 #
 # %AWB_END
 # */

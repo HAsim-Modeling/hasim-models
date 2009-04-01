@@ -160,7 +160,7 @@ module [HASIM_MODULE] mkCommit ();
             let bundle = bundleFromRetireQ.peek(cpu_iid);
             let tok = bundle.token;
 
-            if (! tokIsPoisoned(tok) && !bundle.isJunk && (tokFaultEpoch(tok) == faultEpoch))
+            if (! tokIsPoisoned(tok) && !bundle.isJunk && (bundle.faultEpoch == faultEpoch))
             begin
 
                 // Normal commit flow for a good instruction.
@@ -195,7 +195,7 @@ module [HASIM_MODULE] mkCommit ();
                 end
 
                 // So was it a fault, or just from the wrong epoch?
-                if ((tokFaultEpoch(tok) != faultEpoch) || bundle.isJunk)
+                if ((bundle.faultEpoch != faultEpoch) || bundle.isJunk)
                 begin
 
                     // Just draining following an earlier fault or branch mispredict.

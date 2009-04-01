@@ -69,6 +69,8 @@ typedef struct {
 
 typedef struct {
     TOKEN token;
+    TOKEN_BRANCH_EPOCH branchEpoch;
+    TOKEN_FAULT_EPOCH faultEpoch;
     ISA_ADDRESS pc;
     ISA_INSTRUCTION inst;
     BRANCH_ATTR branchAttr;
@@ -78,6 +80,8 @@ typedef struct {
     TOKEN token;
     ISA_ADDRESS pc;
     BRANCH_ATTR branchAttr;
+    TOKEN_BRANCH_EPOCH branchEpoch;
+    TOKEN_FAULT_EPOCH faultEpoch;
     Bool isLoad;
     Bool isStore;
     ISA_ADDRESS effAddr;

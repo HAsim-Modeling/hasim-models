@@ -225,7 +225,7 @@ tokIDPool[cpu_iid];
                                          endcase;
 
                         let older_store = case (tokID[x]) matches 
-                                                tagged Valid .tok: return tokenIsOlderOrEq(tok.index, req.bundle.token.index);
+                                                tagged Valid .tok: return tokenIsOlderOrEq(tok.index.token_id, req.bundle.token.index.token_id);
                                                 tagged Invalid: return False;
                                             endcase;
 

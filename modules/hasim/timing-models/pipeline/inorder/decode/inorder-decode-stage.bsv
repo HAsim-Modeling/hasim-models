@@ -259,6 +259,8 @@ module [HASIM_MODULE] mkDecode ();
                 dests[i] = Invalid;
         end
         return BUNDLE { token:   tok,
+                        branchEpoch: fbndl.branchEpoch,
+                        faultEpoch: fbndl.faultEpoch,
                         isLoad:  isaIsLoad(fbndl.inst),
                         isStore: isaIsStore(fbndl.inst),
                         isTerminate: Invalid,

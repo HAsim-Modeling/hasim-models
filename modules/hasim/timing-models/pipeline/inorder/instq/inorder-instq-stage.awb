@@ -7,6 +7,6 @@
 %attributes hasim model pipeline inorder
 
 %public  inorder-instq-stage.bsv
-%param IQ_NUM_SLOTS 8 "Number of slots in the instruction queue."
+%param IQ_NUM_SLOTS 4 "Number of slots in the instruction queue."
 
 %AWB_END

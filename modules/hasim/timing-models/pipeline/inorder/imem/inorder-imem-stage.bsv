@@ -73,7 +73,7 @@ module [HASIM_MODULE] mkIMem
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                                   rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 0);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                                  physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_req");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, IMEM_ITLB_EPOCH, ISA_ADDRESS))  faultToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_fault");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, IMEM_EPOCH, ISA_ADDRESS))       faultToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_fault");
 
 
     // ****** Local Controller ******
@@ -107,7 +107,7 @@ module [HASIM_MODULE] mkIMem
         // See if there's a response from the ITLB.
         let m_rsp <- rspFromITLB.receive(cpu_iid);
         
-        if (m_rsp matches tagged Valid .rsp &&& rsp.bundle.iTLBEpoch == iTLBEpoch)
+        if (m_rsp matches tagged Valid .rsp &&& rsp.bundle.epoch.iTLB == iTLBEpoch)
         begin
 
             // Epoch check ensures that we haven't already redirected from a previous page fault.
@@ -128,7 +128,7 @@ module [HASIM_MODULE] mkIMem
                 // TODO: We have no way of getting a handler address currently. 
                 //       Instead just redirect back to the faulting PC.
                 //       This at least works for pseudo-random TLB models.
-                faultToPCCalc.send(cpu_iid, tagged Valid tuple3(rsp.bundle.token, rsp.bundle.iCacheEpoch, rsp.bundle.virtualAddress));
+                faultToPCCalc.send(cpu_iid, tagged Valid tuple3(rsp.bundle.token, rsp.bundle.epoch, rsp.bundle.virtualAddress));
 
                 // End of model cycle. (Path 1)
                 localCtrl.endModelCycle(cpu_iid, 1);

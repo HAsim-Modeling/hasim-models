@@ -111,6 +111,7 @@ module [HASIM_MODULE] mkCommitQueue
     // If so we send it to the decode queue.
     // We also check for miss responses from the ICache.
 
+    (* conservative_implicit_conditions *)
     rule stage1_deallocate (True);
     
         // Start a new model cycle.

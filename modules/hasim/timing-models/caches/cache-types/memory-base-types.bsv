@@ -13,18 +13,33 @@ typedef Bit#(`IMEM_ICACHE_EPOCH_BITS) IMEM_ICACHE_EPOCH;
 
 typedef struct
 {
+
+    IMEM_ITLB_EPOCH iTLB;
+    IMEM_ICACHE_EPOCH iCache;
+    TOKEN_BRANCH_EPOCH branch;
+    TOKEN_FAULT_EPOCH fault;
+}
+IMEM_EPOCH deriving (Eq, Bits);
+
+function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKEN_BRANCH_EPOCH b,TOKEN_FAULT_EPOCH f);
+
+    return IMEM_EPOCH {iTLB: iT, iCache: iC, branch: b, fault: f};
+
+endfunction
+
+typedef struct
+{
     TOKEN token;
-    IMEM_ITLB_EPOCH iTLBEpoch;
-    IMEM_ICACHE_EPOCH iCacheEpoch;
+    IMEM_EPOCH epoch;
     ISA_ADDRESS virtualAddress;
     ISA_ADDRESS physicalAddress;
     ISA_INSTRUCTION instruction;
 }
 IMEM_BUNDLE deriving (Eq, Bits);
 
-function IMEM_BUNDLE initIMemBundle(TOKEN tok, IMEM_ITLB_EPOCH tlb_epoch, IMEM_ICACHE_EPOCH cache_epoch, ISA_ADDRESS pc);
+function IMEM_BUNDLE initIMemBundle(TOKEN tok, IMEM_EPOCH ep, ISA_ADDRESS pc);
 
-    return IMEM_BUNDLE {token: tok, iTLBEpoch: tlb_epoch, iCacheEpoch: cache_epoch, virtualAddress: pc, instruction: ?, physicalAddress: ?};
+    return IMEM_BUNDLE {token: tok, epoch: ep, virtualAddress: pc, instruction: ?, physicalAddress: ?};
 
 endfunction
 
@@ -97,8 +112,9 @@ function ICACHE_OUTPUT_IMMEDIATE initICacheRetry(IMEM_BUNDLE bundle);
 
 endfunction
 
-function ICACHE_OUTPUT_DELAYED initICacheMissRsp(IMEM_BUNDLE bundle);
+function ICACHE_OUTPUT_DELAYED initICacheMissRsp(IMEM_BUNDLE bundle, ISA_INSTRUCTION inst);
 
+    bundle.instruction = inst;
     return bundle;
 
 endfunction
@@ -109,6 +125,7 @@ typedef struct
     TOKEN token;
     ISA_ADDRESS virtualAddress;
     ISA_ADDRESS physicalAddress;
+    TOKEN_FAULT_EPOCH faultEpoch;
     Bool isJunk;
     Bool isLoad;
     Bool isStore;
@@ -133,10 +150,10 @@ instance FShow#(DMEM_BUNDLE);
     endfunction
 endinstance
 
-function DMEM_BUNDLE initDMemBundle(TOKEN tok, ISA_ADDRESS va, Bool isJ, Bool isL, Bool isS, Maybe#(Bool) isT, ISA_INST_DSTS dests);
+function DMEM_BUNDLE initDMemBundle(TOKEN tok, ISA_ADDRESS va, TOKEN_FAULT_EPOCH epoch, Bool isJ, Bool isL, Bool isS, Maybe#(Bool) isT, ISA_INST_DSTS dests);
 
-    return DMEM_BUNDLE {token: tok, virtualAddress: va, physicalAddress: ?, isJunk: isJ, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
-
+    return DMEM_BUNDLE {token: tok, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isJunk: isJ, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
+ 
 endfunction
 
 typedef DMEM_BUNDLE DTLB_INPUT;

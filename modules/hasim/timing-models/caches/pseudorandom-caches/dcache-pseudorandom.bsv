@@ -11,6 +11,7 @@ import LFSR::*;
 `include "asim/provides/fpga_components.bsh"
 `include "asim/provides/funcp_interface.bsh"
 
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
 // ****** Generated Files ******
@@ -73,30 +74,31 @@ module [HASIM_MODULE] mkDCache();
     // ****** Ports ******
 
     // Incoming port from CPU with speculative stores
-    PORT_RECV_MULTICTX#(DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_load", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_load", 0);
 
     // Incoming port from CPU with committed stores
-    PORT_RECV_MULTICTX#(DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_MultiCtx("CPU_to_DCache_store", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_store", 0);
 
     // Outgoing port to CPU with speculative immediate response
-    PORT_SEND_MULTICTX#(DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_load_immediate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_immediate");
 
     // Outgoing port to CPU with speculative delayed response
-    PORT_SEND_MULTICTX#(DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_load_delayed");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_delayed");
 
     // Outgpong port to CPU with commit immediate response
-    PORT_SEND_MULTICTX#(DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_store_immediate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_immediate");
 
     // Outgoing port to CPU with commit delayed response
-    PORT_SEND_MULTICTX#(DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_MultiCtx("DCache_to_CPU_store_delayed");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
 
     // Ports to simulate some latency to memory.
-    PORT_SEND_MULTICTX#(DCACHE_FILL) reqToMemory   <- mkPortSend_MultiCtx("DCache_to_memory");
-    PORT_RECV_MULTICTX#(DCACHE_FILL) rspFromMemory <- mkPortRecv_MultiCtx("DCache_to_memory", `DCACHE_MISS_PENALTY);
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_FILL) reqToMemory   <- mkPortSend_Multiplexed("DCache_to_memory");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_FILL) rspFromMemory <- mkPortRecv_Multiplexed("DCache_to_memory", `DCACHE_MISS_PENALTY);
 
     // communication with local controller
-    Vector#(3, PORT_CONTROLS) inports = newVector();
-    Vector#(5, PORT_CONTROLS) outports = newVector();
+    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
+    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = storeReqFromCPU.ctrl;
     inports[2] = rspFromMemory.ctrl;
@@ -106,17 +108,17 @@ module [HASIM_MODULE] mkDCache();
     outports[3] = storeRspDelToCPU.ctrl;
     outports[4] = reqToMemory.ctrl;
 
-    LOCAL_CONTROLLER localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTICTX statLoadHits       <- mkStatCounter_MultiCtx(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_HITS);
-    STAT_RECORDER_MULTICTX statLoadMisses     <- mkStatCounter_MultiCtx(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_MISSES);
-    STAT_RECORDER_MULTICTX statLoadRetries    <- mkStatCounter_MultiCtx(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_RETRIES);
-    STAT_RECORDER_MULTICTX statStoreHits      <- mkStatCounter_MultiCtx(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_HITS);
-    STAT_RECORDER_MULTICTX statStoreMisses    <- mkStatCounter_MultiCtx(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_MISSES);
-    STAT_RECORDER_MULTICTX statStoreRetries   <- mkStatCounter_MultiCtx(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_RETRIES);
-    STAT_RECORDER_MULTICTX statPortCollisions <- mkStatCounter_MultiCtx(`STATS_PSEUDORANDOM_DCACHE_DCACHE_PORT_COLLISIONS);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadHits       <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_HITS);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadMisses     <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_MISSES);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadRetries    <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_RETRIES);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreHits      <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_HITS);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreMisses    <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_MISSES);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreRetries   <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_RETRIES);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statPortCollisions <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_PORT_COLLISIONS);
 
 
     // ****** Rules ******
@@ -133,15 +135,13 @@ module [HASIM_MODULE] mkDCache();
 
     // stage1_loadReq
     
-    // Stores always hit in the cache. Loads also always hit but we also 
-
     rule stage1_loadReq (!initializingLFSRs);
 
         // Begin a new model cycle.
-        let ctx <- localCtrl.startModelCycle();
+        let cpu_iid <- localCtrl.startModelCycle();
 
         // First check for fills.
-        let m_fill <- rspFromMemory.receive(ctx);
+        let m_fill <- rspFromMemory.receive(cpu_iid);
         
         if (m_fill matches tagged Valid .fill)
         begin
@@ -152,16 +152,16 @@ module [HASIM_MODULE] mkDCache();
                 begin
                 
                     // The fill is a load response.
-                    loadRspDelToCPU.send(ctx, tagged Valid rsp);
-                    storeRspDelToCPU.send(ctx, tagged Invalid);
+                    loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
+                    storeRspDelToCPU.send(cpu_iid, tagged Invalid);
                 
                 end
                 tagged FILL_store .rsp:
                 begin
 
                     // The fill is a store response.
-                    loadRspDelToCPU.send(ctx, tagged Invalid);
-                    storeRspDelToCPU.send(ctx, tagged Valid rsp);
+                    loadRspDelToCPU.send(cpu_iid, tagged Invalid);
+                    storeRspDelToCPU.send(cpu_iid, tagged Valid rsp);
                 end
             endcase
         
@@ -169,13 +169,13 @@ module [HASIM_MODULE] mkDCache();
         else
         begin
             
-            loadRspDelToCPU.send(ctx, tagged Invalid);
-            storeRspDelToCPU.send(ctx, tagged Invalid);
+            loadRspDelToCPU.send(cpu_iid, tagged Invalid);
+            storeRspDelToCPU.send(cpu_iid, tagged Invalid);
         
         end
         
         // Now read load input port.
-        let msg_from_cpu <- loadReqFromCPU.receive(ctx);
+        let msg_from_cpu <- loadReqFromCPU.receive(cpu_iid);
         
         // Record the request we should make on our one memory port.
         Maybe#(DCACHE_FILL) req_to_mem = tagged Invalid;
@@ -187,10 +187,10 @@ module [HASIM_MODULE] mkDCache();
 	    begin
 
                 // Propogate the bubble.
-	        loadRspImmToCPU.send(ctx, tagged Invalid);
+	        loadRspImmToCPU.send(cpu_iid, tagged Invalid);
 
                 // End of model cycle. (Path 1)
-                localCtrl.endModelCycle(ctx, 1);
+                localCtrl.endModelCycle(cpu_iid, 1);
 	    end
 
 	    tagged Valid .req:
@@ -207,11 +207,11 @@ module [HASIM_MODULE] mkDCache();
                 begin
 
                     // They have to retry next cycle.
-	            loadRspImmToCPU.send(ctx, tagged Valid initDCacheLoadRetry(req));
-                    statLoadRetries.incr(ctx);
+	            loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadRetry(req));
+                    statLoadRetries.incr(cpu_iid);
                     
                     // End of model cycle. (Path 2)
-                    localCtrl.endModelCycle(ctx, 2);
+                    localCtrl.endModelCycle(cpu_iid, 2);
 
                 end
                 else
@@ -223,27 +223,27 @@ module [HASIM_MODULE] mkDCache();
 
                         // Stall the load for some time.
                         req_to_mem = tagged Valid initLoadFill(req);
-                        statLoadMisses.incr(ctx);
+                        statLoadMisses.incr(cpu_iid);
 
                         
                         // Tell the CPU that a response is coming.
-                        loadRspImmToCPU.send(ctx, tagged Valid initDCacheLoadMiss(req));
+                        loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadMiss(req));
                         
                         // End of model cycle. (Path 3)
-                        localCtrl.endModelCycle(ctx, 3);
+                        localCtrl.endModelCycle(cpu_iid, 3);
                     
                     end
                     else
                     begin
                         
                         // A hit.
-                        statLoadHits.incr(ctx);
+                        statLoadHits.incr(cpu_iid);
                         
                         // Give the response to the CPU.
-                        loadRspImmToCPU.send(ctx, tagged Valid initDCacheLoadHit(req));
+                        loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadHit(req));
                         
                         // End of model cycle. (Path 4)
-                        localCtrl.endModelCycle(ctx, 4);
+                        localCtrl.endModelCycle(cpu_iid, 4);
                     
                     end
 
@@ -254,7 +254,7 @@ module [HASIM_MODULE] mkDCache();
         endcase
         
         // Now read the store input port.
-        let m_store_from_cpu <- storeReqFromCPU.receive(ctx);
+        let m_store_from_cpu <- storeReqFromCPU.receive(cpu_iid);
         
         // Deal with any store requests.
         case (m_store_from_cpu) matches
@@ -263,7 +263,7 @@ module [HASIM_MODULE] mkDCache();
 	    begin
 
                 // Propogate the bubble.
-	        storeRspImmToCPU.send(ctx, tagged Invalid);
+	        storeRspImmToCPU.send(cpu_iid, tagged Invalid);
 
 	    end
 
@@ -281,8 +281,8 @@ module [HASIM_MODULE] mkDCache();
                 begin
 
                     // They should retry their store on a later model cycle.
-	            storeRspImmToCPU.send(ctx, tagged Valid initDCacheStoreRetry(tok));
-                    statStoreRetries.incr(ctx);
+	            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                    statStoreRetries.incr(cpu_iid);
 
                 end
                 else
@@ -296,8 +296,8 @@ module [HASIM_MODULE] mkDCache();
                         begin
                         
                             // The port is taken. They must retry next model cycle.
-	                    storeRspImmToCPU.send(ctx, tagged Valid initDCacheStoreRetry(tok));
-                            statPortCollisions.incr(ctx);
+	                    storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                            statPortCollisions.incr(cpu_iid);
                         
                         end
                         else
@@ -307,8 +307,8 @@ module [HASIM_MODULE] mkDCache();
                             req_to_mem = tagged Valid initStoreFill(tok);
                             
                             // Tell the CPU we missed. They should delay until the store comes back.
-	                    storeRspImmToCPU.send(ctx, tagged Valid initDCacheStoreDelay(tok));
-                            statStoreMisses.incr(ctx);
+	                    storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(tok));
+                            statStoreMisses.incr(cpu_iid);
                         
                         end
                         
@@ -317,8 +317,8 @@ module [HASIM_MODULE] mkDCache();
                     begin
                         
                         // Tell the CPU we hit.
-	                storeRspImmToCPU.send(ctx, tagged Valid initDCacheStoreOk(tok));
-                        statStoreHits.incr(ctx);
+	                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
+                        statStoreHits.incr(cpu_iid);
                                                 
                     end
 
@@ -329,7 +329,7 @@ module [HASIM_MODULE] mkDCache();
         endcase
 
         // Make the request to the memory fill port.
-        reqToMemory.send(ctx, req_to_mem);
+        reqToMemory.send(cpu_iid, req_to_mem);
 
     endrule
 
