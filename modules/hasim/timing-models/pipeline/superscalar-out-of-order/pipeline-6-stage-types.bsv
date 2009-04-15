@@ -36,12 +36,11 @@ typedef struct {
     ISA_ADDRESS predPc;
     Bool afterResteer;
     ROB_INDEX epochRob;
-    TOKEN token;
 } FETCH_BUNDLE deriving (Bits, Eq);
 
 instance FShow#(FETCH_BUNDLE);
     function Fmt fshow(FETCH_BUNDLE b);
-        return $format("FETCH: pc: 0x%x predType: %d prediction: %b predPc: 0x%x afterResteer: %b resteerEpoch: %d ", b.pc, b.predType, b.prediction, b.predPc, b.afterResteer, b.epochRob) + fshow(b.token);
+        return $format("FETCH: pc: 0x%x predType: %d prediction: %b predPc: 0x%x afterResteer: %b resteerEpoch: %d ", b.pc, b.predType, b.prediction, b.predPc, b.afterResteer, b.epochRob);
     endfunction
 endinstance
 

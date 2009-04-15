@@ -82,7 +82,7 @@ module [HASIM_MODULE] mkICache();
 
                 // Pass it to the next stage through the functional partition, 
                 // which actually retrieves the instruction.
-                getInstruction.makeReq(initFuncpReqGetInstruction(req.token));
+                getInstruction.makeReq(initFuncpReqGetInstruction(cpu_iid, req.physicalAddress, req.offset));
                 stage2Q.enq(tuple2(cpu_iid, req));
                         
 
@@ -101,9 +101,6 @@ module [HASIM_MODULE] mkICache();
 
         match {.cpu_iid, .bundle} = stage2Q.first();
         stage2Q.deq();
-        
-        // Update the bundle with the latest token info.
-        bundle.token = rsp.token;
 
         // Always hit.
 	immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));

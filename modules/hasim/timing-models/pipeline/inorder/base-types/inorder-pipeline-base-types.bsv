@@ -68,7 +68,6 @@ typedef struct {
 } BRANCH_PRED_TRAIN deriving (Bits, Eq);
 
 typedef struct {
-    TOKEN token;
     TOKEN_BRANCH_EPOCH branchEpoch;
     TOKEN_FAULT_EPOCH faultEpoch;
     ISA_ADDRESS pc;

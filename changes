@@ -2647,3 +2647,90 @@ Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
 * Support moving the epoch from the functional partition to the timing model.
 
 Michael P.
+
+----------
+pellauer    Date: Wed Apr 15 11:11:42 EDT 2009  CSN: CSN-hasim-models-105
+                  Wed Apr 15 15:11:42 UTC 2009
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/global-history
+ global-history-bp-alg.bsv Locally Modified          104 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ 2bit-bp-alg.bsv           Locally Modified          104 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/not-taken
+ not-taken-bp-alg.bsv      Locally Modified          104 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/taken
+ taken-bp-alg.bsv          Locally Modified          104 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/simple
+ simple-bp-alg.bsv         Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified          104 
+ pipeline-6-stage-types.bsv Locally Modified          104 
+ rob.bsv                   Locally Modified          104 
+ decode.bsv                Locally Modified          104 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          104 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.awb   Locally Modified          104 
+ icache-pseudorandom.bsv   Locally Modified          104 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          104 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          104 
+ itlb-null.bsv             Locally Modified          104 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ icache-null.bsv           Locally Modified          104 
+
+
+* Altering of models to match the new token allocation scheme.
+* The unpipelined model only required minor changes.
+* The inorder model front end no longer uses tokens, so it uses InstQ slots
+  to distinguish between in-flight fetches.
+* The out-of-order model maintains a dummy Decode stage, although 
+  getDependencies is now called by the ROB. This stage keeps the ROB's notion
+  of credits in sync with the front end.
+* The branch predictors no longer use tokens, since they are not available. This
+  breaks the globalHistory predictor's notion of updates, but it seems that it
+  was already broken and has not been maintained for a while.
+  
+Michael P.

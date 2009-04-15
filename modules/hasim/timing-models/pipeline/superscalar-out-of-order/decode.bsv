@@ -10,42 +10,25 @@ import FShow::*;
 
 `include "hasim_pipeline_types.bsh"
 
-typedef enum {DECODE_STATE_REQ_DEPENDENCIES, DECODE_STATE_RESP_DEPENDENCIES} DECODE_STATE deriving (Bits, Eq);
+// This should not exist, but the ROB seems to be making assumptions about the number of credits.
+// Changing the ROB to interact with the fetchBuffer directly was unsuccesful.
+// So this will remain until a better workaround can be found.
 
 module [HASIM_MODULE] mkDecode();
-    TIMEP_DEBUG_FILE                                                                  debugLog <- mkTIMEPDebugFile("pipe_dec.out");
-
     PORT_FIFO_RECEIVE#(FETCH_BUNDLE, `FETCH_NUM, LOG_FETCH_CREDITS)                fetchBuffer <- mkPortFifoReceive("fetch", True, `FETCH_CREDITS);
-    PORT_CREDIT_SEND#(DECODE_BUNDLE, `DECODE_NUM, LOG_DECODE_CREDITS)               decodePort <- mkPortCreditSend("decode");
+    PORT_CREDIT_SEND#(FETCH_BUNDLE, `DECODE_NUM, LOG_DECODE_CREDITS)               decodePort <- mkPortCreditSend("decode");
 
-    Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES, FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
-
-    Reg#(DECODE_STATE)                                                                   state <- mkReg(DECODE_STATE_REQ_DEPENDENCIES);
-
-    rule reqDependencies(state == DECODE_STATE_REQ_DEPENDENCIES);
+   rule passThrough (True);
         if(fetchBuffer.canReceive() && decodePort.canSend())
         begin
-            debugLog.record($format("dep req: ") + fshow(fetchBuffer.first.token));
-            getDependencies.makeReq(FUNCP_REQ_GET_DEPENDENCIES{token: fetchBuffer.first().token});
-            state <= DECODE_STATE_RESP_DEPENDENCIES;
+            decodePort.enq(fetchBuffer.first());
+            fetchBuffer.deq();
         end
         else
         begin
-            debugLog.record($format("end cycle"));
             fetchBuffer.done;
-            debugLog.nextModelCycle();
             decodePort.done;
         end
     endrule
 
-    rule respDependencies(state == DECODE_STATE_RESP_DEPENDENCIES);
-        let resp = getDependencies.getResp();
-        getDependencies.deq();
-        fetchBuffer.deq();
-        let fetchBundle = fetchBuffer.first();
-        let decodeBundle = makeDecodeBundle(resp.token, fetchBundle, extractPhysReg(resp.srcMap), extractPhysReg(resp.dstMap));
-        debugLog.record($format("respDependencies ") + fshow(decodeBundle));
-        decodePort.enq(decodeBundle);
-        state <= DECODE_STATE_REQ_DEPENDENCIES;
-    endrule
 endmodule

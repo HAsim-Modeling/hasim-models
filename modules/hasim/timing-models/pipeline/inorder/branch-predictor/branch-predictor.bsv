@@ -57,7 +57,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) pcFromFet <- mkPortRecvGuarded_Multiplexed("Fet_to_BP_pc", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)                 pcFromFet <- mkPortRecvGuarded_Multiplexed("Fet_to_BP_pc", 0);
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)                 predToFet <- mkPortSend_Multiplexed("BP_to_Fet_pred");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)                 attrToFet <- mkPortSend_Multiplexed("BP_to_Fet_attr");
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN)           trainingFromExe <- mkPortRecv_Multiplexed("Exe_to_BP_training", 1);
@@ -158,7 +158,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
                 // Update the predictor with the training.
                 debugLog.record_next_cycle(cpu_iid, $format("BP TRAIN: %h, pred: %d, taken: %d", pc, pred, taken));
-                bPAlg.upd(bpt.token, bpt.branchPC, pred, taken);
+                bPAlg.upd(bpt.branchPC, pred, taken);
 
             end
 
@@ -188,12 +188,12 @@ module [HASIM_MODULE] mkBranchPredictor ();
         // Let's see if there was a prediction request.
         let m_pc <- pcFromFet.receive(cpu_iid);
 
-        if (m_pc matches tagged Valid { .tok, .addr })
+        if (m_pc matches tagged Valid .addr)
         begin
         
             // Lookup this PC in the BTB and branch predictor.
             btb.readReq(getIndex(addr));
-            bPAlg.getPredReq(tok, addr);
+            bPAlg.getPredReq(addr);
 
             // Pass the information to the next stage.
             pcQ.enq(addr);

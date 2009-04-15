@@ -4,10 +4,10 @@ import FIFO::*;
 `include "asim/provides/hasim_isa.bsh"
 
 interface BRANCH_PREDICTION_ALG;
-    method Action upd(TOKEN token, ISA_ADDRESS addr, Bool pred, Bool actual);
-    method Action getPredReq(TOKEN token, ISA_ADDRESS addr);
+    method Action upd(ISA_ADDRESS addr, Bool pred, Bool actual);
+    method Action getPredReq(ISA_ADDRESS addr);
     method ActionValue#(Bool) getPredResp();
-    method Action abort(TOKEN token);
+    method Action abort(ISA_ADDRESS addr);
 endinterface
 
 module mkBranchPredAlg
@@ -16,11 +16,11 @@ module mkBranchPredAlg
 
     FIFO#(VOID) respQ <- mkFIFO();
     
-    method Action upd(TOKEN token, ISA_ADDRESS addr, Bool pred, Bool actual);
+    method Action upd(ISA_ADDRESS addr, Bool pred, Bool actual);
         noAction;
     endmethod
 
-    method Action  getPredReq(TOKEN token, ISA_ADDRESS addr);
+    method Action  getPredReq(ISA_ADDRESS addr);
         respQ.enq(?);
     endmethod
 
@@ -29,7 +29,7 @@ module mkBranchPredAlg
         return False;
     endmethod
     
-    method Action abort(TOKEN token);
+    method Action abort(ISA_ADDRESS addr);
         noAction;
     endmethod
 

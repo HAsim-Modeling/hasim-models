@@ -77,7 +77,8 @@ module [HASIM_MODULE] mkExecute ();
     PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_Multiplexed("DTLBQ");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindToFet <- mkPortSend_Multiplexed("Exe_to_Fet_rewind");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN)          trainingToBP <- mkPortSend_Multiplexed("Exe_to_BP_training");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN_FAULT_EPOCH) rewindToDec  <- mkPortSend_Multiplexed("Exe_to_Dec_mispredict");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN) trainingToBP <- mkPortSend_Multiplexed("Exe_to_BP_training");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("Exe_to_Dec_writeback");
 
@@ -91,7 +92,7 @@ module [HASIM_MODULE] mkExecute ();
     // ****** Local Controller ******
 
     Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(6, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromIssueQ.ctrl;
     inports[1]  = bundleToMemQ.ctrl;
     outports[0] = bundleToMemQ.ctrl;
@@ -99,6 +100,7 @@ module [HASIM_MODULE] mkExecute ();
     outports[2] = writebackToDec.ctrl;
     outports[3] = trainingToBP.ctrl;
     outports[4] = bundleFromIssueQ.ctrl;
+    outports[5] = rewindToDec.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
@@ -154,6 +156,7 @@ module [HASIM_MODULE] mkExecute ();
         begin
             // Don't rewind the PC or train the BP.
             rewindToFet.send(cpu_iid, tagged Invalid);
+            rewindToDec.send(cpu_iid, tagged Invalid);
             trainingToBP.send(cpu_iid, tagged Invalid);
         end
         else if (branchAttr matches tagged BranchNotTaken .pred_tgt &&&
@@ -163,6 +166,7 @@ module [HASIM_MODULE] mkExecute ();
             // Train BP but no need to rewind
             debugLog.record(cpu_iid, fshow("NON-BRANCH PREDICTED NOT TAKEN BRANCH: ") + fshow(tok));
             rewindToFet.send(cpu_iid, tagged Invalid);
+            rewindToDec.send(cpu_iid, tagged Invalid);
 
             train.predCorrect = True;
             trainingToBP.send(cpu_iid, tagged Valid train);
@@ -178,6 +182,7 @@ module [HASIM_MODULE] mkExecute ();
 
             // Rewind the PC and train the BP.
             rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, tgt));
+            rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
             train.predCorrect = False;
             trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -209,6 +214,7 @@ module [HASIM_MODULE] mkExecute ();
             bundleFromIssueQ.noDeq(cpu_iid);
             bundleToMemQ.noEnq(cpu_iid);
             rewindToFet.send(cpu_iid, tagged Invalid);
+            rewindToDec.send(cpu_iid, tagged Invalid);
             trainingToBP.send(cpu_iid, tagged Invalid);
             writebackToDec.send(cpu_iid, tagged Invalid);
 
@@ -270,7 +276,8 @@ module [HASIM_MODULE] mkExecute ();
                     // Bad path due to branch.  Mark the token as junk and send it on.
                     //
                     //
-                    bundleToMemQ.doEnq(cpu_iid, initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, True, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
+                    tok.dummy = True;
+                    bundleToMemQ.doEnq(cpu_iid, initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
 
                     // Dequeue the IssueQ
                     bundleFromIssueQ.doDeq(cpu_iid);
@@ -281,6 +288,7 @@ module [HASIM_MODULE] mkExecute ();
                 
                 // Propogate the bubble.
                 rewindToFet.send(cpu_iid, tagged Invalid);
+                rewindToDec.send(cpu_iid, tagged Invalid);
                 trainingToBP.send(cpu_iid, tagged Invalid);
 
                 // End the model cycle. (Path 2)
@@ -338,6 +346,7 @@ module [HASIM_MODULE] mkExecute ();
                     
                     // It was predicted correctly. Train, but don't resteer.
                     rewindToFet.send(cpu_iid, tagged Invalid);
+                    rewindToDec.send(cpu_iid, tagged Invalid);
                     train.predCorrect = True;
                     trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -351,6 +360,7 @@ module [HASIM_MODULE] mkExecute ();
 
                     // Rewind the PC to the actual target and train the BP.
                     rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
+                    rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
                     train.predCorrect = False;
                     trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -369,6 +379,7 @@ module [HASIM_MODULE] mkExecute ();
 
                         // The predictor got it right. No need to resteer.
                         rewindToFet.send(cpu_iid, tagged Invalid);
+                        rewindToDec.send(cpu_iid, tagged Invalid);
                         train.predCorrect = True;
                         trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -382,6 +393,7 @@ module [HASIM_MODULE] mkExecute ();
                         
                         // Resteer the PC to the actual destination and train.
                         rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
+                        rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
                         train.predCorrect = False;
                         trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -392,6 +404,7 @@ module [HASIM_MODULE] mkExecute ();
                         // The predictor was wrong, but it was harmless.
                         // Note: Should we train in this case?
                         rewindToFet.send(cpu_iid, tagged Invalid);
+                        rewindToDec.send(cpu_iid, tagged Invalid);
                         trainingToBP.send(cpu_iid, tagged Invalid);
 
                     end
@@ -425,6 +438,7 @@ module [HASIM_MODULE] mkExecute ();
                 
                 // Like a nop, but if this instruction commits, then simulation should end.
                 rewindToFet.send(cpu_iid, tagged Invalid);
+                rewindToDec.send(cpu_iid, tagged Invalid);
                 bundle.isTerminate = tagged Valid pf;
                 trainingToBP.send(cpu_iid, tagged Invalid);
 
@@ -456,7 +470,7 @@ module [HASIM_MODULE] mkExecute ();
         bundle.token = tok;
 
         // Enqueue the instuction in the MemQ.
-        bundleToMemQ.doEnq(cpu_iid, initDMemBundle(bundle.token, bundle.effAddr, bundle.faultEpoch, False, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
+        bundleToMemQ.doEnq(cpu_iid, initDMemBundle(bundle.token, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
 
         // End the model cycle. (Path 3)
         eventExe.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));

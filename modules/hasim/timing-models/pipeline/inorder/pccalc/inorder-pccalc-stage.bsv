@@ -117,12 +117,12 @@ module [HASIM_MODULE] mkPCCalc
     // ****** Ports ******
 
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION))) bundleToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_allocate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(INSTQ_SLOT_ID, FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION))) bundleToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_allocate");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))    nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)                                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindFromExe <- mkPortRecv_Multiplexed("Exe_to_Fet_rewind", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, IMEM_EPOCH, ISA_ADDRESS))  faultFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_fault", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(IMEM_EPOCH, ISA_ADDRESS))  faultFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_fault", 0);
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE)  immRspFromICache <- mkPortRecv_Multiplexed("ICache_to_CPU_immediate", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)              predFromBP       <- mkPortRecv_Multiplexed("BP_to_Fet_pred", 0);
@@ -223,20 +223,18 @@ module [HASIM_MODULE] mkPCCalc
 
             // A cache retry occured.
             // Epoch check ensures we haven't already redirected from a fault or a branch misprediction.
-            let tok = rsp.bundle.token;
-            debugLog.record_next_cycle(cpu_iid, fshow("ICACHE RETRY: ") + fshow(tok) + $format(" ADDR:0x%h", rsp.bundle.virtualAddress));
-            // Actually need to go back to tok - 1
-            let new_tok = tok;
-            new_tok.index = tok.index - 1;
-            rewindToToken.makeReq(initFuncpReqRewindToToken(new_tok));
-            newPC <= rsp.bundle.virtualAddress;
+            debugLog.record_next_cycle(cpu_iid, $format("ICACHE RETRY ADDR:0x%h", rsp.bundle.virtualAddress));
+            
+            // Send the new PC to the Fetch unit.        
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(rsp.bundle.virtualAddress, initIMemEpoch(iTLBEpoch, iCacheEpoch + 1, branchEpoch, faultEpoch)));
+
             iCacheEpoch <= iCacheEpoch + 1;
 
-            // Stall this stage until the functional partition indicates the rewind is complete.
-            stage1State <= PCC1_rewindRsp;
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
         
         end
-        else if (m_itlb_fault matches tagged Valid {.tok, .epoch, .handler_addr} &&&
+        else if (m_itlb_fault matches tagged Valid {.epoch, .handler_addr} &&&
                           epoch.fault == faultEpoch  &&&
                          epoch.branch == branchEpoch &&&
                          epoch.iCache == iCacheEpoch)
@@ -244,16 +242,14 @@ module [HASIM_MODULE] mkPCCalc
         
             // An ITLB fault occured. Jump to the provided handler address.
             // (Note: in the future we could be the one to retrieve the handler, as with faults.)
-            debugLog.record_next_cycle(cpu_iid, fshow("ITLB PAGE FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", handler_addr));
-            // Actually need to go back to tok - 1
-            let new_tok = tok;
-            new_tok.index = tok.index - 1;
-            rewindToToken.makeReq(initFuncpReqRewindToToken(new_tok));
-            newPC <= handler_addr;
+            debugLog.record_next_cycle(cpu_iid, $format("ITLB PAGE FAULT ADDR:0x%h", handler_addr));
+            
+            // Send the new PC to the Fetch unit.        
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(handler_addr, initIMemEpoch(iTLBEpoch + 1, iCacheEpoch, branchEpoch, faultEpoch)));
             iTLBEpoch <= iTLBEpoch + 1;
 
-            // Stall this stage until the functional partition indicates the rewind is complete.
-            stage1State <= PCC1_rewindRsp;
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
         
         end
         else if (m_pred_pc matches tagged Valid .pred_pc)
@@ -263,8 +259,8 @@ module [HASIM_MODULE] mkPCCalc
             debugLog.record_next_cycle(cpu_iid, $format("BRANCH PRED:0x%h", pred_pc));
             nextPCToFetch.send(cpu_iid, tagged Valid tuple2(pred_pc, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
 
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(cpu_iid, 3);
 
         end
         else
@@ -301,21 +297,20 @@ module [HASIM_MODULE] mkPCCalc
                 begin
 
                     // It's on the right path.
-                    debugLog.record_next_cycle(cpu_iid, fshow("INSTQ ALLOC COMPLETED: ") + fshow(rsp.bundle.token) + $format(" ADDR:0x%h", rsp.bundle.virtualAddress));
+                    debugLog.record_next_cycle(cpu_iid, $format("INSTQ ALLOC COMPLETED SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
 
                     // assert isValid m_attr
-                    let bundle = FETCH_BUNDLE {token: rsp.bundle.token, branchEpoch: rsp.bundle.epoch.branch, faultEpoch: rsp.bundle.epoch.fault, pc: rsp.bundle.virtualAddress, inst: ?, branchAttr: validValue(m_attr)};
-
+                    let bundle = FETCH_BUNDLE {branchEpoch: rsp.bundle.epoch.branch, faultEpoch: rsp.bundle.epoch.fault, pc: rsp.bundle.virtualAddress, inst: ?, branchAttr: validValue(m_attr)};
 
                     // Enqueue it completed with an instruction.
-                    bundleToInstQ.send(cpu_iid, tagged Valid tuple2(bundle, tagged Valid rsp.bundle.instruction));
+                    bundleToInstQ.send(cpu_iid, tagged Valid tuple3(rsp.bundle.instQSlot, bundle, tagged Valid rsp.bundle.instruction));
 
                 end
                 else
                 begin
 
                     // It's on the wrong path.
-                    debugLog.record_next_cycle(cpu_iid, fshow("CACHE HIT EPOCH DROP: ") + fshow(rsp.bundle.token) + $format(" ADDR:0x%h", rsp.bundle.virtualAddress));
+                    debugLog.record_next_cycle(cpu_iid, $format("CACHE HIT EPOCH DROP SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
                     bundleToInstQ.send(cpu_iid, tagged Invalid); 
 
                 end
@@ -330,23 +325,23 @@ module [HASIM_MODULE] mkPCCalc
                 begin
 
                     // It's on the right path.
-                    debugLog.record_next_cycle(cpu_iid, fshow("INSTQ ALLOC INCOMPLETE: ") + fshow(rsp.bundle.token) + $format(" ADDR:0x%h", rsp.bundle.virtualAddress));
+                    debugLog.record_next_cycle(cpu_iid, $format("INSTQ ALLOC INCOMPLETE SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
 
                     // Update the bundle epochs
                     let epoch = initEpoch(rsp.bundle.epoch.branch, rsp.bundle.epoch.fault);
 
                     // assert isValid m_attr
-                    let bundle = FETCH_BUNDLE {token: rsp.bundle.token, branchEpoch: rsp.bundle.epoch.branch, faultEpoch: rsp.bundle.epoch.fault, pc: rsp.bundle.virtualAddress, inst: ?, branchAttr: validValue(m_attr)};
+                    let bundle = FETCH_BUNDLE {branchEpoch: rsp.bundle.epoch.branch, faultEpoch: rsp.bundle.epoch.fault, pc: rsp.bundle.virtualAddress, inst: ?, branchAttr: validValue(m_attr)};
 
                     // Enqueue it incomplete with no instruction.
-                    bundleToInstQ.send(cpu_iid, tagged Valid tuple2(bundle, tagged Invalid));
+                    bundleToInstQ.send(cpu_iid, tagged Valid tuple3(rsp.bundle.instQSlot, bundle, tagged Invalid));
 
                 end
                 else
                 begin
 
                     // It's on the wrong path.
-                    debugLog.record_next_cycle(cpu_iid, fshow("CACHE MISS EPOCH DROP: ") + fshow(rsp.bundle.token) + $format(" ADDR:0x%h", rsp.bundle.virtualAddress));
+                    debugLog.record_next_cycle(cpu_iid, $format("CACHE MISS EPOCH SLOT: %0d DROP ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
                     bundleToInstQ.send(cpu_iid, tagged Invalid); 
 
                 end
@@ -356,7 +351,7 @@ module [HASIM_MODULE] mkPCCalc
             begin
             
                 // It's a retry. Don't enqueue anything.
-                debugLog.record_next_cycle(cpu_iid, fshow("CACHE RETRY NO ENQ ") + fshow(rsp.bundle.token) + $format(" ADDR:0x%h", rsp.bundle.virtualAddress));
+                debugLog.record_next_cycle(cpu_iid, $format("CACHE RETRY NO ENQ SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
                 bundleToInstQ.send(cpu_iid, tagged Invalid); 
             
             end
@@ -392,8 +387,8 @@ module [HASIM_MODULE] mkPCCalc
         // Unstall this stage.
         stage1State <= PCC1_ready;
 
-        // End of model cycle. (Path 3)
-        localCtrl.endModelCycle(cpu_iid, 3);
+        // End of model cycle. (Path 4)
+        localCtrl.endModelCycle(cpu_iid, 4);
 
     endrule
 
@@ -422,8 +417,8 @@ module [HASIM_MODULE] mkPCCalc
         // Unstall this stage.
         stage1State <= PCC1_ready;
 
-        // End of model cycle. (Path 4)
-        localCtrl.endModelCycle(cpu_iid, 4);
+        // End of model cycle. (Path 5)
+        localCtrl.endModelCycle(cpu_iid, 5);
 
     endrule
 

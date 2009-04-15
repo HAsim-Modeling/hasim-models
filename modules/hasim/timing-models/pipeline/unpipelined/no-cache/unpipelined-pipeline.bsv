@@ -57,9 +57,12 @@ module [HASIM_MODULE] mkPipeline
     //********* State Elements *********//
 
     // Program counters
-    LUTRAM#(CPU_INSTANCE_ID, ISA_ADDRESS) pcPool <- mkLUTRAM(`PROGRAM_START_ADDR);
+    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS)) pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
 
-    // Pipe from any stage that flows to local commit
+    // Intra-stage queues.
+    FIFO#(Tuple2#(Bool, Bool)) decQ <- mkFIFO();
+    FIFO#(TOKEN) dtrQ <- mkFIFO();
+    FIFO#(TOKEN) dmemQ <- mkFIFO();
     FIFO#(TOKEN) commitQ <- mkFIFO();
 
     //********* Connections *********//
@@ -67,9 +70,6 @@ module [HASIM_MODULE] mkPipeline
     Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         linkModelCycle <- mkConnection_Send("model_cycle");
 
     Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        linkModelCommit <- mkConnection_Send("model_commits");
-
-    Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT, 
-                       FUNCP_RSP_NEW_IN_FLIGHT)       linkToTOK <- mkConnection_Client("funcp_newInFlight");
 
     Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, 
                        FUNCP_RSP_DO_ITRANSLATE)       linkToITR <- mkConnection_Client("funcp_doITranslate");
@@ -121,6 +121,7 @@ module [HASIM_MODULE] mkPipeline
     //********* Rules *********//
 
     // Mapping from cpu id to context ids and back.
+    function CPU_INSTANCE_ID getCpuInstanceId(CONTEXT_ID ctx_id) = ctx_id;
     function CPU_INSTANCE_ID tokCpuInstanceId(TOKEN tok) = tokContextId(tok);
     function CONTEXT_ID getContextId(CPU_INSTANCE_ID cpu_iid) = cpu_iid;
 
@@ -129,14 +130,14 @@ module [HASIM_MODULE] mkPipeline
     // endModelCycle --
     //     Invoked by any rule that is completely done with a token.
     //
-    function Action endModelCycle(TOKEN tok);
+    function Action endModelCycle(CPU_INSTANCE_ID cpu_iid);
     action
-        let cpu_iid = tokCpuInstanceId(tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": Model cycle complete"));
+        debugLog.record(cpu_iid, $format("Model cycle complete."));
 
         // Sample event & statistic (commit)
-        eventCom.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+        eventCom.recordEvent(cpu_iid, tagged Valid truncate(pc));
         statCom.incr(cpu_iid);
 
         // Commit counter for heartbeat
@@ -144,6 +145,7 @@ module [HASIM_MODULE] mkPipeline
         
         // End the model cycle.
         localCtrl.endModelCycle(cpu_iid, 1);
+
     endaction
     endfunction
 
@@ -154,94 +156,94 @@ module [HASIM_MODULE] mkPipeline
     //
     function Bool tokIsLoad(TOKEN tok) = unpack(tok.timep_info.scratchpad[0]);
     function Bool tokIsStore(TOKEN tok) = unpack(tok.timep_info.scratchpad[1]);
+    function Bool tokIsLoadOrStore(TOKEN tok) = tokIsLoad(tok) || tokIsStore(tok);
 
-    rule tok_req (True);
+    rule stage1_itrReq (True);
 
+        // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        let ctx_id = getContextId(cpu_iid);
-
-        // Request a Token
-        debugLog.nextModelCycle(cpu_iid);
         linkModelCycle.send(cpu_iid);
 
-        debugLog.record_next_cycle(cpu_iid, $format("Requesting a new token"));
-        linkToTOK.makeReq(initFuncpReqNewInFlight(ctx_id));
-
-    endrule
-
-    rule tok_rsp_itr_req (True);
-        // Get the response from tok_req
-        let rsp = linkToTOK.getResp();
-        linkToTOK.deq();
-
-        let tok = rsp.newToken;
-        let cpu_iid = tokCpuInstanceId(tok);
-
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": TOK Responded"));
 
         // Translate next pc.
-        let pc = pcPool.sub(cpu_iid);
-        linkToITR.makeReq(initFuncpReqDoITranslate(tok, pc));
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": Translating at address 0x%h", pc));
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+        let ctx_id = getContextId(cpu_iid);
+        linkToITR.makeReq(initFuncpReqDoITranslate(ctx_id, pc));
+        debugLog.record(cpu_iid, $format("Translating virtual address: 0x%h", pc));
+
     endrule
 
-    rule itr_rsp_fet_req (True);
-        // Get the ITrans response started by tok_rsp_itr_req
+    rule stage2_itrRsp_fetReq (True);
+
+        // Get the ITrans response started by stage1_itrReq
         let rsp = linkToITR.getResp();
         linkToITR.deq();
 
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
-        let pc = pcPool.sub(cpu_iid);
+        let cpu_iid = getCpuInstanceId(rsp.contextId);
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": ITR Responded, hasMore: %0d", rsp.hasMore));
+        debugLog.record(cpu_iid, $format("ITR Responded, hasMore: %0d", rsp.hasMore));
 
         if (! rsp.hasMore)
         begin
+
             // Fetch the next instruction
-            linkToFET.makeReq(initFuncpReqGetInstruction(tok));
-            debugLog.record(cpu_iid, fshow(tok.index) + $format(": Fetching at address 0x%h", pc));
+            linkToFET.makeReq(initFuncpReqGetInstruction(rsp.contextId, rsp.physicalAddress, rsp.offset));
+            debugLog.record(cpu_iid, $format("Fetching physical address: 0x%h, offset: 0x%h", rsp.physicalAddress, rsp.offset));
+
         end
+
     endrule
 
-    rule fet_rsp_dec_req (True);
+    rule stage3_fetRsp_decReq (True);
+
         // Get the instruction response
         let rsp = linkToFET.getResp();
         linkToFET.deq();
 
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
+        let cpu_iid = getCpuInstanceId(rsp.contextId);
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": FET Responded"));
+        debugLog.record(cpu_iid, $format("FET Responded"));
 
-        // Record load and store properties for the instruction in the token
-        tok.timep_info.scratchpad[0] = pack(isaIsLoad(rsp.instruction));
-        tok.timep_info.scratchpad[1] = pack(isaIsStore(rsp.instruction));
+        // Tell the functional partition to decode the current instruction and place it in flight.
+        linkToDEC.makeReq(initFuncpReqGetDependencies(rsp.contextId, rsp.instruction, pc));
+        debugLog.record(cpu_iid, $format("Decoding instruction: 0x%h", rsp.instruction));
 
-        // Decode the current inst
-        linkToDEC.makeReq(initFuncpReqGetDependencies(tok));
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": Decoding"));
+        decQ.enq(tuple2(isaIsLoad(rsp.instruction), isaIsStore(rsp.instruction)));
+
     endrule
 
-    rule dec_rsp_exe_req (True);
+    rule stage4_decRsp_exeReq (True);
+
+        match {.is_load, .is_store} = decQ.first();
+        decQ.deq();
+
         // Get the decode response
         let rsp = linkToDEC.getResp();
         linkToDEC.deq();
 
+        // Get the token the functional partition assigned to this instruction.
         let tok = rsp.token;
         let cpu_iid = tokCpuInstanceId(tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": DEC Responded"));
+        debugLog.record(cpu_iid, $format("DEC Responded with token: %0d", tokTokenId(tok)));
+
+        // Record load and store properties for the instruction in the token
+        tok.timep_info.scratchpad[0] = pack(is_load);
+        tok.timep_info.scratchpad[1] = pack(is_store);
 
         // In a more complex processor we would use the dependencies 
         // to determine if we can issue the instruction.
 
         // Execute the instruction
         linkToEXE.makeReq(initFuncpReqGetResults(tok));
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": Executing"));
+        debugLog.record(cpu_iid, $format("Executing token: %0d", tokTokenId(tok)));
+
     endrule
 
-    rule exe_rsp (True);
+    rule stage5_exeRsp (True);
+
         // Get the execution result
         let exe_resp = linkToEXE.getResp();
         linkToEXE.deq();
@@ -250,52 +252,64 @@ module [HASIM_MODULE] mkPipeline
         let res = exe_resp.result;
 
         let cpu_iid = tokCpuInstanceId(tok);
-        let pc = pcPool.sub(cpu_iid);
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": EXE Responded"));
+        debugLog.record(cpu_iid, $format("EXE Responded with token: %0d", tokTokenId(tok)));
 
         // If it was a branch we must update the PC.
         case (res) matches
+
             tagged RBranchTaken .addr:
             begin
-                debugLog.record(cpu_iid, $format("Branch taken to address %h", addr));
-                pcPool.upd(cpu_iid, addr);
+
+                debugLog.record(cpu_iid, $format("Branch taken to address: 0x%h", addr));
+                pc <= addr;
+
             end
 
             tagged RBranchNotTaken .addr:
             begin
+
                 debugLog.record(cpu_iid, $format("Branch not taken"));
-                pcPool.upd(cpu_iid, pc + 4);
+                pc <= pc + 4;
+
             end
 
             tagged RTerminate .pf:
             begin
-                debugLog.record(cpu_iid, $format("Terminating Execution"));
+
+                debugLog.record(cpu_iid, $format("Terminating Execution. PassFail: %0b", pf));
                 localCtrl.instanceDone(cpu_iid, pf);
+
             end
 
             default:
             begin
-                pcPool.upd(cpu_iid, pc + 4);
+
+                pc <= pc + 4;
+
             end
+
         endcase
 
         if (tokIsLoad(tok) || tokIsStore(tok))
         begin
+
             // Memory ops require more work.
-            debugLog.record(cpu_iid, fshow(tok.index) + $format(": DTranslate"));
+            debugLog.record(cpu_iid, $format("DTranslate request for token: %0d", tokTokenId(tok)));
 
             // Get the physical address(es) of the memory access.
             linkToDTR.makeReq(initFuncpReqDoDTranslate(tok));
+
         end
-        else
-        begin
-            // Everything else should just be committed.
-            commitQ.enq(tok);
-        end
+
+        // Everything else is a no-op in the next stage.
+        dtrQ.enq(tok);
+
     endrule
 
-    rule dtr_rsp_mem_req (True);
+    rule stage6_dtrRsp_memReq (tokIsLoadOrStore(dtrQ.first()));
+    
         // Get the response from dTranslate
         let rsp = linkToDTR.getResp();
         linkToDTR.deq();
@@ -303,26 +317,47 @@ module [HASIM_MODULE] mkPipeline
         let tok = rsp.token;
         let cpu_iid = tokCpuInstanceId(tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": DTR Responded, hasMore: %0d", rsp.hasMore));
+        debugLog.record(cpu_iid, $format("DTR Responded for token: %0d, hasMore: %0d", tokTokenId(tok), rsp.hasMore));
 
         if (! rsp.hasMore)
         begin
+
+            dtrQ.deq();
+            dmemQ.enq(tok);
+
             if (tokIsLoad(tok))
             begin
+
                 // Request the load(s).
                 linkToLOA.makeReq(initFuncpReqDoLoads(tok));
                 debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
+
             end
             else
             begin
+
                 // Request the store(s)
                 linkToSTO.makeReq(initFuncpReqDoStores(tok));
                 debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
+
             end
+
         end
+
     endrule
 
-    rule loa_rsp (True);
+    rule stage6_nonMemoryOp (!tokIsLoadOrStore(dtrQ.first()));
+
+        // Just pass to the next stage.
+        dmemQ.enq(dtrQ.first());
+        dtrQ.deq();
+
+    endrule
+
+    rule stage7_loaRsp (tokIsLoad(dmemQ.first()));
+
+        dmemQ.deq();
+
         // Get the load response
         let rsp = linkToLOA.getResp();
         linkToLOA.deq();
@@ -330,12 +365,16 @@ module [HASIM_MODULE] mkPipeline
         let tok = rsp.token;
         let cpu_iid= tokCpuInstanceId(tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": Load ops responded"));
+        debugLog.record(cpu_iid, $format("Load ops responded for token: %0d", tokTokenId(tok)));
 
         commitQ.enq(tok);
+
     endrule
 
-    rule sto_rsp (True);
+    rule stage7_stoRsp (tokIsStore(dmemQ.first()));
+
+        dmemQ.deq();
+
         // Get the store response
         let rsp = linkToSTO.getResp();
         linkToSTO.deq();
@@ -343,12 +382,22 @@ module [HASIM_MODULE] mkPipeline
         let tok = rsp.token;
         let cpu_iid = tokCpuInstanceId(tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": Store ops responded"));
+        debugLog.record(cpu_iid, $format(": Store ops responded for token: %0d", tokTokenId(tok)));
 
         commitQ.enq(tok);
+
     endrule
 
-    rule lco_req (True);
+    rule stage7_nonMemoryOp (!tokIsLoad(dmemQ.first()) && !tokIsStore(dmemQ.first()));
+    
+        // Just pass to the next stage.
+        commitQ.enq(dmemQ.first());
+        dmemQ.deq();
+    
+    endrule
+
+    rule stage8_lcoReq (True);
+
         // Get the current token from previous rule
         let tok = commitQ.first();
         let cpu_iid = tokCpuInstanceId(tok);
@@ -356,40 +405,52 @@ module [HASIM_MODULE] mkPipeline
 
         if (! tokIsPoisoned(tok))
         begin
+
             // Locally commit the token.
             linkToLCO.makeReq(initFuncpReqCommitResults(tok));
-            debugLog.record(cpu_iid, fshow(tok.index) + $format(": Locally committing"));
+            debugLog.record(cpu_iid, $format("Locally committing token: %0d", tokTokenId(tok)));
+
         end
         else
         begin
+
             // Token is poisoned.  Invoke fault handler.
             linkToHandleFault.makeReq(initFuncpReqHandleFault(tok));
-            debugLog.record(cpu_iid, fshow(tok.index) + $format(": Handling fault"));
+            debugLog.record(cpu_iid, $format("Handling fault for token: %0d", tokTokenId(tok)));
+
         end
+
     endrule
 
-    rule lco_rsp_gco_req (True);
+    rule stage9_lcoRsp_gcoReq (True);
+
         let rsp = linkToLCO.getResp();
         linkToLCO.deq();
 
         let tok = rsp.token;
         let cpu_iid = tokCpuInstanceId(tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": LCO Responded"));
+        debugLog.record(cpu_iid, $format("LCO responded for token: %0d", tokTokenId(tok)));
 
         if (tokIsStore(tok))
         begin
+
             // Request global commit of stores.
             linkToGCO.makeReq(initFuncpReqCommitStores(tok));
-            debugLog.record(cpu_iid, fshow(tok.index) + $format(": Globally committing"));
+            debugLog.record(cpu_iid, $format("Globally committing stores for token: %0d", tokTokenId(tok)));
+
         end
         else
         begin
-            endModelCycle(tok);
+
+            endModelCycle(cpu_iid);
+
         end
+
     endrule
 
-    rule gco_rsp (True);
+    rule stage10_gcoRsp (True);
+
         // Get the global commit response
         let rsp = linkToGCO.getResp();
         linkToGCO.deq();
@@ -397,26 +458,31 @@ module [HASIM_MODULE] mkPipeline
         let tok = rsp.token;
         let cpu_iid = tokCpuInstanceId(tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": GCO Responded"));
+        debugLog.record(cpu_iid, fshow(tok.index) + $format("GCO Responded for token: %0d", tokTokenId(tok)));
 
-        endModelCycle(tok);
+        endModelCycle(cpu_iid);
+
     endrule
 
-    (* descending_urgency = "fault_rsp, gco_rsp, lco_rsp_gco_req, sto_rsp, loa_rsp, exe_rsp, tok_req" *)
-    rule fault_rsp (True);
+    rule stage10_faultRsp (True);
+
         // Fault response (started by lco_req)
         let rsp = linkToHandleFault.getResp();
         linkToHandleFault.deq();
 
         let tok = rsp.token;
         let cpu_iid = tokCpuInstanceId(tok);
+        
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format(": Handle fault responded PC 0x%0x", rsp.nextInstructionAddress));
+        debugLog.record(cpu_iid, $format("Handle fault responded for token: %0d, new PC: 0x%h", tokTokenId(tok), rsp.nextInstructionAddress));
 
         // Next PC following fault
-        pcPool.upd(cpu_iid, rsp.nextInstructionAddress);
+        pc <= rsp.nextInstructionAddress;
 
-        endModelCycle(tok);
+        endModelCycle(cpu_iid);
+
     endrule
+
 endmodule
 

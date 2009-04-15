@@ -35,7 +35,6 @@ typedef enum
     FETCH_STATE_PREDICT_UPDATE,
     FETCH_STATE_FAULT_RESP,
     FETCH_STATE_REWIND_RESP,
-    FETCH_STATE_TOKEN_REQ,
     FETCH_STATE_I_TRANSLATE_REQ,
     FETCH_STATE_INST_REQ,
     FETCH_STATE_INST_RESP,
@@ -53,7 +52,6 @@ module [HASIM_MODULE] mkFetch();
     PORT_NO_STALL_RECEIVE#(REWIND_BUNDLE, 1)                                    resteerPort <- mkPortNoStallReceive("resteer");
     PORT_NO_STALL_RECEIVE#(FAULT_BUNDLE, 1)                                       faultPort <- mkPortNoStallReceive("fault");
 
-    Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT, FUNCP_RSP_NEW_IN_FLIGHT)        newInFlight <- mkConnection_Client("funcp_newInFlight");
     Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, FUNCP_RSP_DO_ITRANSLATE)         iTranslate <- mkConnection_Client("funcp_doITranslate");
     Connection_Client#(FUNCP_REQ_GET_INSTRUCTION, FUNCP_RSP_GET_INSTRUCTION) getInstruction <- mkConnection_Client("funcp_getInstruction");
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
@@ -76,15 +74,15 @@ module [HASIM_MODULE] mkFetch();
     LOCAL_CONTROLLER#(1) localCtrl <- mkLocalController(inports, outports);
 
 
-    function Action makeFetchBundle(TOKEN token, ISA_INSTRUCTION inst, ISA_ADDRESS _pc, PRED_TYPE predType, Bool prediction, ISA_ADDRESS predPc);
+    function Action makeFetchBundle(ISA_INSTRUCTION inst, ISA_ADDRESS _pc, PRED_TYPE predType, Bool prediction, ISA_ADDRESS predPc);
     action
         getInstruction.deq;
-        let bundle = FETCH_BUNDLE{token: token, inst: inst, pc: _pc, predType: predType, prediction: prediction, predPc: predPc, epochRob: epochRob, afterResteer: afterResteer};
+        let bundle = FETCH_BUNDLE{inst: inst, pc: _pc, predType: predType, prediction: prediction, predPc: predPc, epochRob: epochRob, afterResteer: afterResteer};
         fetchPort.enq(bundle);
         debugLog.record($format("instResp ") + fshow(bundle));
         afterResteer <= False;
         pc <= predPc;
-        state <= FETCH_STATE_TOKEN_REQ;
+        state <= FETCH_STATE_I_TRANSLATE_REQ;
     endaction
     endfunction
 
@@ -99,7 +97,7 @@ module [HASIM_MODULE] mkFetch();
             if(bundle.predType == PRED_TYPE_BRANCH_IMM)
             begin
                 debugLog.record($format("Branch Imm upd ") + fshow(bundle));
-                branchPred.upd(bundle.token, bundle.pc, bundle.pred, bundle.actual);
+                branchPred.upd(bundle.pc, bundle.pred, bundle.actual);
             end
         end
         else
@@ -132,7 +130,7 @@ module [HASIM_MODULE] mkFetch();
                 state <= FETCH_STATE_REWIND_RESP;
             end
             else
-                state <= FETCH_STATE_TOKEN_REQ;
+                state <= FETCH_STATE_I_TRANSLATE_REQ;
         end
     endrule
 
@@ -141,21 +139,21 @@ module [HASIM_MODULE] mkFetch();
         handleFault.deq();
         debugLog.record($format("faultResp resteer to 0x%0x", rsp.nextInstructionAddress));
         pc <= rsp.nextInstructionAddress;
-        state <= FETCH_STATE_TOKEN_REQ;
+        state <= FETCH_STATE_I_TRANSLATE_REQ;
     endrule
 
     rule rewindResp(state == FETCH_STATE_REWIND_RESP);
         debugLog.record($format("rewindResp "));
         rewindToToken.deq();
-        state <= FETCH_STATE_TOKEN_REQ;
+        state <= FETCH_STATE_I_TRANSLATE_REQ;
     endrule
 
-    rule tokenReq(state == FETCH_STATE_TOKEN_REQ);
+    rule iTranslateReq(state == FETCH_STATE_I_TRANSLATE_REQ);
         if(fetchPort.canSend())
         begin
-            debugLog.record($format("new token req"));
-            newInFlight.makeReq(initFuncpReqNewInFlight(0));
-            state <= FETCH_STATE_I_TRANSLATE_REQ;
+            debugLog.record($format("iTranslate req"));
+            iTranslate.makeReq(FUNCP_REQ_DO_ITRANSLATE{contextId: 0, virtualAddress: pc});
+            state <= FETCH_STATE_INST_REQ;
         end
         else
         begin
@@ -164,14 +162,6 @@ module [HASIM_MODULE] mkFetch();
             state <= FETCH_STATE_PREDICT_UPDATE;
             fetchPort.done();
         end
-    endrule
-
-    rule iTranslateReq(state == FETCH_STATE_I_TRANSLATE_REQ);
-        debugLog.record($format("iTranslate req"));
-        let resp = newInFlight.getResp();
-        newInFlight.deq();
-        iTranslate.makeReq(FUNCP_REQ_DO_ITRANSLATE{token: resp.newToken, address: pc});
-        state <= FETCH_STATE_INST_REQ;
     endrule
 
     rule instReq(state == FETCH_STATE_INST_REQ);
@@ -184,7 +174,7 @@ module [HASIM_MODULE] mkFetch();
         if (! resp.hasMore)
         begin
             debugLog.record($format("inst req"));
-            getInstruction.makeReq(FUNCP_REQ_GET_INSTRUCTION{token: resp.token});
+            getInstruction.makeReq(FUNCP_REQ_GET_INSTRUCTION{contextId: 0, physicalAddress: resp.physicalAddress, offset: resp.offset, hasMore: False});
             state <= FETCH_STATE_INST_RESP;
         end
     endrule
@@ -194,7 +184,7 @@ module [HASIM_MODULE] mkFetch();
         debugLog.record($format("inst resp"));
         if(isBranchImm(resp.instruction))
         begin
-            branchPred.getPredReq(resp.token, pc);
+            branchPred.getPredReq(pc);
             debugLog.record($format("Branch Imm"));
             state <= FETCH_STATE_BRANCH_IMM;
         end
@@ -204,7 +194,7 @@ module [HASIM_MODULE] mkFetch();
             state <= FETCH_STATE_JUMP_IMM;
         end
         else
-            makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_NONE, False, pc + 4);
+            makeFetchBundle(resp.instruction, pc, PRED_TYPE_NONE, False, pc + 4);
     endrule
 
     rule branchImm(state == FETCH_STATE_BRANCH_IMM);
@@ -212,13 +202,13 @@ module [HASIM_MODULE] mkFetch();
         let resp = getInstruction.getResp;
         let pred <- branchPred.getPredResp;
         let predPc = pred? predPcBranchImm(pc, resp.instruction): pc + 4;
-        makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_BRANCH_IMM, pred, predPc);
+        makeFetchBundle(resp.instruction, pc, PRED_TYPE_BRANCH_IMM, pred, predPc);
     endrule
 
     rule jumpImm(state == FETCH_STATE_JUMP_IMM);
         debugLog.record($format("jump imm resp"));
         let resp = getInstruction.getResp;
         let predPc = predPcJumpImm(pc, resp.instruction);
-        makeFetchBundle(resp.token, resp.instruction, pc, PRED_TYPE_JUMP_IMM, False, predPc);
+        makeFetchBundle(resp.instruction, pc, PRED_TYPE_JUMP_IMM, False, predPc);
     endrule
 endmodule

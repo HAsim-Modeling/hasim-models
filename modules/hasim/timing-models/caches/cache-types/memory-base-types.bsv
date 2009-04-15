@@ -3,6 +3,7 @@ import FShow::*;
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/hasim_isa.bsh"
 `include "asim/provides/funcp_base_types.bsh"
+`include "asim/provides/funcp_memstate_base_types.bsh"
 
 
 `define IMEM_ITLB_EPOCH_BITS 2
@@ -27,19 +28,22 @@ function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKE
 
 endfunction
 
+typedef Bit#(4) INSTQ_SLOT_ID;
+
 typedef struct
 {
-    TOKEN token;
     IMEM_EPOCH epoch;
+    INSTQ_SLOT_ID instQSlot;
     ISA_ADDRESS virtualAddress;
-    ISA_ADDRESS physicalAddress;
+    MEM_OFFSET offset;
+    MEM_ADDRESS physicalAddress;
     ISA_INSTRUCTION instruction;
 }
 IMEM_BUNDLE deriving (Eq, Bits);
 
-function IMEM_BUNDLE initIMemBundle(TOKEN tok, IMEM_EPOCH ep, ISA_ADDRESS pc);
+function IMEM_BUNDLE initIMemBundle(IMEM_EPOCH ep, INSTQ_SLOT_ID sl, ISA_ADDRESS pc);
 
-    return IMEM_BUNDLE {token: tok, epoch: ep, virtualAddress: pc, instruction: ?, physicalAddress: ?};
+    return IMEM_BUNDLE {epoch: ep, instQSlot: sl, virtualAddress: pc, instruction: ?, offset: ?, physicalAddress: ?};
 
 endfunction
 
@@ -59,11 +63,12 @@ typedef struct
 }
 ITLB_OUTPUT deriving (Eq, Bits);
 
-function ITLB_OUTPUT initITLBHit(IMEM_BUNDLE bundle, FUNCP_PADDR phys_addr);
+function ITLB_OUTPUT initITLBHit(IMEM_BUNDLE bundle, FUNCP_PADDR phys_addr, MEM_OFFSET offs);
 
     
     let out = ITLB_OUTPUT {bundle: bundle, rspType: tagged ITLB_hit};
     out.bundle.physicalAddress = zeroExtend(phys_addr);
+    out.bundle.offset = offs;
     return out;
 
 endfunction
@@ -126,7 +131,6 @@ typedef struct
     ISA_ADDRESS virtualAddress;
     ISA_ADDRESS physicalAddress;
     TOKEN_FAULT_EPOCH faultEpoch;
-    Bool isJunk;
     Bool isLoad;
     Bool isStore;
     Maybe#(Bool) isTerminate;
@@ -138,8 +142,6 @@ instance FShow#(DMEM_BUNDLE);
     function Fmt fshow(DMEM_BUNDLE x);
         Fmt s = fshow("DMEM_BUNDLE: va = ") + fshow(x.virtualAddress);
         s = s + fshow(" pa = ") + fshow(x.physicalAddress);
-        if (x.isJunk)
-            s = s + fshow(" JUNK");
         if (x.isLoad)
             s = s + fshow(" LOAD");
         if (x.isStore)
@@ -150,9 +152,9 @@ instance FShow#(DMEM_BUNDLE);
     endfunction
 endinstance
 
-function DMEM_BUNDLE initDMemBundle(TOKEN tok, ISA_ADDRESS va, TOKEN_FAULT_EPOCH epoch, Bool isJ, Bool isL, Bool isS, Maybe#(Bool) isT, ISA_INST_DSTS dests);
+function DMEM_BUNDLE initDMemBundle(TOKEN tok, ISA_ADDRESS va, TOKEN_FAULT_EPOCH epoch, Bool isL, Bool isS, Maybe#(Bool) isT, ISA_INST_DSTS dests);
 
-    return DMEM_BUNDLE {token: tok, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isJunk: isJ, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
+    return DMEM_BUNDLE {token: tok, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
  
 endfunction
 

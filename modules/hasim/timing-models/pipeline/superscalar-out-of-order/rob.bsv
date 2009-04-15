@@ -32,7 +32,18 @@ import FShow::*;
 `include "asim/provides/hasim_pipeline_types.bsh"
 `include "asim/provides/hasim_issue.bsh"
 
-typedef enum {ROB_STATE_WRITEBACK_ALU, ROB_STATE_WRITEBACK_MEM, ROB_STATE_ADD, ROB_STATE_COMMIT_REQ, ROB_STATE_COMMIT_RESP, ROB_STATE_ISSUE_REQ, ROB_STATE_ISSUE_RESP} ROB_STATE deriving (Bits, Eq);
+typedef union tagged 
+{
+    void ROB_STATE_WRITEBACK_ALU; 
+    void ROB_STATE_WRITEBACK_MEM;
+    void ROB_STATE_ADD;
+    FETCH_BUNDLE ROB_STATE_RESP_DEPENDENCIES;
+    void ROB_STATE_COMMIT_REQ;
+    void ROB_STATE_COMMIT_RESP;
+    void ROB_STATE_ISSUE_REQ;
+    void ROB_STATE_ISSUE_RESP;
+} 
+    ROB_STATE deriving (Bits, Eq);
 
 typedef Bit#(3) TIME_STAMP;
 typedef enum {ALU, MEM} WRITE_TYPE deriving (Bits, Eq);
@@ -47,7 +58,7 @@ module [HASIM_MODULE] mkIssue();
     PORT_CREDIT_SEND#(COMMIT_BUNDLE, `COMMIT_NUM, LOG_COMMIT_NUM)               commitPort <- mkPortCreditSend("commit");
     PORT_CREDIT_RECEIVE#(ALU_WRITEBACK_BUNDLE, `ALU_NUM, LOG_ALU_CREDITS) aluWritebackPort <- mkPortCreditReceive("aluWriteback");
     PORT_CREDIT_RECEIVE#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS) memWritebackPort <- mkPortCreditReceive("memWriteback");
-    PORT_CREDIT_RECEIVE#(DECODE_BUNDLE, `DECODE_NUM, LOG_DECODE_CREDITS)        decodePort <- mkPortCreditReceive("decode");
+    PORT_CREDIT_RECEIVE#(FETCH_BUNDLE, `DECODE_NUM, LOG_DECODE_CREDITS)        decodePort <- mkPortCreditReceive("decode");
     PORT_CREDIT_SEND#(MEM_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)                       memPort <- mkPortCreditSend("mem");
     PORT_CREDIT_SEND#(ALU_BUNDLE, `ALU_NUM, LOG_ALU_CREDITS)                       aluPort <- mkPortCreditSend("alu");
     PORT_CREDIT_SEND#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)      predictUpdatePort <- mkPortCreditSend("predictUpdate");
@@ -56,6 +67,7 @@ module [HASIM_MODULE] mkIssue();
     PORT_CREDIT_SEND#(FAULT_BUNDLE, 1, 1)                                        faultPort <- mkPortCreditSend("fault");
 
     Connection_Send#(CONTROL_MODEL_CYCLE_MSG)                                   modelCycle <- mkConnection_Send("model_cycle");
+    Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES, FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
 
     BRAM#(ROB_INDEX, ROB_ENTRY)                                                        rob <- mkBRAM();
 
@@ -208,21 +220,17 @@ module [HASIM_MODULE] mkIssue();
     rule add(state == ROB_STATE_ADD);
         if(decodePort.canReceive())
         begin
-            let entry <- decodePort.pop();
             debugLog.record($format("decode port dequeued"));
-            if(robValid[addIndex] || entry.afterResteer && robEpoch[entry.epochRob])
+            let fetch_bundle <- decodePort.pop();
+            if(robValid[addIndex] || fetch_bundle.afterResteer && robEpoch[fetch_bundle.epochRob])
             begin
-                resteerWait <= False;
-                debugLog.record($format("add ") + fshow(entry) + $format(" addPtr: %d commitPtr: %d credits: %d", addPtr, commitPtr, credits));
-                robValid <= markValidOrInvalid(True, robValid, addIndex);
-                robIssued.upd(addIndex, False);
-                robDone.upd(addIndex, False);
-                robPoison.upd(addIndex, tokIsPoisoned(entry.token));
-                rob.write(addIndex, entry);
-                prfValids <= markPrfValidOrInvalid(False, entry.dsts);
-                markWriteType(Invalid, entry.dsts);
-                terminate.upd(addIndex, False);
-                addPtr <= addPtr + 1;
+               debugLog.record($format("add dep req: 0x%h", fetch_bundle.pc));
+               getDependencies.makeReq(initFuncpReqGetDependencies(0, fetch_bundle.inst, fetch_bundle.pc));
+               state <= tagged ROB_STATE_RESP_DEPENDENCIES fetch_bundle;
+            end
+            else
+            begin
+                debugLog.record($format("add epoch drop: 0x%h", fetch_bundle.pc));
             end
         end
         else
@@ -231,6 +239,24 @@ module [HASIM_MODULE] mkIssue();
             state <= ROB_STATE_COMMIT_REQ;
             decodePort.done(credits);
         end
+    endrule
+
+    rule respDependencies(state matches tagged ROB_STATE_RESP_DEPENDENCIES .fetch_bundle);
+        let resp = getDependencies.getResp();
+        getDependencies.deq();
+        let decode_bundle = makeDecodeBundle(resp.token, fetch_bundle, extractPhysReg(resp.srcMap), extractPhysReg(resp.dstMap));
+        resteerWait <= False;
+        debugLog.record($format("add ") + fshow(decode_bundle) + $format(" addPtr: %d commitPtr: %d credits: %d", addPtr, commitPtr, credits));
+        robValid <= markValidOrInvalid(True, robValid, addIndex);
+        robIssued.upd(addIndex, False);
+        robDone.upd(addIndex, False);
+        robPoison.upd(addIndex, False);
+        terminate.upd(addIndex, False);
+        prfValids <= markPrfValidOrInvalid(False, decode_bundle.dsts);
+        rob.write(addIndex, decode_bundle);
+        markWriteType(Invalid, decode_bundle.dsts);
+        addPtr <= addPtr + 1;
+        state <= ROB_STATE_ADD;
     endrule
 
     rule commitReq(state == ROB_STATE_COMMIT_REQ);

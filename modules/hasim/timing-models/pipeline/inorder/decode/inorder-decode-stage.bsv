@@ -47,10 +47,10 @@ import FIFO::*;
 
 // The second stage stalls when it asks for the dependencies.
 
-typedef enum
+typedef union tagged
 {
-    DEC2_ready,
-    DEC2_depsRsp
+    void DEC2_ready;
+    FETCH_BUNDLE DEC2_depsRsp;
 }
     DEC2_STATE
         deriving (Bits, Eq);
@@ -83,17 +83,18 @@ module [HASIM_MODULE] mkDecode ();
 
 
     // ****** Ports *****
-
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE) bundleFromInstQ <- mkPortStallRecv_Multiplexed("DecQ");
     PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, BUNDLE)        bundleToIssueQ <- mkPortStallSend_Multiplexed("IssueQ");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                    deqToInstQ <- mkPortSend_Multiplexed("Dec_to_InstQ_deq");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN)                    allocToSB <- mkPortSend_Multiplexed("Dec_to_SB_alloc");
-    
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackFromExe <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1); //0?
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackFromMemHit <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1); //0?
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1); //0?
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)       writebackFromCom <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1); //0?
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)        creditFromSB <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1); //0?
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)      bundleFromInstQ      <- mkPortRecvGuarded_Multiplexed("InstQ_to_Dec_first", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)              creditFromSB         <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN_FAULT_EPOCH) mispredictFromExe    <- mkPortRecv_Multiplexed("Exe_to_Dec_mispredict", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)              faultFromCom         <- mkPortRecv_Multiplexed("Com_to_Dec_fault", 1);
 
 
     // ****** Soft Connections ******
@@ -104,17 +105,18 @@ module [HASIM_MODULE] mkDecode ();
  
     // ****** Local Controller ******
 
-    Vector#(7, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(8, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
     Vector#(3, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
-    inports[0]  = bundleFromInstQ.ctrl;
-    inports[1]  = writebackFromExe.ctrl;
-    inports[2]  = writebackFromMemHit.ctrl;
-    inports[3]  = writebackFromMemMiss.ctrl;
-    inports[4]  = writebackFromCom.ctrl;
-    inports[5]  = bundleToIssueQ.ctrl;
-    inports[6]  = creditFromSB.ctrl;
+    inports[0]  = writebackFromExe.ctrl;
+    inports[1]  = writebackFromMemHit.ctrl;
+    inports[2]  = writebackFromMemMiss.ctrl;
+    inports[3]  = writebackFromCom.ctrl;
+    inports[4]  = bundleToIssueQ.ctrl;
+    inports[5]  = creditFromSB.ctrl;
+    inports[6]  = mispredictFromExe.ctrl;
+    inports[7]  = faultFromCom.ctrl;
     outports[0] = bundleToIssueQ.ctrl;
-    outports[1] = bundleFromInstQ.ctrl;
+    outports[1] = deqToInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
@@ -142,15 +144,17 @@ module [HASIM_MODULE] mkDecode ();
     MULTIPLEXED#(NUM_CPUS, Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES))) memoDependenciesPool <- mkMultiplexed(mkReg(Invalid));
     MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)))      prfValidPool <- mkMultiplexed(mkReg(prfValidInit));
 
+    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_EPOCH)) epochPool <- mkMultiplexed(mkReg(initEpoch(0, 0)));
+
     // ****** UnModel Pipeline State ******
     
     Reg#(DEC2_STATE) stage2State <- mkReg(DEC2_ready);
     
     FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
-    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
+    FIFO#(Tuple2#(CPU_INSTANCE_ID, FETCH_BUNDLE)) stage3Q <- mkFIFO();
     
     // ***** Helper Functions ******
-    
+
     // readyToGo
     
     // Check if a token's sources are ready.
@@ -272,10 +276,10 @@ module [HASIM_MODULE] mkDecode ();
 
     // ****** Rules ******
     
-    // stage1_commits
+    // stage1_writebacks
     
     // Begin simulating a new context.
-    // Get any commits from Exe, Mem, or Com and update the scoreboard.
+    // Get any writebacks from Exe, Mem, or Com and update the scoreboard.
     // This stage never stalls.
 
     rule stage1_writebacks (True);
@@ -284,7 +288,6 @@ module [HASIM_MODULE] mkDecode ();
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
         
-        
         // Extract our local state from the context.
         Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = prfValidPool[cpu_iid];
         COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
@@ -292,6 +295,7 @@ module [HASIM_MODULE] mkDecode ();
         // Record how many registers have been written or instructions killed.
         Integer instrs_removed = 0;
         Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
+
 
         // Process writes from EXE
         let bus_exe <- writebackFromExe.receive(cpu_iid);
@@ -371,73 +375,181 @@ module [HASIM_MODULE] mkDecode ();
     // If we don't have them, stall to retrieve them.
     // If we previously got them, advance to the next stage.
     
-    rule stage2_dependencies (stage2State == DEC2_ready);
+    rule stage2_dependencies (stage2State matches tagged DEC2_ready);
 
         // Get the context from the previous stage.
         let cpu_iid = stage2Q.first();
         
         // Extract local state from the context.
         Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
+        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
+        
+        let m_mispred <- mispredictFromExe.receive(cpu_iid);
+        let m_fault   <- faultFromCom.receive(cpu_iid);
+        let m_bundle  <- bundleFromInstQ.receive(cpu_iid);
 
-        if (bundleToIssueQ.canEnq(cpu_iid) && bundleFromInstQ.canDeq(cpu_iid))
+        if (isValid(m_fault))
         begin
             
-            // Issue Q has space and there's an instruction waiting.
-                
-            // There is... 
-            let bundle = bundleFromInstQ.peek(cpu_iid);
-            let tok = bundle.token;
-
-            // Let's get the dependencies, if we haven't already.                
-            if (!isValid(memoDependencies))
-            begin
-
-                // We need to retrieve dependencies from the functional partition.
-                getDependencies.makeReq(initFuncpReqGetDependencies(tok));
-                // Stall this stage until we get a response.
-                stage2State <= DEC2_depsRsp;
-
-            end
-            else
-            begin
-
-               // We have the dependencies, advance this context to the next stage.
-               stage2Q.deq();
-               stage3Q.enq(cpu_iid);
-
-            end
-
-        end
-        else
-        begin
-
-            // There's a bubble. Nothing we can do.
-            debugLog.record(cpu_iid, fshow("BUBBLE"));
+            // A fault occurred.
+            debugLog.record(cpu_iid, fshow("FAULT"));
             eventDec.recordEvent(cpu_iid, tagged Invalid);
             stage2Q.deq();
+
+            // Increment the epoch.
+            epoch.fault <= epoch.fault + 1;
+            
+            // Don't do anything with the queue. We'll start dropping instructions on the next cycle.
+            deqToInstQ.send(cpu_iid, tagged Invalid);
             
             // No allocation to the store buffer.
             let m_credit <- creditFromSB.receive(cpu_iid);
             allocToSB.send(cpu_iid, tagged Invalid);
 
-            // Don't dequeue the InstQ.
-            bundleFromInstQ.noDeq(cpu_iid);
+            // Don't enqueue anything to the IssueQ. 
+            bundleToIssueQ.noEnq(cpu_iid);
+
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
+        
+        end
+        else if (m_mispred matches tagged Valid .fault_epoch &&& fault_epoch == epoch.fault)
+        begin
+
+            // A mispredict occurred.
+            debugLog.record(cpu_iid, fshow("MISPREDICT"));
+            eventDec.recordEvent(cpu_iid, tagged Invalid);
+            stage2Q.deq();
+
+            // Increment the epoch.
+            epoch.branch <= epoch.branch + 1;
+        
+            // Don't do anything with the queue. We'll start dropping instructions on the next cycle.
+            deqToInstQ.send(cpu_iid, tagged Invalid);
+            
+            // No allocation to the store buffer.
+            let m_credit <- creditFromSB.receive(cpu_iid);
+            allocToSB.send(cpu_iid, tagged Invalid);
 
             // Don't enqueue anything to the IssueQ. 
             bundleToIssueQ.noEnq(cpu_iid);
-            
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
+        
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
 
         end
+        else if (m_bundle matches tagged Valid .bundle)
+        begin
+            
+            // There's an instruction waiting. Is if of the correct epoch?
+            if (bundle.branchEpoch == epoch.branch && bundle.faultEpoch == epoch.fault)
+            begin
 
+                // Check if the issueQ has space.
+                if (bundleToIssueQ.canEnq(cpu_iid))
+                begin
+
+                    // Let's get the dependencies, if we haven't already.                
+                    if (memoDependencies matches tagged Valid .deps)
+                    begin
+
+                       // We have the dependencies, advance this context to the next stage.
+                       stage2Q.deq();
+                       stage3Q.enq(tuple2(cpu_iid, bundle));
+
+                    end
+                    else
+                    begin
+
+                        // We need to retrieve dependencies from the functional partition.
+                        getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
+
+                        // Stall this stage until we get a response.
+                        stage2State <= tagged DEC2_depsRsp bundle;
+
+                    end
+
+                end
+                else
+                begin
+                
+                    // There's a bubble. Nothing we can do.
+                    debugLog.record(cpu_iid, fshow("BUBBLE"));
+                    eventDec.recordEvent(cpu_iid, tagged Invalid);
+                    stage2Q.deq();
+
+                    // No allocation to the store buffer.
+                    let m_credit <- creditFromSB.receive(cpu_iid);
+                    allocToSB.send(cpu_iid, tagged Invalid);
+
+                    // Don't dequeue the InstQ.
+                    deqToInstQ.send(cpu_iid, tagged Invalid);
+
+                    // Don't enqueue anything to the IssueQ. 
+                    bundleToIssueQ.noEnq(cpu_iid);
+
+                    // End of model cycle. (Path 3)
+                    localCtrl.endModelCycle(cpu_iid, 3);
+
+                
+                end
+            
+            end
+            else
+            begin
+            
+                // The instruction is from an old epoch. Just drop it.
+                debugLog.record(cpu_iid, fshow("FLUSH"));
+                deqToInstQ.send(cpu_iid, tagged Valid (?));
+                eventDec.recordEvent(cpu_iid, tagged Invalid);
+                stage2Q.deq();
+
+                // Drop any dependencies we may have gotten.
+                memoDependencies <= tagged Invalid;
+
+                // No allocation to the store buffer.
+                let m_credit <- creditFromSB.receive(cpu_iid);
+                allocToSB.send(cpu_iid, tagged Invalid);
+
+                // Don't enqueue anything to the IssueQ. 
+                bundleToIssueQ.noEnq(cpu_iid);
+
+                // End of model cycle. (Path 4)
+                localCtrl.endModelCycle(cpu_iid, 4);
+            
+            end
+        
+        end
+        else
+        begin
+        
+            // There's a bubble. Nothing we can do.
+            debugLog.record(cpu_iid, fshow("BUBBLE"));
+            eventDec.recordEvent(cpu_iid, tagged Invalid);
+            stage2Q.deq();
+
+            // No allocation to the store buffer.
+            let m_credit <- creditFromSB.receive(cpu_iid);
+            allocToSB.send(cpu_iid, tagged Invalid);
+
+            // Don't dequeue the InstQ.
+            deqToInstQ.send(cpu_iid, tagged Invalid);
+
+            // Don't enqueue anything to the IssueQ. 
+            bundleToIssueQ.noEnq(cpu_iid);
+
+            // End of model cycle. (Path 5)
+            localCtrl.endModelCycle(cpu_iid, 5);
+
+        end
+ 
     endrule
 
     // stage2_dependenciesRsp
     
     // Get the response from the functional partition and unstall this stage.
 
-    rule stage2_dependenciesRsp (stage2State == DEC2_depsRsp);
+    rule stage2_dependenciesRsp (stage2State matches tagged DEC2_depsRsp .bundle);
     
         // Get the stalled context.
         let cpu_iid = stage2Q.first();
@@ -451,13 +563,13 @@ module [HASIM_MODULE] mkDecode ();
     
         // Update dependencies.
         memoDependencies <= tagged Valid rsp;
-
+ 
         // Unstall this stage.
-        stage2State <= DEC2_ready;
+        stage2State <= tagged DEC2_ready;
         stage2Q.deq();
 
         // Pass it to the next stage.
-        stage3Q.enq(cpu_iid);
+        stage3Q.enq(tuple2(cpu_iid, bundle));
         
     endrule
 
@@ -471,16 +583,14 @@ module [HASIM_MODULE] mkDecode ();
     rule stage3_attemptIssue (True);
     
         // Extract our local state from the context.
-        let cpu_iid = stage3Q.first();
+        match {.cpu_iid, .fetchbundle} = stage3Q.first();
         stage3Q.deq();
         Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
         Reg#(Bool)                                  drainingAfter = drainingAfterPool[cpu_iid];
         
         // assert memoDependencies == Valid
-        let rsp = validValue(memoDependencies);
-        // assert bundleFromInstQ.canDeq(cpu_iid)
-        let fetchbundle = bundleFromInstQ.peek(cpu_iid);
-        let tok = fetchbundle.token;
+        match .rsp = validValue(memoDependencies);
+        let tok = rsp.token;
         
         // Get the store buffer credit in case it's a store...
         let m_credit <- creditFromSB.receive(cpu_iid);
@@ -518,13 +628,13 @@ module [HASIM_MODULE] mkDecode ();
             drainingAfter <= isaDrainAfter(fetchbundle.inst);
 
             // Dequeue the InstQ.
-            bundleFromInstQ.doDeq(cpu_iid);
+            deqToInstQ.send(cpu_iid, tagged Valid (?));
 
             // Enqueue the decoded instruction in the IssueQ.
             bundleToIssueQ.doEnq(cpu_iid, bundle);
 
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
+            // End of model cycle. (Path 6)
+            localCtrl.endModelCycle(cpu_iid, 6);
 
         end
         else
@@ -535,12 +645,12 @@ module [HASIM_MODULE] mkDecode ();
             eventDec.recordEvent(cpu_iid, tagged Invalid);
             
             // Propogate the bubble.
-            bundleFromInstQ.noDeq(cpu_iid);
+            deqToInstQ.send(cpu_iid, tagged Invalid);
             bundleToIssueQ.noEnq(cpu_iid);
             allocToSB.send(cpu_iid, tagged Invalid);
             
-            // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(cpu_iid, 3);
+            // End of model cycle. (Path 7)
+            localCtrl.endModelCycle(cpu_iid, 7);
 
         end
 

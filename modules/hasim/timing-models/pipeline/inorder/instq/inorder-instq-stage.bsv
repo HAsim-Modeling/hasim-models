@@ -77,21 +77,17 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // ****** Model State (per Context) ******
 
-    // Which tokens are allocated.
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(NUM_TOKENS, Bool)))            allocatedPool   <- mkMultiplexed(mkReg(replicate(False)));
-    
     // Which tokens are complete? (Ready to issue)
-    // Should this be block ram?
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(TOKEN_ID, Maybe#(ISA_INSTRUCTION))) completePool    <- mkMultiplexed(mkLUTRAM(tagged Invalid));
-
-    // How many slots are taken?
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_ID))                 numElemsPool    <- mkMultiplexed(mkReg(0));
-    
-    // What's the oldest token we know about? (The next one which should issue when it's ready.)
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_ID))                 oldestTokPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION))) completionsPool    <- mkMultiplexed(mkLUTRAM(tagged Invalid));
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, FIFOF#(FETCH_BUNDLE))   bundleQPool <- mkMultiplexed(mkUGSizedFIFOF(`IQ_NUM_SLOTS));
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE))   bundlesPool <- mkMultiplexed(mkLUTRAMU());
+
+    // How many slots are taken?
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID))                 nextFreeSlotPool    <- mkMultiplexed(mkReg(0));
+    
+    // What's the oldest token we know about? (The next one which should issue when it's ready.)
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID))                 oldestSlotPool <- mkMultiplexed(mkReg(0));
 
     // ****** UnModel State ******
     
@@ -100,78 +96,71 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION)))   allocateFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_allocate", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(INSTQ_SLOT_ID, FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION)))   allocateFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_allocate", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)                         rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
 
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE) bundleToDecQ  <- mkPortStallSend_Multiplexed("DecQ");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)               creditToFetch <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
-
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)    bundleToDec  <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_SLOT_ID) creditToFetch  <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
+    
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)        deqFromDec <- mkPortRecvGuarded_Multiplexed("Dec_to_InstQ_deq", 0);
+        
     // ****** Local Controller ******
 
-    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
     Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
 
     inports[0]  = allocateFromFetch.ctrl;
     inports[1]  = rspFromICacheDelayed.ctrl;
-    inports[2]  = bundleToDecQ.ctrl;
     outports[0] = creditToFetch.ctrl;
-    outports[1] = bundleToDecQ.ctrl;
+    outports[1] = bundleToDec.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Rules ******
 
-    // stage1_deallocate
-    
-    // We begin by checking if the oldest slot is ready to go.
-    // If so we send it to the decode queue.
-    // We also check for miss responses from the ICache.
+    // stage1_sendAndComplete
+    // Check if the oldest slot is ready to go.
+    // If so we send it to decode.
+    // We also check for miss responses from the ICache
 
     (* conservative_implicit_conditions *)
-    rule stage1_deallocate (True);
-    
+    rule stage1_sendAndComplete (True);
+                
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
-            
+
+
         // Get our local state based on the current context.
-        Reg#(Vector#(NUM_TOKENS, Bool))           allocated = allocatedPool[cpu_iid];
-        LUTRAM#(TOKEN_ID, Maybe#(ISA_INSTRUCTION)) complete = completePool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION)) completions = completionsPool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
 
-        Reg#(TOKEN_ID)  numElems = numElemsPool[cpu_iid];
-        Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
-
-        FIFOF#(FETCH_BUNDLE) bundleQ = bundleQPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
     
         // Let's see if the oldest token has been completed.
-        // If so, send it to the decodeQ.
+        // If so, send it to the decode.
+        let empty = oldestSlot == nextFreeSlot;
 
-        if (bundleToDecQ.canEnq(cpu_iid) && allocated[oldestTok] &&& complete.sub(oldestTok) matches tagged Valid .inst)
+        if (completions.sub(oldestSlot) matches tagged Valid .inst &&& !empty)
         begin
 
             // It's ready to go.
-            let bundle = bundleQ.first();
-            debugLog.record_next_cycle(cpu_iid, fshow("SEND READY: ") + fshow(bundle.token) + $format(" ADDR:0x%h", bundle.pc));
+            let bundle = bundles.sub(oldestSlot);
+            debugLog.record_next_cycle(cpu_iid, $format("SEND READY ADDR:0x%h", bundle.pc));
             
             // Marshall it up and send it to the decode queue.
             bundle.inst = inst;
-            bundleToDecQ.doEnq(cpu_iid, bundle);
+            bundleToDec.send(cpu_iid, tagged Valid bundle);
             
-            // Deallocate this token.
-            bundleQ.deq();
-            allocated[oldestTok] <= False;
-            numElems <= numElems - 1;
-            oldestTok <= oldestTok + 1;
-           
-
         end
         else
         begin
             
             // We're not ready to send anything to the decodeQ.
             debugLog.record_next_cycle(cpu_iid, fshow("NO SEND"));
-            bundleToDecQ.noEnq(cpu_iid);
+            bundleToDec.send(cpu_iid, tagged Invalid);
 
         end
         
@@ -183,21 +172,50 @@ module [HASIM_MODULE] mkInstructionQueue
         begin
         
             // We've got a new response.
-            debugLog.record_next_cycle(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.token));
+            debugLog.record_next_cycle(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.instQSlot));
             
-            // Mark this token as complete.
-            TOKEN_ID tok_id = tokTokenId(rsp.token);
-            complete.upd(tok_id, tagged Valid rsp.instruction);
+            // Mark this slot as complete.
+            completions.upd(rsp.instQSlot, tagged Valid rsp.instruction);
 
         end
-
+        
         // Pass this context to the next stage.
         stage2Q.enq(cpu_iid);
 
     endrule
     
 
-    // stage2_allocate
+    // stage2_deallocate
+    // Check if decode is dequeing.
+
+    rule stage2_deallocate (True);
+
+        // Get the info from the previous stage.
+        let cpu_iid = stage2Q.first();
+        stage2Q.deq();
+
+        // Get the local state for the current instance.
+        Reg#(INSTQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
+        
+        // Check for any dequeues/clears.
+        let m_deq <- deqFromDec.receive(cpu_iid);
+        
+        if (isValid(m_deq))
+        begin
+            
+            // A dequeue occurred. Just drop the oldest guy.
+            debugLog.record(cpu_iid, fshow("DEQ"));
+            oldestSlot <= oldestSlot + 1;
+
+        end
+        
+        // Send it to the next stage.
+        stage3Q.enq(cpu_iid);
+
+    endrule
+
+
+    // stage3_allocate
     
     // Check for allocation requests. Based on allocate and deallocate
     // we can calculate a new credit to be sent to back to Fetch.
@@ -205,48 +223,42 @@ module [HASIM_MODULE] mkInstructionQueue
     // If there was no gap in the tokens we are done. Otherwise we
     // proceed to stage3.
 
-    rule stage2_allocate (True);
+    rule stage3_allocate (True);
 
         // Get our context from the previous stage.
-        let cpu_iid = stage2Q.first();
-        stage2Q.deq();
+        let cpu_iid = stage3Q.first();
+        stage3Q.deq();
         
         // Get our local state based on the context.
-        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = allocatedPool[cpu_iid];
-        LUTRAM#(TOKEN_ID, Maybe#(ISA_INSTRUCTION)) complete = completePool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION)) completions = completionsPool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
 
-        Reg#(TOKEN_ID)    numElems = numElemsPool[cpu_iid];
-        Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
-
-        FIFOF#(FETCH_BUNDLE) bundleQ = bundleQPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) oldestSlot   = oldestSlotPool[cpu_iid];
 
         // Check for any new allocations.
         let m_alloc <- allocateFromFetch.receive(cpu_iid);
-        let new_num_elems = numElems;
-
-        // If we just allocated the oldest guy, then this will tell us there's no need to search.
-        Bool allocating_oldest = False;
         
-        if (m_alloc matches tagged Valid {.bundle, .comp})
+        let new_next_free = nextFreeSlot;
+
+        if (m_alloc matches tagged Valid {.slot, .bundle, .comp})
         begin
 
             // A new allocation.
-            debugLog.record(cpu_iid, fshow("ALLOC: ") + fshow(bundle.token) + $format(" ADDR:0x%h", bundle.pc) + $format(" COMPLETE: %0b", pack(isValid(comp))));
-            bundleQ.enq(bundle);
-            complete.upd(tokTokenId(bundle.token), comp);
-            allocated[tokTokenId(bundle.token)] <= True;
-            new_num_elems = numElems + 1;
-            allocating_oldest = tokTokenId(bundle.token) == oldestTok;
+            debugLog.record(cpu_iid, $format("ALLOC ADDR:0x%h", bundle.pc) + $format(" COMPLETE: %0b", pack(isValid(comp))));
+            bundles.upd(slot, bundle);
+            completions.upd(slot, comp);
+            new_next_free = nextFreeSlot + 1;
 
         end
         
         // Now check if we have a credit to send to fetch based on our (simulated) length.
-        if (new_num_elems < `IQ_NUM_SLOTS)
+        if (new_next_free + 2 != oldestSlot) // This should really be +L+1, where L is the latency of the credit to Fetch.
         begin
         
             // We still have room.
             debugLog.record(cpu_iid, fshow("SEND CREDIT"));
-            creditToFetch.send(cpu_iid, tagged Valid (?));
+            creditToFetch.send(cpu_iid, tagged Valid new_next_free);
 
         end
         else
@@ -258,58 +270,12 @@ module [HASIM_MODULE] mkInstructionQueue
 
         end
         
-        // Update the element count.
-        numElems <= new_num_elems;
-
-        // See if we know who the oldest token is, or if we have to search for it.
-        if (new_num_elems != 0 && !(allocated[oldestTok] || allocating_oldest))
-        begin
-            // We have to search for it.
-            stage3Q.enq(cpu_iid);
-        end
-        else
-        begin
-            // We know it. 
-            // End of Model Cycle. (path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
-        end
-            
-    endrule
-    
-    // stage3_findOldest
-    
-    // This should only occur uncommonly.
-    // Search for the oldest allocated token, beginning at the current oldest.
-    
-    // This rule recurs until we find the oldest and dequeue the FIFO.
-
-    rule stage3_findOldest (True);
-    
-        // Get our context from the FIFO.
-        let cpu_iid = stage3Q.first();
+        // Update the next free slot
+        nextFreeSlot <= new_next_free;
         
-        // Get our local state based on the current context.
-        Reg#(TOKEN_ID) oldestTok = oldestTokPool[cpu_iid];
-        Reg#(Vector#(NUM_TOKENS, Bool)) allocated = allocatedPool[cpu_iid];
-    
-        // Check for the oldest allocated token.
-        if (allocated[oldestTok])
-        begin
-
-            // We've found it.
-            stage3Q.deq();
-            // End of model cycle. (path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
-
-        end
-        else
-        begin
-
-            // Keep looking.
-            oldestTok <= oldestTok + 1;
-
-        end
-    
+        // End of model cycle. (Path 1)
+        localCtrl.endModelCycle(cpu_iid, 1);
+        
     endrule
 
 endmodule

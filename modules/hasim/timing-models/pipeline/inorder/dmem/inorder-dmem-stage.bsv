@@ -143,7 +143,7 @@ module [HASIM_MODULE] mkDMem ();
             let tok = bundle.token;
 
             // Let's see if we should contact the store buffer and dcache.
-            if (bundle.isLoad && !tokIsPoisoned(tok) && !bundle.isJunk)
+            if (bundle.isLoad && !tokIsPoisoned(tok) && !tokIsDummy(tok))
             begin
 
                 // It's a load which did not page fault.
@@ -155,7 +155,7 @@ module [HASIM_MODULE] mkDMem ();
                 loadToDCache.send(cpu_iid, tagged Valid initDCacheLoad(bundle));
 
             end
-            else if (bundle.isStore && !tokIsPoisoned(tok) && !bundle.isJunk)
+            else if (bundle.isStore && !tokIsPoisoned(tok) && !tokIsDummy(tok))
             begin
                 
                 // A store which did not page fault.

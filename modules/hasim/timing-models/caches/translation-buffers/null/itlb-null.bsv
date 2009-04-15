@@ -76,7 +76,7 @@ module [HASIM_MODULE] mkITLB();
 
                 // Pass it to the the functional partition, 
                 // which actually translates the address.
-                doITranslate.makeReq(initFuncpReqDoITranslate(req.token, req.virtualAddress));
+                doITranslate.makeReq(initFuncpReqDoITranslate(cpu_iid, req.virtualAddress));
                 
                 // We assume the responses come back in order. Is this bad?
                 stage2Q.enq(tuple2(cpu_iid, req));
@@ -93,15 +93,14 @@ module [HASIM_MODULE] mkITLB();
         match { .cpu_iid, .req} = stage2Q.first();
         stage2Q.deq();
         
+        // TODO: handle rsp.hasMore
+        
         // Get the response from the functional partition.
         let rsp = doITranslate.getResp();
         doITranslate.deq();
         
-        // Update with the latest token.
-        req.token = rsp.token;
-
         // Always hit.
-	rspToIMem.send(cpu_iid, tagged Valid initITLBHit(req, rsp.physicalAddress));
+	rspToIMem.send(cpu_iid, tagged Valid initITLBHit(req, rsp.physicalAddress, rsp.offset));
 
         // End of model cycle. (Path 2)
         localCtrl.endModelCycle(cpu_iid, 2);

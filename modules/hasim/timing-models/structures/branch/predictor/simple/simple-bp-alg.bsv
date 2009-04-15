@@ -7,10 +7,10 @@ import FIFO::*;
 typedef Bit#(`BRANCH_TABLE_SIZE) BRANCH_INDEX;
 
 interface BRANCH_PREDICTOR_ALG;
-    method Action upd(TOKEN token, ISA_ADDRESS addr, Bool pred, Bool actual);
-    method Action getPredReq(TOKEN token, ISA_ADDRESS addr);
+    method Action upd(ISA_ADDRESS addr, Bool pred, Bool actual);
+    method Action getPredReq(ISA_ADDRESS addr);
     method ActionValue#(Bool) getPredResp();
-    method Action abort(TOKEN token);
+    method Action abort(ISA_ADDRESS addr);
 endinterface
 
 module mkBranchPredAlg
@@ -20,11 +20,11 @@ module mkBranchPredAlg
     LUTRAM#(BRANCH_INDEX, Bool) branchTable <- mkLUTRAMU();
     FIFO#(Bool) respQ <- mkFIFO();
 
-    method Action upd(TOKEN token, ISA_ADDRESS addr, Bool pred, Bool actual);
+    method Action upd(ISA_ADDRESS addr, Bool pred, Bool actual);
         branchTable.upd(truncate(addr), actual);
     endmethod
 
-    method Action getPredReq(TOKEN token, ISA_ADDRESS addr);
+    method Action getPredReq(ISA_ADDRESS addr);
         respQ.enq(branchTable.sub(truncate(addr)));
     endmethod
 
@@ -33,7 +33,7 @@ module mkBranchPredAlg
         return respQ.first();
     endmethod
 
-    method Action abort(TOKEN token);
+    method Action abort(ISA_ADDRESS addr);
         noAction;
     endmethod
     

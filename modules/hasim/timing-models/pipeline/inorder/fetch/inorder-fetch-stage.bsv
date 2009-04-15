@@ -78,17 +78,14 @@ module [HASIM_MODULE] mkFetch ();
 
     Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         modelCycle <- mkConnection_Send("model_cycle");
 
-    Connection_Client#(FUNCP_REQ_NEW_IN_FLIGHT,
-                       FUNCP_RSP_NEW_IN_FLIGHT)      newInFlight    <- mkConnection_Client("funcp_newInFlight");
-
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                              creditFromInstQ <- mkPortRecvInitial_Multiplexed("InstQ_to_Fet_credit", 1, (?));
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_SLOT_ID)                     creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
 
 
     // ****** Local Controller ******
@@ -113,12 +110,12 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Rules ******
     
-    // stage1_tokenReq
+    // stage1_fetchReq
     
     // Update the PC with the new calculation.
-    // If the InstQ has room then request a new token from the functional partition.
+    // If the InstQ has room then request a instruction from the IMemory.
 
-    rule stage1_tokenReq (True);
+    rule stage1_fetchReq (True);
 
         // Start a new model cycle
         let cpu_iid <- localCtrl.startModelCycle();
@@ -132,25 +129,34 @@ module [HASIM_MODULE] mkFetch ();
         
         // Get the next PC
         let m_newPC <- newPCFromPCCalc.receive(cpu_iid);
+        let pc_to_fetch = pc;
+        let epoch_to_fetch = epoch;
         
         // Update the PC and front end epochs.
         if (m_newPC matches tagged Valid {.new_pc, .new_epoch})
         begin
 
-            pc    <= new_pc;
-            epoch <= new_epoch;
+            pc_to_fetch = new_pc;
+            epoch_to_fetch = new_epoch;
 
         end
 
         // See if we have room in the instructionQ.
         let m_credit <- creditFromInstQ.receive(cpu_iid);
         
-        if (isValid(m_credit))
+        if (m_credit matches tagged Valid .slot)
         begin
         
             // The instructionQ still has room...
-            // Request a new token which we can send to the ICache.
-            newInFlight.makeReq(initFuncpReqNewInFlight(getContextId(cpu_iid)));
+            // Send the current PC to the ITLB and Branch predictor.
+            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(epoch_to_fetch, slot, pc_to_fetch));
+            pcToBP.send(cpu_iid, tagged Valid pc_to_fetch);
+        
+            // End of model cycle. (Path 1)
+            eventFet.recordEvent(cpu_iid, tagged Valid truncate(pc_to_fetch));
+            statFet.incr(cpu_iid);
+            debugLog.record_next_cycle(cpu_iid, $format("FETCH ADDR:0x%h", pc_to_fetch) + $format(" SLOT:%0d", slot));
+            localCtrl.endModelCycle(cpu_iid, 1);
 
         end
         else
@@ -166,42 +172,13 @@ module [HASIM_MODULE] mkFetch ();
             pcToITLB.send(cpu_iid, tagged Invalid);
             pcToBP.send(cpu_iid, tagged Invalid);
 
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
 
         end
-
-    endrule
-
-
-    // stage2_iTLBReq
-    
-    // Get a new token from the functional partition and
-    // send the it and the current PC to the ITLB and Branch Predictor.
-    
-    rule stage2_iTLBReq (True);
-
-        // Get the response.
-        let rsp = newInFlight.getResp();
-        newInFlight.deq();
-
-        // Get our context from the token.
-        let tok = rsp.newToken;
-        let cpu_iid = tokCpuInstanceId(tok);
-
-        // Get our local state using the current context id.
-        Reg#(ISA_ADDRESS)       pc = pcPool[cpu_iid];
-        Reg#(IMEM_EPOCH)     epoch = epochPool[cpu_iid];
-
-        // Send the current PC to the ITLB and Branch predictor.
-        pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(tok, epoch, pc));
-        pcToBP.send(cpu_iid, tagged Valid tuple2(tok, pc));
         
-        // End of model cycle. (Path 2)
-        eventFet.recordEvent(cpu_iid, tagged Valid truncate(pc));
-        statFet.incr(cpu_iid);
-        debugLog.record(cpu_iid, fshow("FETCH: ") + fshow(tok) + $format(" ADDR:0x%h", pc));
-        localCtrl.endModelCycle(cpu_iid, 2);
+        pc <= pc_to_fetch;
+        epoch <= epoch_to_fetch;
 
     endrule
 

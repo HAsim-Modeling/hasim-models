@@ -72,13 +72,13 @@ module [HASIM_MODULE] mkCommit ();
 
     MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_FAULT_EPOCH)) faultEpochPool <- mkMultiplexed(mkReg(0));
 
-
     // ****** Ports ******
 
     PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) bundleFromRetireQ  <- mkPortStallRecv_Multiplexed("RetireQ");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN) writebackToDec <- mkPortSend_Multiplexed("Com_to_Dec_writeback");
 
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)  rewindToDec <- mkPortSend_Multiplexed("Com_to_Dec_fault");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN) faultToFet <- mkPortSend_Multiplexed("Com_to_Fet_fault");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_DEALLOC_INPUT) deallocToSB <- mkPortSend_Multiplexed("Com_to_SB_dealloc");
@@ -87,7 +87,6 @@ module [HASIM_MODULE] mkCommit ();
     // ****** Soft Connections ******
 
     Connection_Client#(FUNCP_REQ_COMMIT_RESULTS, FUNCP_RSP_COMMIT_RESULTS) commitResults <- mkConnection_Client("funcp_commitResults");
-    // Connection_Client#(FUNCP_REQ_COMMIT_STORES, FUNCP_RSP_COMMIT_STORES) commitStores  <- mkConnection_Client("funcp_commitStores");
 
     // Number of commits (to go along with heartbeat)
     Connection_Send#(CONTROL_MODEL_COMMIT_MSG) linkModelCommit <- mkConnection_Send("model_commits");
@@ -96,12 +95,13 @@ module [HASIM_MODULE] mkCommit ();
     // ****** Local Controller ******
 
     Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(4, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromRetireQ.ctrl;
     outports[0] = writebackToDec.ctrl;
     outports[1] = faultToFet.ctrl;
     outports[2] = deallocToSB.ctrl;
     outports[3] = bundleFromRetireQ.ctrl;
+    outports[4] = rewindToDec.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
@@ -147,6 +147,7 @@ module [HASIM_MODULE] mkCommit ();
             // Propogate the bubble.
             writebackToDec.send(cpu_iid, tagged Invalid);
             faultToFet.send(cpu_iid, tagged Invalid);
+            rewindToDec.send(cpu_iid, tagged Invalid);
             deallocToSB.send(cpu_iid, tagged Invalid);
 
             // End of model cycle. (Path 1)
@@ -160,7 +161,7 @@ module [HASIM_MODULE] mkCommit ();
             let bundle = bundleFromRetireQ.peek(cpu_iid);
             let tok = bundle.token;
 
-            if (! tokIsPoisoned(tok) && !bundle.isJunk && (bundle.faultEpoch == faultEpoch))
+            if (! tokIsPoisoned(tok) && !tokIsDummy(tok) && (bundle.faultEpoch == faultEpoch))
             begin
 
                 // Normal commit flow for a good instruction.
@@ -168,6 +169,7 @@ module [HASIM_MODULE] mkCommit ();
 
                 // No fault occurred.
                 faultToFet.send(cpu_iid, tagged Invalid);
+                rewindToDec.send(cpu_iid, tagged Invalid);
 
                 // Have the functional partition commit its local results.
                 // The response will be handled by the next stage.
@@ -195,12 +197,13 @@ module [HASIM_MODULE] mkCommit ();
                 end
 
                 // So was it a fault, or just from the wrong epoch?
-                if ((bundle.faultEpoch != faultEpoch) || bundle.isJunk)
+                if ((bundle.faultEpoch != faultEpoch) || tokIsDummy(tok))
                 begin
 
                     // Just draining following an earlier fault or branch mispredict.
                     debugLog.record_next_cycle(cpu_iid, fshow("DRAIN: ") + fshow(tok) + fshow(" ") + fshow(bundle));
                     faultToFet.send(cpu_iid, tagged Invalid);
+                    rewindToDec.send(cpu_iid, tagged Invalid);
 
                 end
                 else
@@ -210,6 +213,7 @@ module [HASIM_MODULE] mkCommit ();
                     debugLog.record_next_cycle(cpu_iid, fshow("FAULT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
                     faultEpoch <= faultEpoch + 1;
                     faultToFet.send(cpu_iid, tagged Valid tok);
+                    rewindToDec.send(cpu_iid, tagged Valid (?));
 
 
 
@@ -218,9 +222,9 @@ module [HASIM_MODULE] mkCommit ();
                 // Instruction no longer in flight.
                 // Instructions dependent on this guy should be allowed to proceed.
                 writebackToDec.send(cpu_iid, tagged Valid tok);
-
-                // End of model cycle. (Path 2)
+                
                 localCtrl.endModelCycle(cpu_iid, 2);
+
             end
 
         end
@@ -275,7 +279,7 @@ module [HASIM_MODULE] mkCommit ();
         // Dequeue the retireQ. The instruction is done (except for stores).
         bundleFromRetireQ.doDeq(cpu_iid);
     
-        // End of model cycle. (Path 3)
+        // End of model cycle. (Path 2)
         statCom.incr(cpu_iid);
         eventCom.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
         linkModelCommit.send(tuple2(cpu_iid, 1));

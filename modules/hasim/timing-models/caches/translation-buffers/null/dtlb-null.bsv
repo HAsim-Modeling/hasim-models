@@ -63,7 +63,7 @@ module [HASIM_MODULE] mkDTLB();
             // See if it's a memory operation.
             let req = reqFromInQ.peek(cpu_iid);
             
-            if ((req.isLoad || req.isStore) && !tokIsPoisoned(req.token) && !req.isJunk)
+            if ((req.isLoad || req.isStore) && !tokIsPoisoned(req.token) && !req.token.dummy)
             begin
 
                 // An actual TLB would do something with the virtual

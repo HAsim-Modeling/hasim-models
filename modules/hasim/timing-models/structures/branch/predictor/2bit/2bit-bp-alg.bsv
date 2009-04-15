@@ -17,10 +17,10 @@ typedef enum
 typedef Bit#(`BRANCH_TABLE_SIZE) BRANCH_INDEX;
 
 interface BRANCH_PREDICTOR_ALG;
-    method Action upd(TOKEN token, ISA_ADDRESS addr, Bool pred, Bool actual);
-    method Action getPredReq(TOKEN token, ISA_ADDRESS addr);
+    method Action upd(ISA_ADDRESS addr, Bool pred, Bool actual);
+    method Action getPredReq(ISA_ADDRESS addr);
     method ActionValue#(Bool) getPredResp();
-    method Action abort(TOKEN token);
+    method Action abort(ISA_ADDRESS addr);
 endinterface
 
 
@@ -60,7 +60,7 @@ module mkBranchPredAlg
     endrule
 
 
-    method Action upd(TOKEN token, ISA_ADDRESS addr, Bool pred, Bool actual);
+    method Action upd(ISA_ADDRESS addr, Bool pred, Bool actual);
         // Read current table value pass update info on to updatePred rule above.
         let idx = getIdx(addr);
         branchPredTable.readReq(idx);
@@ -68,7 +68,7 @@ module mkBranchPredAlg
         bpredPathQ.enq(BPRED_PATH_UPDATE);
     endmethod
 
-    method Action getPredReq(TOKEN token, ISA_ADDRESS addr);
+    method Action getPredReq(ISA_ADDRESS addr);
         let idx = getIdx(addr);
         branchPredTable.readReq(idx);
         bpredPathQ.enq(BPRED_PATH_PREDICT);
@@ -80,7 +80,10 @@ module mkBranchPredAlg
         return (counter > 1);
     endmethod
 
-    method Action abort(TOKEN token);
+    method Action abort(ISA_ADDRESS addr);
+    
         noAction;
+        
     endmethod
+
 endmodule
