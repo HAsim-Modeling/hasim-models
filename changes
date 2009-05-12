@@ -2734,3 +2734,25 @@ Directory modules/hasim/timing-models/caches/null-caches
   was already broken and has not been maintained for a while.
   
 Michael P.
+
+----------
+mcadler     Date: Tue May 12 07:41:39 EDT 2009  CSN: CSN-hasim-models-106
+                  Tue May 12 11:41:39 UTC 2009
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ dcache-direct-mapped-writeback.bsv Locally Modified          105 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          105 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          105 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ dcache-setassoc-writeback.bsv Locally Modified          105 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ icache-setassoc.bsv       Locally Modified          105 
+
+"Stat" interface name is now "STAT"

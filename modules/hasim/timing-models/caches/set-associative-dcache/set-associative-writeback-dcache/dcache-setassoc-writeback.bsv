@@ -99,10 +99,10 @@ module [HASIM_MODULE] mkDCache();
    LocalController local_ctrl <- mkLocalController(inports, outports);
    
    // Stats
-   Stat stat_dcache_read_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_HITS);
-   Stat stat_dcache_read_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_MISSES);
-   Stat stat_dcache_write_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_HITS);
-   Stat stat_dcache_write_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_MISSES);
+   STAT stat_dcache_read_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_HITS);
+   STAT stat_dcache_read_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_MISSES);
+   STAT stat_dcache_write_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_HITS);
+   STAT stat_dcache_write_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_MISSES);
    
    // rules
    rule handlereq (state == HandleReq);

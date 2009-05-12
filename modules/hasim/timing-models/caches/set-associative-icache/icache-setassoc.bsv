@@ -103,8 +103,8 @@ module [HASIM_MODULE] mkICache();
    LocalController local_ctrl <- mkLocalController(inports, outports); 
    
    // Stats
-   Stat stat_icache_hits <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_HITS);
-   Stat stat_icache_misses <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_MISSES);
+   STAT stat_icache_hits <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_HITS);
+   STAT stat_icache_misses <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_MISSES);
    
    Reg#(Bool) noRequest <- mkReg(False);
    Reg#(Bool) hit  <- mkReg(False);      
