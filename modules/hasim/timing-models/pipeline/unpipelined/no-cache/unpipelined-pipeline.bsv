@@ -371,6 +371,7 @@ module [HASIM_MODULE] mkPipeline
 
     endrule
 
+    (* descending_urgency = "stage7_stoRsp, stage7_loaRsp" *)
     rule stage7_stoRsp (tokIsStore(dmemQ.first()));
 
         dmemQ.deq();
@@ -464,6 +465,8 @@ module [HASIM_MODULE] mkPipeline
 
     endrule
 
+    (* descending_urgency = "stage10_faultRsp, stage10_gcoRsp, stage9_lcoRsp_gcoReq" *)
+    (* descending_urgency = "stage10_faultRsp, stage5_exeRsp" *)
     rule stage10_faultRsp (True);
 
         // Fault response (started by lco_req)
