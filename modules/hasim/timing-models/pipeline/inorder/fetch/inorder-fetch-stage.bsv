@@ -90,8 +90,8 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Local Controller ******
         
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = creditFromInstQ.ctrl;
     inports[1]  = newPCFromPCCalc.ctrl;
     outports[0] = pcToITLB.ctrl;
@@ -114,7 +114,8 @@ module [HASIM_MODULE] mkFetch ();
     
     // Update the PC with the new calculation.
     // If the InstQ has room then request a instruction from the IMemory.
-
+    
+    (* conservative_implicit_conditions *)
     rule stage1_fetchReq (True);
 
         // Start a new model cycle

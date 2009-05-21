@@ -70,21 +70,21 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                         rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                      rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 0);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                        physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_req");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(IMEM_EPOCH, ISA_ADDRESS))    faultToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_fault");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                     physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_req");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(IMEM_EPOCH, ISA_ADDRESS)) faultToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_fault");
 
 
     // ****** Local Controller ******
         
-    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
-    inports[0]  = rspFromITLB.ctrl;
-    outports[0] = physAddrToICache.ctrl;
-    outports[1] = faultToPCCalc.ctrl;
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    inctrls[0]  = rspFromITLB.ctrl;
+    outctrls[0] = physAddrToICache.ctrl;
+    outctrls[1] = faultToPCCalc.ctrl;
     
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
 
     // ****** Rules ******
@@ -96,6 +96,7 @@ module [HASIM_MODULE] mkIMem
     // be page faults back to back and we only want to redirect on the
     // earliest fault.
 
+    (* conservative_implicit_conditions *)
     rule stage1_iTLBRsp (True);
 
         // Start a new model cycle.

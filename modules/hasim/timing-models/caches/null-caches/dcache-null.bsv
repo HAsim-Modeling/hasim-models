@@ -37,16 +37,16 @@ module [HASIM_MODULE] mkDCache();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
 
     // communication with local controller
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
-    Vector#(4, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
-    inports[0] = loadReqFromCPU.ctrl;
-    inports[1] = storeReqFromCPU.ctrl;
-    outports[0] = loadRspImmToCPU.ctrl;
-    outports[1] = loadRspDelToCPU.ctrl;
-    outports[2] = storeRspImmToCPU.ctrl;
-    outports[3] = storeRspDelToCPU.ctrl;
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    inctrls[0] = loadReqFromCPU.ctrl;
+    inctrls[1] = storeReqFromCPU.ctrl;
+    outctrls[0] = loadRspImmToCPU.ctrl;
+    outctrls[1] = loadRspDelToCPU.ctrl;
+    outctrls[2] = storeRspImmToCPU.ctrl;
+    outctrls[3] = storeRspDelToCPU.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
     // ****** Rules ******
 
@@ -54,6 +54,7 @@ module [HASIM_MODULE] mkDCache();
     
     // Stores always hit in the cache. Loads also always hit but we also 
 
+    (* conservative_implicit_conditions *)
     rule stage1_loadReq (True);
 
         // Begin a new model cycle.

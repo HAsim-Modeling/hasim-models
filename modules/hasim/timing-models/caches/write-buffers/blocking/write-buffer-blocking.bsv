@@ -94,8 +94,8 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = enqFromSB.ctrl;
     inports[1]  = loadReqFromDMem.ctrl;
     outports[0] = creditToSB.ctrl;
@@ -109,6 +109,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     // stage1_search
     
+    (* conservative_implicit_conditions *)
     rule stage1_search (True);
 
         // Start a new model cycle.
@@ -177,6 +178,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     endrule
 
+    (* conservative_implicit_conditions *)
     rule stage2_alloc (True);
     
 
@@ -256,6 +258,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
     endrule
 
     
+    (* conservative_implicit_conditions *)
     rule stage3_storeRsp (!stallForStoreRsp[stage3Q.first()]);
     
         // Get our context from the previous stage.
@@ -323,6 +326,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     endrule
     
+    (* conservative_implicit_conditions *)
     rule storeRsp (True);
     
         let rsp = commitStores.getResp();

@@ -61,6 +61,13 @@ import Vector::*;
 //   Path 2: The instruction in the IssueQ is of the wrong epoch, so we drop it. stall.
 //   Path 3: The instruction was executed and enqued in the MemQ.
 
+typedef union tagged
+{
+    DMEM_BUNDLE STAGE2_junk;
+    BUNDLE      STAGE2_exeRsp;
+    void        STAGE2_bubble;
+}
+EXE_STAGE2_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkExecute ();
 
@@ -91,18 +98,20 @@ module [HASIM_MODULE] mkExecute ();
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(6, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
-    inports[0]  = bundleFromIssueQ.ctrl;
-    inports[1]  = bundleToMemQ.ctrl;
-    outports[0] = bundleToMemQ.ctrl;
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    inports[0]  = bundleFromIssueQ.ctrl.in;
+    inports[1]  = bundleToMemQ.ctrl.in;
+    outports[0] = bundleToMemQ.ctrl.out;
     outports[1] = rewindToFet.ctrl;
     outports[2] = writebackToDec.ctrl;
     outports[3] = trainingToBP.ctrl;
-    outports[4] = bundleFromIssueQ.ctrl;
+    outports[4] = bundleFromIssueQ.ctrl.out;
     outports[5] = rewindToDec.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+
+    STAGE_CONTROLLER#(NUM_CPUS, EXE_STAGE2_STATE) stage2Ctrl <- mkStageController();
 
 
     // ****** Events and Stats ******
@@ -196,6 +205,7 @@ module [HASIM_MODULE] mkExecute ();
     // instruction and the MemQ has space. If so, then send it to
     // the functional partition for execution.
 
+    (* conservative_implicit_conditions *)
     rule stage1_begin (True);
     
         // Get our local state from the context.
@@ -204,30 +214,13 @@ module [HASIM_MODULE] mkExecute ();
         Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
 
         // Do we have an instruction to execute, and a place to put it?
-        if (!bundleFromIssueQ.canDeq(cpu_iid) || !bundleToMemQ.canEnq(cpu_iid))
-        begin
+        
+        let m_bundle <- bundleFromIssueQ.receive(cpu_iid);
 
-            // A bubble. 
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
-
-            // Propogate the bubble.
-            bundleFromIssueQ.noDeq(cpu_iid);
-            bundleToMemQ.noEnq(cpu_iid);
-            rewindToFet.send(cpu_iid, tagged Invalid);
-            rewindToDec.send(cpu_iid, tagged Invalid);
-            trainingToBP.send(cpu_iid, tagged Invalid);
-            writebackToDec.send(cpu_iid, tagged Invalid);
-
-            // End the model cycle. (Path 1)
-            eventExe.recordEvent(cpu_iid, tagged Invalid);
-            localCtrl.endModelCycle(cpu_iid, 1);
-
-        end
-        else
+        if (m_bundle matches tagged Valid .bundle &&& bundleToMemQ.canEnq(cpu_iid))
         begin
 
             // Yes... but is it something we should be executing?
-            let bundle = bundleFromIssueQ.peek(cpu_iid);
             let tok = bundle.token;
         
             if (goodEpoch(bundle))
@@ -237,8 +230,10 @@ module [HASIM_MODULE] mkExecute ();
                 debugLog.record_next_cycle(cpu_iid, fshow("EXEC: ") + fshow(tok));
 
                 // Have the functional partition execute it.
-                // It will be returned to the next stage.
                 getResults.makeReq(initFuncpReqGetResults(tok));
+                
+                // In the next stage we'll get the response and deal with it.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_exeRsp bundle);
 
             end
             else
@@ -263,39 +258,34 @@ module [HASIM_MODULE] mkExecute ();
                     // cycle, now that it will appear to be on the good path.
                     //
                     epoch <= initEpoch(bundle.branchEpoch, bundle.faultEpoch);
-                    // Don't dequeue the IssueQ.
-                    bundleFromIssueQ.noDeq(cpu_iid);
-                    // Don't send any register writebacks.
-                    writebackToDec.send(cpu_iid, tagged Invalid);
+                    
+                    // Handle it exactly like there was a bubble.
+                    stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
                 end
                 else
                 begin
-
-                    //
-                    // Bad path due to branch.  Mark the token as junk and send it on.
-                    //
-                    //
+                    
+                    // Mark the token as junk and send it on.
                     tok.dummy = True;
-                    bundleToMemQ.doEnq(cpu_iid, initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
-
-                    // Dequeue the IssueQ
-                    bundleFromIssueQ.doDeq(cpu_iid);
-                    // Tell decode the instruction was dropped, so its dests are "ready."
-                    writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
+                    let dmem_bundle = initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests);
+                    
+                    // In the next stage we'll pass the junk instruction on, and mark its destinations ready.
+                    stage2Ctrl.ready(cpu_iid, tagged STAGE2_junk dmem_bundle);
 
                 end
                 
-                // Propogate the bubble.
-                rewindToFet.send(cpu_iid, tagged Invalid);
-                rewindToDec.send(cpu_iid, tagged Invalid);
-                trainingToBP.send(cpu_iid, tagged Invalid);
-
-                // End the model cycle. (Path 2)
-                eventExe.recordEvent(cpu_iid, tagged Invalid);
-                localCtrl.endModelCycle(cpu_iid, 2);
-                
             end
+
+        end
+        else
+        begin
+
+            // A bubble. 
+            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
+            
+            // Tell the next stage to propogate the bubble.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
         end
     
@@ -310,171 +300,218 @@ module [HASIM_MODULE] mkExecute ();
 
     rule stage2_results (True);
     
-        // Get the response from the functional partition.
-        let rsp = getResults.getResp();
-        getResults.deq();
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+    
+        // Handle writing our output ports based on what the previous stage decided.
 
-        // Get our local state from the context.
-        let tok = rsp.token;
-        let res = rsp.result;
-        let cpu_iid = tokCpuInstanceId(tok);
-        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
-
-        // assert bundleFromIssueQ.canDeq(), since otherwise we wouldn't go down this path.
-        let bundle = bundleFromIssueQ.peek(cpu_iid);
-
-        // Dequeue the IssueQ.
-        bundleFromIssueQ.doDeq(cpu_iid);
-        
-        // Let's begin to gather some training data for the branch predictor.
-        let pc = bundle.pc;
-        BRANCH_PRED_TRAIN train;
-        train.token = tok;
-        train.branchPC = pc;
-        
-        // What was the result of execution?
-        case (res) matches
-            tagged RBranchTaken .addr:
-            begin
+        if (state matches tagged STAGE2_bubble)
+        begin
             
-                // A branch was taken.
-                debugLog.record(cpu_iid, fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch.branch));
-                train.exeResult = tagged BranchTaken addr;
-
-                if (bundle.branchAttr matches tagged BranchTaken .tgt &&& tgt == addr)
-                begin
-                    
-                    // It was predicted correctly. Train, but don't resteer.
-                    rewindToFet.send(cpu_iid, tagged Invalid);
-                    rewindToDec.send(cpu_iid, tagged Invalid);
-                    train.predCorrect = True;
-                    trainingToBP.send(cpu_iid, tagged Valid train);
-
-                end
-                else
-                begin
-                    
-                    // The branch predictor predicted NotTaken.
-                    statMispred.incr(cpu_iid);
-                    epoch.branch <= epoch.branch + 1;
-
-                    // Rewind the PC to the actual target and train the BP.
-                    rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
-                    rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
-                    train.predCorrect = False;
-                    trainingToBP.send(cpu_iid, tagged Valid train);
-
-                end
-            end
-            tagged RBranchNotTaken .addr:
-            begin
+            // Last stage determined that there was a bubble, or that we should delay for a cycle.
             
-                // It was a branch, but it was not taken.
-                debugLog.record(cpu_iid, fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
-                train.exeResult = tagged BranchNotTaken addr;
+            // Propogate the bubble.
+            bundleFromIssueQ.noDeq(cpu_iid);
+            bundleToMemQ.noEnq(cpu_iid);
+            rewindToFet.send(cpu_iid, tagged Invalid);
+            rewindToDec.send(cpu_iid, tagged Invalid);
+            trainingToBP.send(cpu_iid, tagged Invalid);
+            writebackToDec.send(cpu_iid, tagged Invalid);
 
-                case (bundle.branchAttr) matches
-                    tagged BranchNotTaken .tgt:
+            // End the model cycle. (Path 1)
+            eventExe.recordEvent(cpu_iid, tagged Invalid);
+            localCtrl.endModelCycle(cpu_iid, 1);
+
+        end
+        else if (state matches tagged STAGE2_junk .dmem_bundle)
+        begin
+        
+            // Bad path due to branch. Send the junk bundle on.
+            bundleToMemQ.doEnq(cpu_iid, dmem_bundle);
+
+            // Dequeue the IssueQ
+            bundleFromIssueQ.doDeq(cpu_iid);
+
+            // Tell decode the instruction was dropped, so its dests are "ready."
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(dmem_bundle.token, dmem_bundle.dests));
+
+            // Propogate the bubble.
+            rewindToFet.send(cpu_iid, tagged Invalid);
+            rewindToDec.send(cpu_iid, tagged Invalid);
+            trainingToBP.send(cpu_iid, tagged Invalid);
+
+            // End the model cycle. (Path 2)
+            eventExe.recordEvent(cpu_iid, tagged Invalid);
+            localCtrl.endModelCycle(cpu_iid, 2);
+
+        end
+        else if (state matches tagged STAGE2_exeRsp .bundle)
+        begin
+
+            let new_bundle = bundle;
+
+            // Get the response from the functional partition.
+            let rsp = getResults.getResp();
+            getResults.deq();
+
+            // Get our local state from the context.
+            let tok = rsp.token;
+            let res = rsp.result;
+            Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
+
+            // Dequeue the IssueQ.
+            bundleFromIssueQ.doDeq(cpu_iid);
+
+            // Let's begin to gather some training data for the branch predictor.
+            let pc = bundle.pc;
+            BRANCH_PRED_TRAIN train;
+            train.token = tok;
+            train.branchPC = pc;
+
+            // What was the result of execution?
+            case (res) matches
+                tagged RBranchTaken .addr:
+                begin
+
+                    // A branch was taken.
+                    debugLog.record(cpu_iid, fshow("BRANCH TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h END-OF-EPOCH:%d", addr, epoch.branch));
+                    train.exeResult = tagged BranchTaken addr;
+
+                    if (bundle.branchAttr matches tagged BranchTaken .tgt &&& tgt == addr)
                     begin
 
-                        // The predictor got it right. No need to resteer.
+                        // It was predicted correctly. Train, but don't resteer.
                         rewindToFet.send(cpu_iid, tagged Invalid);
                         rewindToDec.send(cpu_iid, tagged Invalid);
                         train.predCorrect = True;
                         trainingToBP.send(cpu_iid, tagged Valid train);
 
                     end
-                    tagged BranchTaken .tgt:
+                    else
                     begin
 
-                        // The predictor got it wrong.
+                        // The branch predictor predicted NotTaken.
                         statMispred.incr(cpu_iid);
                         epoch.branch <= epoch.branch + 1;
-                        
-                        // Resteer the PC to the actual destination and train.
+
+                        // Rewind the PC to the actual target and train the BP.
                         rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
                         rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
                         train.predCorrect = False;
                         trainingToBP.send(cpu_iid, tagged Valid train);
 
                     end
-                    tagged NotBranch:
-                    begin
+                end
+                tagged RBranchNotTaken .addr:
+                begin
 
-                        // The predictor was wrong, but it was harmless.
-                        // Note: Should we train in this case?
-                        rewindToFet.send(cpu_iid, tagged Invalid);
-                        rewindToDec.send(cpu_iid, tagged Invalid);
-                        trainingToBP.send(cpu_iid, tagged Invalid);
+                    // It was a branch, but it was not taken.
+                    debugLog.record(cpu_iid, fshow("BRANCH NOT-TAKEN: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+                    train.exeResult = tagged BranchNotTaken addr;
 
-                    end
+                    case (bundle.branchAttr) matches
+                        tagged BranchNotTaken .tgt:
+                        begin
 
-                endcase
+                            // The predictor got it right. No need to resteer.
+                            rewindToFet.send(cpu_iid, tagged Invalid);
+                            rewindToDec.send(cpu_iid, tagged Invalid);
+                            train.predCorrect = True;
+                            trainingToBP.send(cpu_iid, tagged Valid train);
+
+                        end
+                        tagged BranchTaken .tgt:
+                        begin
+
+                            // The predictor got it wrong.
+                            statMispred.incr(cpu_iid);
+                            epoch.branch <= epoch.branch + 1;
+
+                            // Resteer the PC to the actual destination and train.
+                            rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
+                            rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
+                            train.predCorrect = False;
+                            trainingToBP.send(cpu_iid, tagged Valid train);
+
+                        end
+                        tagged NotBranch:
+                        begin
+
+                            // The predictor was wrong, but it was harmless.
+                            // Note: Should we train in this case?
+                            rewindToFet.send(cpu_iid, tagged Invalid);
+                            rewindToDec.send(cpu_iid, tagged Invalid);
+                            trainingToBP.send(cpu_iid, tagged Invalid);
+
+                        end
+
+                    endcase
 
 
-            end
-            tagged REffectiveAddr .ea:
+                end
+                tagged REffectiveAddr .ea:
+                begin
+
+                    // The instruction was a memory operation to this address.
+                    debugLog.record(cpu_iid, fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea));
+
+                    // Update the bundle for the DMem module.
+                    new_bundle.effAddr = ea;
+
+                    // Use the standard branch prediction for non-branches.
+                    nonBranchPred(new_bundle, rsp, bundle.branchAttr);
+
+                end
+                tagged RNop:
+                begin
+
+                    // The instruction was some kind of instruction we don't care about.
+                    nonBranchPred(bundle, rsp, bundle.branchAttr);
+
+                end
+                tagged RTerminate .pf:
+                begin
+
+                    // Like a nop, but if this instruction commits, then simulation should end.
+                    rewindToFet.send(cpu_iid, tagged Invalid);
+                    rewindToDec.send(cpu_iid, tagged Invalid);
+                    new_bundle.isTerminate = tagged Valid pf;
+                    trainingToBP.send(cpu_iid, tagged Invalid);
+
+                end
+
+            endcase
+
+            if (bundle.isLoad)
             begin
-                
-                // The instruction was a memory operation to this address.
-                debugLog.record(cpu_iid, fshow("EFF ADDR: ") + fshow(tok) + fshow(" ADDR:") + fshow(ea));
 
-                // Update the bundle for the DMem module.
-                bundle.effAddr = ea;
-
-                // Use the standard branch prediction for non-branches.
-                nonBranchPred(bundle, rsp, bundle.branchAttr);
+                // The destinations won't be ready until the Mem stage is finished.
+                debugLog.record(cpu_iid, fshow(tok) + fshow(": load -- dest regs not yet valid"));
+                // No writebacks to report.
+                writebackToDec.send(cpu_iid, tagged Invalid);
 
             end
-            tagged RNop:
+            else
             begin
 
-                // The instruction was some kind of instruction we don't care about.
-                nonBranchPred(bundle, rsp, bundle.branchAttr);
+                // The destinations of this token are ready.
+                debugLog.record(cpu_iid, fshow(tok) + fshow(": marking dest regs valid"));
+
+                // Send the writeback to decode.
+                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
 
             end
-            tagged RTerminate .pf:
-            begin
-                
-                // Like a nop, but if this instruction commits, then simulation should end.
-                rewindToFet.send(cpu_iid, tagged Invalid);
-                rewindToDec.send(cpu_iid, tagged Invalid);
-                bundle.isTerminate = tagged Valid pf;
-                trainingToBP.send(cpu_iid, tagged Invalid);
 
-            end
-            
-        endcase
+            // Update the bundle with any token updates from the FP.
+            new_bundle.token = tok;
 
-        if (bundle.isLoad)
-        begin
+            // Enqueue the instuction in the MemQ.
+            bundleToMemQ.doEnq(cpu_iid, initDMemBundle(new_bundle.token, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, new_bundle.isTerminate, bundle.dests));
 
-            // The destinations won't be ready until the Mem stage is finished.
-            debugLog.record(cpu_iid, fshow(tok) + fshow(": load -- dest regs not yet valid"));
-            // No writebacks to report.
-            writebackToDec.send(cpu_iid, tagged Invalid);
+            // End the model cycle. (Path 3)
+            eventExe.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
+            localCtrl.endModelCycle(cpu_iid, 3);
 
         end
-        else
-        begin
-
-            // The destinations of this token are ready.
-            debugLog.record(cpu_iid, fshow(tok) + fshow(": marking dest regs valid"));
-
-            // Send the writeback to decode.
-            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
-
-        end
-
-        // Update the bundle with any token updates from the FP.
-        bundle.token = tok;
-
-        // Enqueue the instuction in the MemQ.
-        bundleToMemQ.doEnq(cpu_iid, initDMemBundle(bundle.token, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests));
-
-        // End the model cycle. (Path 3)
-        eventExe.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
-        localCtrl.endModelCycle(cpu_iid, 3);
 
     endrule
 

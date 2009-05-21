@@ -42,6 +42,7 @@ module mkBranchPredAlg
     // updatePred -- receive old counter values and updates from the upd()
     //               method.  Update the prediction table.
     //
+    
     rule updatePred (bpredPathQ.first() == BPRED_PATH_UPDATE);
 
         let counter <- branchPredTable.readRsp();

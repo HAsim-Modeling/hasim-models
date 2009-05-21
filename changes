@@ -2766,3 +2766,68 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  unpipelined-pipeline.bsv  Locally Modified          106 
 
 Get rid of some compiler scheduling warning messages.
+
+----------
+hecpellauer    Date: Thu May 21 13:51:41 EDT 2009  CSN: CSN-hasim-models-108
+                  Thu May 21 17:51:41 UTC 2009
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ 2bit-bp-alg.bsv           Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          107 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          107 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          107 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          107 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          107 
+ itlb-null.bsv             Locally Modified          107 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ dcache-null.bsv           Locally Modified          107 
+ icache-null.bsv           Locally Modified          107 
+
+
+* Update all timing models to use the new LocalController arrangement. This means ports are no longer conditionally
+  written in certain stages. Instead a decision is made a communicated to later stages using the StageController.
+  
+* Add (* conservative_implicit_conditions *) pragmas in as many places as possible. This was previously impossible, but now
+  can substantially reduce rule predicates. If a rule is shown to be a performance bottleneck this pragma can be removed. This
+  also works around a mysterious bug in the Bluespec compiler.
+
+Michael P.

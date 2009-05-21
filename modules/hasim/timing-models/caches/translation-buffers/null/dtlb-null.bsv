@@ -13,16 +13,20 @@ import FIFO::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
+typedef union tagged
+{
+    DMEM_BUNDLE STAGE2_nonMemOp;
+    DMEM_BUNDLE STAGE2_dTransRsp;
+    void STAGE2_bubble;
+}
+DTLB_STAGE2_STATE deriving (Bits, Eq);
+
+
 // mkDTLB
 
 // An DTLB module that always hits.
 
 module [HASIM_MODULE] mkDTLB();
-
-
-    // UnModel State
-    
-    FIFO#(Tuple2#(CPU_INSTANCE_ID, DMEM_BUNDLE)) stage2Q <- mkFIFO();
 
 
     // ****** Soft Connections *******
@@ -42,26 +46,35 @@ module [HASIM_MODULE] mkDTLB();
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
-    inports[0] = reqFromInQ.ctrl;
-    inports[1] = rspToOutQ.ctrl;
-    outports[0] = rspToOutQ.ctrl;
-    outports[1] = reqFromInQ.ctrl;
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    inports[0] = reqFromInQ.ctrl.in;
+    inports[1] = rspToOutQ.ctrl.in;
+    outports[0] = rspToOutQ.ctrl.out;
+    outports[1] = reqFromInQ.ctrl.out;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
+    STAGE_CONTROLLER#(NUM_CPUS, DTLB_STAGE2_STATE) stage2Ctrl <- mkStageController();
+
+
+    (* conservative_implicit_conditions *)
     rule stage1_instReq (True);
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
 
+
+        let m_req <-reqFromInQ.receive(cpu_iid);
+
         // check request type
-        if (reqFromInQ.canDeq(cpu_iid) && rspToOutQ.canEnq(cpu_iid))
+        if (m_req matches tagged Valid .req &&& rspToOutQ.canEnq(cpu_iid))
 	begin
         
             // See if it's a memory operation.
-            let req = reqFromInQ.peek(cpu_iid);
+
+            // Dequeue the FIFO.
+            reqFromInQ.doDeq(cpu_iid);
             
             if ((req.isLoad || req.isStore) && !tokIsPoisoned(req.token) && !req.token.dummy)
             begin
@@ -73,18 +86,17 @@ module [HASIM_MODULE] mkDTLB();
                 // which actually translates the address.
                 doDTranslate.makeReq(initFuncpReqDoDTranslate(req.token));
             
-                // We assume the responses come back in order. Is this bad?
-                stage2Q.enq(tuple2(cpu_iid, req));
+                // Tell the next stage to get the response.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_dTransRsp req);
             
             end
             else
             begin
             
                 // It's not a memory operation, or it's junk. Just send it on.
-	        rspToOutQ.doEnq(cpu_iid, initDTLBHit(req, ?));
-                reqFromInQ.doDeq(cpu_iid);
-                // End of model cycle. (Path 1)
-                localCtrl.endModelCycle(cpu_iid, 1);
+
+                // Tell the next stage to just send the request on.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_nonMemOp req);
             
             end
 
@@ -92,11 +104,11 @@ module [HASIM_MODULE] mkDTLB();
         else
 	begin
 
-            // Propogate the bubble.
-	    rspToOutQ.noEnq(cpu_iid);
+            // No dequeue to do.
             reqFromInQ.noDeq(cpu_iid);
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
+            
+            // Finish the bubble in the next stage.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
 	end
          
@@ -105,22 +117,41 @@ module [HASIM_MODULE] mkDTLB();
      
     rule stage2_instRsp (True);
         
-        match { .cpu_iid, .req } = stage2Q.first();
-        stage2Q.deq();
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
         
-        // Get the response from the functional partition.
-        let rsp = doDTranslate.getResp();
-        doDTranslate.deq();
+        if (state matches tagged STAGE2_bubble)
+        begin
+
+            // Propogate the bubble.
+	    rspToOutQ.noEnq(cpu_iid);
+            localCtrl.endModelCycle(cpu_iid, 1);
         
-        // Update with the latest token.
-        req.token = rsp.token;
+        end
+        else if (state matches tagged STAGE2_nonMemOp .req)
+        begin
+        
+	    rspToOutQ.doEnq(cpu_iid, initDTLBHit(req, ?));
+            localCtrl.endModelCycle(cpu_iid, 2);
+        
+        end
+        else if (state matches tagged STAGE2_dTransRsp .req)
+        begin
 
-        // Always hit.
-	rspToOutQ.doEnq(cpu_iid, initDTLBHit(req, rsp.physicalAddress));
-        reqFromInQ.doDeq(cpu_iid);
+            // Get the response from the functional partition.
+            let rsp = doDTranslate.getResp();
+            doDTranslate.deq();
 
-        // End of model cycle. (Path 3)
-        localCtrl.endModelCycle(cpu_iid, 3);
+            // Update with the latest token.
+            let new_req = req;
+            new_req.token = rsp.token;
+
+            // Always hit.
+	    rspToOutQ.doEnq(cpu_iid, initDTLBHit(new_req, rsp.physicalAddress));
+
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(cpu_iid, 3);
+        
+        end
      
     endrule
 

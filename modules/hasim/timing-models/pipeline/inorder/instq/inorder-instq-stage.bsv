@@ -106,15 +106,17 @@ module [HASIM_MODULE] mkInstructionQueue
         
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
 
     inports[0]  = allocateFromFetch.ctrl;
     inports[1]  = rspFromICacheDelayed.ctrl;
     outports[0] = creditToFetch.ctrl;
     outports[1] = bundleToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkLocalController(inports, outports);
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
 
 
     // ****** Rules ******
@@ -123,6 +125,12 @@ module [HASIM_MODULE] mkInstructionQueue
     // Check if the oldest slot is ready to go.
     // If so we send it to decode.
     // We also check for miss responses from the ICache
+
+    // Ports read:
+    // * rspFromICacheDelayed
+    
+    // Ports written:
+    // * bundleToDec
 
     (* conservative_implicit_conditions *)
     rule stage1_sendAndComplete (True);
@@ -180,19 +188,25 @@ module [HASIM_MODULE] mkInstructionQueue
         end
         
         // Pass this context to the next stage.
-        stage2Q.enq(cpu_iid);
+        stage2Ctrl.ready(cpu_iid);
 
     endrule
     
 
     // stage2_deallocate
     // Check if decode is dequeing.
+    
+    // Ports read:
+    // * deqFromDec
+    
+    // Ports written:
+    // * none
 
+    (* conservative_implicit_conditions *)
     rule stage2_deallocate (True);
 
         // Get the info from the previous stage.
-        let cpu_iid = stage2Q.first();
-        stage2Q.deq();
+        let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get the local state for the current instance.
         Reg#(INSTQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
@@ -210,7 +224,7 @@ module [HASIM_MODULE] mkInstructionQueue
         end
         
         // Send it to the next stage.
-        stage3Q.enq(cpu_iid);
+        stage3Ctrl.ready(cpu_iid);
 
     endrule
 
@@ -220,14 +234,17 @@ module [HASIM_MODULE] mkInstructionQueue
     // Check for allocation requests. Based on allocate and deallocate
     // we can calculate a new credit to be sent to back to Fetch.
     
-    // If there was no gap in the tokens we are done. Otherwise we
-    // proceed to stage3.
+    // Ports read:
+    // * allocateFromFetch
+    
+    // Ports written:
+    // * creditToFetch
 
+    (* conservative_implicit_conditions *)
     rule stage3_allocate (True);
 
         // Get our context from the previous stage.
-        let cpu_iid = stage3Q.first();
-        stage3Q.deq();
+        let cpu_iid <- stage3Ctrl.nextReadyInstance();
         
         // Get our local state based on the context.
         LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION)) completions = completionsPool[cpu_iid];

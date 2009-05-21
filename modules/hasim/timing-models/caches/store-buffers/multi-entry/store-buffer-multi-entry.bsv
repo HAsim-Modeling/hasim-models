@@ -99,8 +99,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(4, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = reqFromDMem.ctrl;
     inports[1]  = allocFromDec.ctrl;
     inports[2]  = deallocFromCom.ctrl;
@@ -114,6 +114,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Rules ******
 
+    (* conservative_implicit_conditions *)
     rule stage1_alloc (True);
     
         // Start a new model cycle.
@@ -178,14 +179,14 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // stage2_search
     
+    (* conservative_implicit_conditions *)
     rule stage2_search (True);
 
         let cpu_iid = stage2Q.first();
         stage2Q.deq();
 
         // Get our local state based on the current context.
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID =
-tokIDPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = physAddressPool[cpu_iid];
 
         // See if the DMem is completing or searching.
@@ -295,6 +296,7 @@ tokIDPool[cpu_iid];
 
     endrule
     
+    (* conservative_implicit_conditions *)
     rule stage3_dealloc (True);
     
         // Get our context from the previous stage.
@@ -339,6 +341,7 @@ tokIDPool[cpu_iid];
         
     endrule
     
+    (* conservative_implicit_conditions *)
     rule stage4_commit (!stallForStoreRsp[stage4Q.first()]);
     
         // Get our context from the previous stage.
@@ -418,6 +421,7 @@ tokIDPool[cpu_iid];
 
     endrule
     
+    (* conservative_implicit_conditions *)
     rule storeRsp (True);
     
         let rsp = doStores.getResp();

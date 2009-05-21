@@ -63,6 +63,16 @@ import Vector::*;
 //   Path 2: A fault, or an instruction from the wrong epoch.
 //   Path 3: An instruction succesfully committed.
 
+
+typedef union tagged
+{
+    Tuple2#(TOKEN, Bool) STAGE2_drop;
+    DMEM_BUNDLE STAGE2_commitRsp;
+    void STAGE2_bubble;
+}
+COM_STAGE2_STATE deriving (Bits, Eq);
+
+
 module [HASIM_MODULE] mkCommit ();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_commit.out");
@@ -74,7 +84,7 @@ module [HASIM_MODULE] mkCommit ();
 
     // ****** Ports ******
 
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) bundleFromRetireQ  <- mkPortStallRecv_Multiplexed("RetireQ");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) bundleFromCommitQ  <- mkPortRecv_Multiplexed("commitQ_first", 0);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN) writebackToDec <- mkPortSend_Multiplexed("Com_to_Dec_writeback");
 
@@ -82,6 +92,7 @@ module [HASIM_MODULE] mkCommit ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN) faultToFet <- mkPortSend_Multiplexed("Com_to_Fet_fault");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_DEALLOC_INPUT) deallocToSB <- mkPortSend_Multiplexed("Com_to_SB_dealloc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID) deqToCommitQ <- mkPortSend_Multiplexed("commitQ_deq");
 
 
     // ****** Soft Connections ******
@@ -94,16 +105,18 @@ module [HASIM_MODULE] mkCommit ();
 
     // ****** Local Controller ******
 
-    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
-    inports[0]  = bundleFromRetireQ.ctrl;
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    inports[0]  = bundleFromCommitQ.ctrl;
     outports[0] = writebackToDec.ctrl;
     outports[1] = faultToFet.ctrl;
     outports[2] = deallocToSB.ctrl;
-    outports[3] = bundleFromRetireQ.ctrl;
+    outports[3] = deqToCommitQ.ctrl;
     outports[4] = rewindToDec.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+
+    STAGE_CONTROLLER#(NUM_CPUS, COM_STAGE2_STATE) stage2Ctrl <- mkStageController();
 
 
     // ****** Events and Stats *****
@@ -118,13 +131,22 @@ module [HASIM_MODULE] mkCommit ();
     // stage1_begin
     
     // Begin a new model cycle for a given instance.
-    // First see if the Retire is non-empty. If so,
+    // First see if the CommitQ is non-empty. If so,
     // check if the instruction is from the correct
     // epoch. If so, and it has no fault, then we
     // start to commit it and pass it to the next stage.
 
     // Otherwise we drop it and stall on the dcache response.
 
+    // Ports read:
+    // * bundleFromCommitQ
+    
+    // Ports written:
+    // * deqToCommitQ
+    // * rewindToDec
+    // * faultToFet
+
+    (* conservative_implicit_conditions *)
     rule stage1_begin (True);
     
         // Begin a new model cycle.
@@ -134,74 +156,44 @@ module [HASIM_MODULE] mkCommit ();
         // Get our local state from the context.
         Reg#(TOKEN_FAULT_EPOCH) faultEpoch = faultEpochPool[cpu_iid];
         
-        // Is there anything for us to commit?
-        if (!bundleFromRetireQ.canDeq(cpu_iid))
-        begin
+        let m_bundle <- bundleFromCommitQ.receive(cpu_iid);
         
-            // The queue is empty. A bubble.
-            debugLog.record_next_cycle(cpu_iid, $format("BUBBLE"));
-
-            // Acknowledge the empty queue.
-            bundleFromRetireQ.noDeq(cpu_iid);
-
-            // Propogate the bubble.
-            writebackToDec.send(cpu_iid, tagged Invalid);
-            faultToFet.send(cpu_iid, tagged Invalid);
-            rewindToDec.send(cpu_iid, tagged Invalid);
-            deallocToSB.send(cpu_iid, tagged Invalid);
-
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
-
-        end
-        else
+        // Is there anything for us to commit?
+        if (m_bundle matches tagged Valid .bundle)
         begin
 
             // Let's try to commit this instruction.
-            let bundle = bundleFromRetireQ.peek(cpu_iid);
             let tok = bundle.token;
+            
+            // Dequeue the queue, since this stage never stalls.
+            deqToCommitQ.send(cpu_iid, tagged Valid (?));
 
             if (! tokIsPoisoned(tok) && !tokIsDummy(tok) && (bundle.faultEpoch == faultEpoch))
             begin
 
                 // Normal commit flow for a good instruction.
-                debugLog.record_next_cycle(cpu_iid, fshow("COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                debugLog.record_next_cycle(cpu_iid, fshow("1: COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
 
                 // No fault occurred.
                 faultToFet.send(cpu_iid, tagged Invalid);
                 rewindToDec.send(cpu_iid, tagged Invalid);
 
                 // Have the functional partition commit its local results.
-                // The response will be handled by the next stage.
                 commitResults.makeReq(initFuncpReqCommitResults(tok));
+
+                // The response will be handled by the next stage.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_commitRsp bundle);
 
             end
             else
             begin
-
-                // Exception flow. Deq the RetireQ.
-                bundleFromRetireQ.doDeq(cpu_iid);
-
-                if (bundle.isStore())
-                begin
-                
-                    // Drop token from store buffer.
-                    deallocToSB.send(cpu_iid, tagged Valid initSBDrop(tok));
-
-                end
-                else
-                begin
-
-                    deallocToSB.send(cpu_iid, tagged Invalid);
-
-                end
 
                 // So was it a fault, or just from the wrong epoch?
                 if ((bundle.faultEpoch != faultEpoch) || tokIsDummy(tok))
                 begin
 
                     // Just draining following an earlier fault or branch mispredict.
-                    debugLog.record_next_cycle(cpu_iid, fshow("DRAIN: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                    debugLog.record_next_cycle(cpu_iid, fshow("1: DRAIN: ") + fshow(tok) + fshow(" ") + fshow(bundle));
                     faultToFet.send(cpu_iid, tagged Invalid);
                     rewindToDec.send(cpu_iid, tagged Invalid);
 
@@ -210,22 +202,32 @@ module [HASIM_MODULE] mkCommit ();
                 begin
 
                     // Fault.  Redirect the front end to handle the fault.
-                    debugLog.record_next_cycle(cpu_iid, fshow("FAULT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                    debugLog.record_next_cycle(cpu_iid, fshow("1: FAULT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
                     faultEpoch <= faultEpoch + 1;
                     faultToFet.send(cpu_iid, tagged Valid tok);
                     rewindToDec.send(cpu_iid, tagged Valid (?));
 
-
-
                 end
                 
-                // Instruction no longer in flight.
-                // Instructions dependent on this guy should be allowed to proceed.
-                writebackToDec.send(cpu_iid, tagged Valid tok);
-                
-                localCtrl.endModelCycle(cpu_iid, 2);
+                // Finish dropping in the next stage.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_drop tuple2(tok, bundle.isStore));
 
             end
+
+        end
+        else
+        begin
+        
+            // The queue is empty. A bubble.
+            debugLog.record_next_cycle(cpu_iid, $format("1: BUBBLE"));
+
+            // No dequeue.
+            deqToCommitQ.send(cpu_iid, tagged Invalid);
+
+            // Propogate the bubble.
+            faultToFet.send(cpu_iid, tagged Invalid);
+            rewindToDec.send(cpu_iid, tagged Invalid);
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
         end
     
@@ -233,57 +235,101 @@ module [HASIM_MODULE] mkCommit ();
     
     // stage2_commitRsp
     
-    // Get the response from the functional partition.
-    // 
+    // Get the response from the functional partition (if any)
+    // Report the writebacks to decode.
     // If the instruction is a store, tell the store buffer to send it to the write buffer.
 
+    // Ports read:
+    // * None
+    
+    // Ports written:
+    // * deallocToSB
+    // * writebackToDec
+
     rule stage2_commitRsp (True);
-    
-        // Get the response from the functional partition.
-        let rsp = commitResults.getResp();
-        commitResults.deq();
         
-        // Get our context from the token.
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
         
-        // assert bundleFromRetireQ.canDeq, otherwise we wouldn't be here.
-        let bundle = bundleFromRetireQ.peek(cpu_iid);
-    
-        // Handle stores.
-        if (bundle.isStore) 
+        if (state matches tagged STAGE2_bubble)
         begin
 
-            // Tell the store buffer to deallocate and do the store.
-            debugLog.record_next_cycle(cpu_iid, fshow("SB STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress));
-            deallocToSB.send(cpu_iid, tagged Valid initSBWriteback(tok));
-
-        end
-        else
-        begin
-
-            // No store to be done.
+            // Propogate the bubble.
+            writebackToDec.send(cpu_iid, tagged Invalid);
             deallocToSB.send(cpu_iid, tagged Invalid);
 
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
+
         end
-        
-        // Check for a termination instruction, which ends simulation for this context.
-        if (bundle.isTerminate matches tagged Valid .pf)
+        else if (state matches tagged STAGE2_drop {.tok, .is_store})
         begin
-            localCtrl.instanceDone(cpu_iid, pf);
+        
+            // Instruction is no longer in flight.
+
+            if (is_store)
+            begin
+            
+                // Stores should be dropped from the store buffer.
+                deallocToSB.send(cpu_iid, tagged Valid initSBDrop(tok));
+
+            end
+            else
+            begin
+
+                deallocToSB.send(cpu_iid, tagged Invalid);
+
+            end
+            
+            // Instructions dependent on this guy should be allowed to proceed.
+            writebackToDec.send(cpu_iid, tagged Valid tok);
+
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
+        
         end
+        else if (state matches tagged STAGE2_commitRsp .bundle)
+        begin
     
-        // Send the final deallocation to decode.
-        writebackToDec.send(cpu_iid, tagged Valid tok);
-    
-        // Dequeue the retireQ. The instruction is done (except for stores).
-        bundleFromRetireQ.doDeq(cpu_iid);
-    
-        // End of model cycle. (Path 2)
-        statCom.incr(cpu_iid);
-        eventCom.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
-        linkModelCommit.send(tuple2(cpu_iid, 1));
-        localCtrl.endModelCycle(cpu_iid, 3);
+            // Get the commit response from the functional partition.
+            let rsp = commitResults.getResp();
+            commitResults.deq();
+
+            // Get our context from the token.
+            let tok = rsp.token;
+
+            // Handle stores.
+            if (bundle.isStore) 
+            begin
+
+                // Tell the store buffer to deallocate and do the store.
+                debugLog.record_next_cycle(cpu_iid, fshow("2: SB STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress));
+                deallocToSB.send(cpu_iid, tagged Valid initSBWriteback(tok));
+
+            end
+            else
+            begin
+
+                // No store to be done.
+                deallocToSB.send(cpu_iid, tagged Invalid);
+
+            end
+
+            // Check for a termination instruction, which ends simulation for this context.
+            if (bundle.isTerminate matches tagged Valid .pf)
+            begin
+                localCtrl.instanceDone(cpu_iid, pf);
+            end
+
+            // Send the final deallocation to decode.
+            writebackToDec.send(cpu_iid, tagged Valid tok);
+
+            // End of model cycle. (Path 3)
+            statCom.incr(cpu_iid);
+            eventCom.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
+            linkModelCommit.send(tuple2(cpu_iid, 1));
+            localCtrl.endModelCycle(cpu_iid, 3);
+        
+        end
 
     endrule
 

@@ -29,6 +29,7 @@ function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKE
 endfunction
 
 typedef Bit#(4) INSTQ_SLOT_ID;
+typedef Bit#(4) COMMITQ_SLOT_ID;
 
 typedef struct
 {
@@ -128,6 +129,7 @@ endfunction
 typedef struct
 {
     TOKEN token;
+    COMMITQ_SLOT_ID commitQSlot;
     ISA_ADDRESS virtualAddress;
     ISA_ADDRESS physicalAddress;
     TOKEN_FAULT_EPOCH faultEpoch;
@@ -154,7 +156,7 @@ endinstance
 
 function DMEM_BUNDLE initDMemBundle(TOKEN tok, ISA_ADDRESS va, TOKEN_FAULT_EPOCH epoch, Bool isL, Bool isS, Maybe#(Bool) isT, ISA_INST_DSTS dests);
 
-    return DMEM_BUNDLE {token: tok, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
+    return DMEM_BUNDLE {token: tok, commitQSlot: ?, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
  
 endfunction
 

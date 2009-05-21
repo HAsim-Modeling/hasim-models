@@ -47,18 +47,14 @@ import Vector::*;
 
 // ****** Local Datatypes ******
 
-
-// PCC1_STATE
-
-// Record if the PCCAlc stage stalls for a rewind or fault.
-
-typedef enum
+typedef union tagged
 {
-    PCC1_ready,
-    PCC1_rewindRsp,
-    PCC1_faultRsp
+    void        STAGE2_bubble;
+    ISA_ADDRESS STAGE2_fetch;
+    void        STAGE2_faultRsp;
+    ISA_ADDRESS STAGE2_rewindRsp;
 }
-PCC1_STATE deriving (Bits, Eq);
+PCC_STAGE2_STATE deriving (Bits, Eq);
 
 
 // ****** Modules ******
@@ -96,15 +92,6 @@ module [HASIM_MODULE] mkPCCalc
     MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH))    iTLBEpochPool   <- mkMultiplexed(mkReg(0));
     MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ICACHE_EPOCH))  iCacheEpochPool <- mkMultiplexed(mkReg(0));
 
-
-    // ****** UnModel State ******
-    
-    Reg#(PCC1_STATE) stage1State <- mkReg(PCC1_ready);
-
-    // Temporarily store a PC when we stall for a response.
-    Reg#(ISA_ADDRESS) newPC <- mkRegU();
-
-
     // ****** Soft Connections ******
 
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
@@ -118,22 +105,22 @@ module [HASIM_MODULE] mkPCCalc
 
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(INSTQ_SLOT_ID, FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION))) bundleToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_allocate");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))    nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH)) nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)                                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN) faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindFromExe <- mkPortRecv_Multiplexed("Exe_to_Fet_rewind", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(IMEM_EPOCH, ISA_ADDRESS))  faultFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_fault", 0);
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE)  immRspFromICache <- mkPortRecv_Multiplexed("ICache_to_CPU_immediate", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)              predFromBP       <- mkPortRecv_Multiplexed("BP_to_Fet_pred", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)                    attrFromBP <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)              attrFromBP       <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 0);
 
 
 
     // ****** Local Controller ******
 
-    Vector#(6, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
 
     inports[0] = faultFromCom.ctrl;
     inports[1] = rewindFromExe.ctrl;
@@ -146,6 +133,8 @@ module [HASIM_MODULE] mkPCCalc
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
+    STAGE_CONTROLLER#(NUM_CPUS, PCC_STAGE2_STATE) stage2Ctrl <- mkStageController();
+
 
     // ****** Rules ******
     
@@ -156,8 +145,19 @@ module [HASIM_MODULE] mkPCCalc
     // These epochs are not passed to the rest of the pipeline.
     
     // Also enqueues the ICache response into the instructionQ.
-
-    rule stage1_nextPC (stage1State == PCC1_ready);
+    
+    // Ports read:
+    // * rewindFromExe
+    // * faultFromCom
+    // * immRspFromICache
+    // * faultFromIMem
+    // * predFromBP
+    
+    // Ports written:
+    // * bundleToInstQ
+    
+    (* conservative_implicit_conditions *)
+    rule stage1_nextPC (True);
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
@@ -166,8 +166,8 @@ module [HASIM_MODULE] mkPCCalc
         // Get our state from the contexts.
         Reg#(TOKEN_FAULT_EPOCH)   faultEpoch = faultEpochPool[cpu_iid];
         Reg#(TOKEN_BRANCH_EPOCH) branchEpoch = branchEpochPool[cpu_iid];
-        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = iTLBEpochPool[cpu_iid];
-        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
+        Reg#(IMEM_ITLB_EPOCH)      iTLBEpoch = iTLBEpochPool[cpu_iid];
+        Reg#(IMEM_ICACHE_EPOCH)  iCacheEpoch = iCacheEpochPool[cpu_iid];
 
         // Receive potential new PCs from our incoming ports.
         let m_rewind     <- rewindFromExe.receive(cpu_iid);
@@ -195,8 +195,8 @@ module [HASIM_MODULE] mkPCCalc
             handleFault.makeReq(initFuncpReqHandleFault(tok));
             faultEpoch <= faultEpoch + 1;
 
-            // Stall this stage until we get the response from the functional partition.
-            stage1State <= PCC1_faultRsp;
+            // Tell the next stage to get the response from the functional partition.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_faultRsp);
 
         end
         else if (m_rewind matches tagged Valid { .tok, .fault_epoch, .addr} &&&
@@ -208,10 +208,9 @@ module [HASIM_MODULE] mkPCCalc
             debugLog.record_next_cycle(cpu_iid, fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             branchEpoch <= branchEpoch + 1;
-            newPC <= addr;
 
-            // Stall this stage until the functional partition indicates the rewind is complete.
-            stage1State <= PCC1_rewindRsp;
+            // Tell the next stage to wait until the functional partition indicates the rewind is complete.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_rewindRsp addr);
 
         end
         else if (m_cache_rsp matches tagged Valid .rsp &&&
@@ -225,13 +224,11 @@ module [HASIM_MODULE] mkPCCalc
             // Epoch check ensures we haven't already redirected from a fault or a branch misprediction.
             debugLog.record_next_cycle(cpu_iid, $format("ICACHE RETRY ADDR:0x%h", rsp.bundle.virtualAddress));
             
-            // Send the new PC to the Fetch unit.        
-            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(rsp.bundle.virtualAddress, initIMemEpoch(iTLBEpoch, iCacheEpoch + 1, branchEpoch, faultEpoch)));
-
             iCacheEpoch <= iCacheEpoch + 1;
+            
+            // The next stage will redirect to the new PC.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_fetch rsp.bundle.virtualAddress);
 
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
         
         end
         else if (m_itlb_fault matches tagged Valid {.epoch, .handler_addr} &&&
@@ -244,12 +241,10 @@ module [HASIM_MODULE] mkPCCalc
             // (Note: in the future we could be the one to retrieve the handler, as with faults.)
             debugLog.record_next_cycle(cpu_iid, $format("ITLB PAGE FAULT ADDR:0x%h", handler_addr));
             
-            // Send the new PC to the Fetch unit.        
-            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(handler_addr, initIMemEpoch(iTLBEpoch + 1, iCacheEpoch, branchEpoch, faultEpoch)));
             iTLBEpoch <= iTLBEpoch + 1;
 
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
+            // The next stage will redirect to the new PC.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_fetch handler_addr);
         
         end
         else if (m_pred_pc matches tagged Valid .pred_pc)
@@ -257,10 +252,9 @@ module [HASIM_MODULE] mkPCCalc
 
             // We got a response from the branch predictor. (This should be the normal flow.)
             debugLog.record_next_cycle(cpu_iid, $format("BRANCH PRED:0x%h", pred_pc));
-            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(pred_pc, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
 
-            // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(cpu_iid, 3);
+            // The next stage will fetch the predicted PC.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_fetch pred_pc);
 
         end
         else
@@ -268,10 +262,9 @@ module [HASIM_MODULE] mkPCCalc
             
             // There's a bubble, so keep the PC the same.
             debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
-            nextPCToFetch.send(cpu_iid, tagged Invalid);
 
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
+            // The next stage will propogate the bubble.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
         end
 
@@ -357,68 +350,78 @@ module [HASIM_MODULE] mkPCCalc
             end
         endcase
 
-
     endrule
 
 
-    // stage1_faultRsp
+    // stage2_rewindRsp
     
-    // Get a fault response, redirect to the handler, and unstall the pipeline.
+    // Get a rewind/fault response (if any), transmit the next PC.
+    
+    // Ports read:
+    // * None
+    
+    // Ports written:
+    // * nextPCToFetch
 
-    rule stage1_faultRsp (stage1State == PCC1_faultRsp);
-
-        // Get the fault response.
-        let rsp = handleFault.getResp();
-        handleFault.deq();
-
-        // Get the token from the response.
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
-
-        // Get our state based on the current context.
+    rule stage2_rewindRsp (True);
+        
+        
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+        
+        // Get the state for the the current active instance.
         Reg#(IMEM_ITLB_EPOCH)      iTLBEpoch = iTLBEpochPool[cpu_iid];
         Reg#(IMEM_ICACHE_EPOCH)  iCacheEpoch = iCacheEpochPool[cpu_iid];
         Reg#(TOKEN_FAULT_EPOCH)   faultEpoch = faultEpochPool[cpu_iid];
         Reg#(TOKEN_BRANCH_EPOCH) branchEpoch = branchEpochPool[cpu_iid];
+        
+        if (state matches tagged STAGE2_bubble)
+        begin
+        
+            // Send the new PC to the Fetch unit.        
+            nextPCToFetch.send(cpu_iid, tagged Invalid);
 
-        // Resteer to the handler.
-        nextPCToFetch.send(cpu_iid, tagged Valid tuple2(rsp.nextInstructionAddress, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
 
-        // Unstall this stage.
-        stage1State <= PCC1_ready;
+        end
+        else if (state matches tagged STAGE2_fetch .new_pc)
+        begin
+        
+            // Send the new PC to the Fetch unit.        
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
 
-        // End of model cycle. (Path 4)
-        localCtrl.endModelCycle(cpu_iid, 4);
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
 
-    endrule
+        end
+        if (state matches tagged STAGE2_rewindRsp .new_pc)
+        begin
 
+            // Get the rewind response.
+            let rsp = rewindToToken.getResp();
+            rewindToToken.deq();
 
-    // stage1_rewind
-    
-    // Get a rewind response and unstall the pipeline.
+            // Send the new PC to the Fetch unit.        
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
 
-    rule stage1_rewindRsp (stage1State == PCC1_rewindRsp);
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(cpu_iid, 3);
 
-        // Get the rewind response.
-        let rsp = rewindToToken.getResp();
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
-        rewindToToken.deq();
+        end
+        else if (state matches tagged STAGE2_faultRsp)
+        begin
 
-        // Get our local state based on the current context.
-        Reg#(IMEM_ITLB_EPOCH)      iTLBEpoch = iTLBEpochPool[cpu_iid];
-        Reg#(IMEM_ICACHE_EPOCH)  iCacheEpoch = iCacheEpochPool[cpu_iid];
-        Reg#(TOKEN_FAULT_EPOCH)   faultEpoch = faultEpochPool[cpu_iid];
-        Reg#(TOKEN_BRANCH_EPOCH) branchEpoch = branchEpochPool[cpu_iid];
+            // Get the fault response.
+            let rsp = handleFault.getResp();
+            handleFault.deq();
 
-        // Send the new PC to the Fetch unit.        
-        nextPCToFetch.send(cpu_iid, tagged Valid tuple2(newPC, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
+            // Resteer to the handler.
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(rsp.nextInstructionAddress, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
 
-        // Unstall this stage.
-        stage1State <= PCC1_ready;
-
-        // End of model cycle. (Path 5)
-        localCtrl.endModelCycle(cpu_iid, 5);
+            // End of model cycle. (Path 4)
+            localCtrl.endModelCycle(cpu_iid, 4);
+        
+        end
 
     endrule
 

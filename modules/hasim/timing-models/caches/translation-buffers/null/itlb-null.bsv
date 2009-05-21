@@ -13,6 +13,13 @@ import FIFO::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
+typedef union tagged
+{
+    void        STAGE2_bubble;
+    IMEM_BUNDLE STAGE2_iTransRsp;
+}
+ITLB_STAGE2_STATE deriving (Eq, Bits);
+
 // mkITLB
 
 // An ITLB module that always hits.
@@ -20,15 +27,10 @@ import FIFO::*;
 module [HASIM_MODULE] mkITLB();
 
 
-    // UnModel State
-    
-    FIFO#(Tuple2#(CPU_INSTANCE_ID, IMEM_BUNDLE)) stage2Q <- mkFIFO();
-
-
     // ****** Soft Connections *******
 
     Connection_Client#(FUNCP_REQ_DO_ITRANSLATE,
-                       FUNCP_RSP_DO_ITRANSLATE)      doITranslate   <- mkConnection_Client("funcp_doITranslate");
+                       FUNCP_RSP_DO_ITRANSLATE) doITranslate <- mkConnection_Client("funcp_doITranslate");
 
 
     // ****** Ports ******
@@ -42,13 +44,16 @@ module [HASIM_MODULE] mkITLB();
 
     // ****** Local Controller ******
 
-    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
-    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(1, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0] = reqFromFet.ctrl;
     outports[0] = rspToIMem.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
+    STAGE_CONTROLLER#(NUM_CPUS, ITLB_STAGE2_STATE) stage2Ctrl <- mkStageController();
+
+    (* conservative_implicit_conditions *)
     rule stage1_instReq (True);
 
         // Begin a new model cycle.
@@ -62,9 +67,8 @@ module [HASIM_MODULE] mkITLB();
 	    tagged Invalid:
 	    begin
 
-                // Propogate the bubble.
-	        rspToIMem.send(cpu_iid, tagged Invalid);
-                localCtrl.endModelCycle(cpu_iid, 1);
+                // Tell the next stage to finish the bubble.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
 	    end
 	    tagged Valid .req:
@@ -78,8 +82,8 @@ module [HASIM_MODULE] mkITLB();
                 // which actually translates the address.
                 doITranslate.makeReq(initFuncpReqDoITranslate(cpu_iid, req.virtualAddress));
                 
-                // We assume the responses come back in order. Is this bad?
-                stage2Q.enq(tuple2(cpu_iid, req));
+                // Tell the next stage to get the response.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_iTransRsp req);
 
 	    end
 
@@ -90,20 +94,32 @@ module [HASIM_MODULE] mkITLB();
      
     rule stage2_instRsp (True);
         
-        match { .cpu_iid, .req} = stage2Q.first();
-        stage2Q.deq();
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
         
-        // TODO: handle rsp.hasMore
-        
-        // Get the response from the functional partition.
-        let rsp = doITranslate.getResp();
-        doITranslate.deq();
-        
-        // Always hit.
-	rspToIMem.send(cpu_iid, tagged Valid initITLBHit(req, rsp.physicalAddress, rsp.offset));
+        if (state matches tagged STAGE2_bubble)
+        begin
 
-        // End of model cycle. (Path 2)
-        localCtrl.endModelCycle(cpu_iid, 2);
+            // Propogate the bubble.
+	    rspToIMem.send(cpu_iid, tagged Invalid);
+            localCtrl.endModelCycle(cpu_iid, 1);
+        
+        end
+        else if (state matches tagged STAGE2_iTransRsp .req)
+        begin
+        
+            // TODO: handle rsp.hasMore
+
+            // Get the response from the functional partition.
+            let rsp = doITranslate.getResp();
+            doITranslate.deq();
+
+            // Always hit.
+	    rspToIMem.send(cpu_iid, tagged Valid initITLBHit(req, rsp.physicalAddress, rsp.offset));
+
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
+        
+        end
      
     endrule
 

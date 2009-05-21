@@ -14,6 +14,13 @@ import FIFO::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
+typedef union tagged
+{
+    void         STAGE2_bubble;
+    ICACHE_INPUT STAGE2_instRsp;
+}
+ICACHE_STAGE2_STATE deriving (Eq, Bits);
+
 // mkICache
 
 // An ICache module that always hits.
@@ -44,14 +51,17 @@ module [HASIM_MODULE] mkICache();
 
     // ****** Local Controller ******
 
-    Vector#(1, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0] = pcFromFet.ctrl;
     outports[0] = immToFet.ctrl;
     outports[1] = delToFet.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
+    STAGE_CONTROLLER#(NUM_CPUS, ICACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+
+    (* conservative_implicit_conditions *)
     rule stage1_instReq (True);
 
         // Begin a new model cycle.
@@ -66,16 +76,13 @@ module [HASIM_MODULE] mkICache();
 	    tagged Invalid:
 	    begin
 
-                // Propogate the bubble.
-	        immToFet.send(cpu_iid, tagged Invalid);
-	        delToFet.send(cpu_iid, tagged Invalid);
-                localCtrl.endModelCycle(cpu_iid, 1);
+                // Tell the next stage to finish the bubble.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
 	    end
 
 	    tagged Valid .req:
 	    begin
-
 
                 // An actual cache would do something with the physical 
                 // address to determine hit or miss. We always hit.
@@ -83,8 +90,7 @@ module [HASIM_MODULE] mkICache();
                 // Pass it to the next stage through the functional partition, 
                 // which actually retrieves the instruction.
                 getInstruction.makeReq(initFuncpReqGetInstruction(cpu_iid, req.physicalAddress, req.offset));
-                stage2Q.enq(tuple2(cpu_iid, req));
-                        
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_instRsp req);
 
 	    end
 
@@ -95,19 +101,34 @@ module [HASIM_MODULE] mkICache();
      
     rule stage2_instRsp (True);
         
-        // Get the response from the functional partition.
-        let rsp = getInstruction.getResp();
-        getInstruction.deq();
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
 
-        match {.cpu_iid, .bundle} = stage2Q.first();
-        stage2Q.deq();
+        if (state matches tagged STAGE2_bubble)
+        begin
+        
+            // Propogate the bubble.
+	    immToFet.send(cpu_iid, tagged Invalid);
+	    delToFet.send(cpu_iid, tagged Invalid);
+            
+            // End of model cycle (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 1);
 
-        // Always hit.
-	immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));
-	delToFet.send(cpu_iid, tagged Invalid);
+        end
+        else if (state matches tagged STAGE2_instRsp .bundle)
+        begin
+        
+            // Get the response from the functional partition.
+            let rsp = getInstruction.getResp();
+            getInstruction.deq();
 
-        // End of model cycle. (Path 2)
-        localCtrl.endModelCycle(cpu_iid, 2);
+            // Always hit.
+	    immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));
+	    delToFet.send(cpu_iid, tagged Invalid);
+
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
+
+        end
      
     endrule
 

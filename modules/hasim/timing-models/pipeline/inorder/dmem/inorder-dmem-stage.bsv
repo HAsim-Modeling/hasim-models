@@ -63,6 +63,22 @@ import FIFOF::*;
 //   Path 3: The MemQ is empty, or the CommitQ is full, so there's a bubble.
 //   Path 4: The Store Buffer is full, so there's a bubble and we retry next cycle.
 
+typedef union tagged
+{
+    Tuple2#(DMEM_BUNDLE, COMMITQ_SLOT_ID) STAGE2_completed;
+    COMMITQ_SLOT_ID                       STAGE2_loadRsp;
+    void                                  STAGE2_bubble;
+}
+DMEM_STAGE2_STATE deriving (Bits, Eq);
+
+typedef union tagged
+{
+    Tuple2#(DMEM_BUNDLE, COMMITQ_SLOT_ID)       STAGE3_completed;
+    Tuple3#(DMEM_BUNDLE, Bool, COMMITQ_SLOT_ID) STAGE3_loadRsp;
+    void                                        STAGE3_bubble;
+}
+DMEM_STAGE3_STATE deriving (Bits, Eq);
+
 module [HASIM_MODULE] mkDMem ();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_mem.out");
@@ -74,13 +90,13 @@ module [HASIM_MODULE] mkDMem ();
     // ****** Ports *****
     
     PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)       bundleFromDMemQ   <- mkPortStallRecv_Multiplexed("DMemQ");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                    creditFromCommitQ <- mkPortRecv_Multiplexed("commitQ_credit", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, COMMITQ_SLOT_ID)         creditFromCommitQ <- mkPortRecv_Multiplexed("commitQ_credit", 1);
 
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_Multiplexed("CPU_to_DCache_load");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_INPUT)                   reqToSB        <- mkPortSend_Multiplexed("DMem_to_SB_req");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_Multiplexed("DMem_to_WB_search");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Bool)) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(DMEM_BUNDLE, COMMITQ_SLOT_ID, Bool)) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
 
@@ -89,25 +105,24 @@ module [HASIM_MODULE] mkDMem ();
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvGuarded_Multiplexed("WB_to_DMem_rsp", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)                     rspFromSB         <- mkPortRecvGuarded_Multiplexed("SB_to_DMem_rsp", 0);
 
-    // ****** UnModel State ******
-    
-    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
-    FIFO#(Bool)       stage3Q <- mkFIFO();
-
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports  = newVector();
-    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
-    inports[0]  = bundleFromDMemQ.ctrl;
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    inports[0]  = bundleFromDMemQ.ctrl.in;
     inports[1]  = creditFromCommitQ.ctrl;
     outports[0] = loadToDCache.ctrl;
     outports[1] = reqToSB.ctrl;
     outports[2] = allocToCommitQ.ctrl;
     outports[3] = searchToWB.ctrl;
-    outports[4] = bundleFromDMemQ.ctrl;
+    outports[4] = bundleFromDMemQ.ctrl.out;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+
+    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE3_STATE) stage3Ctrl <- mkStageController();
+
 
     // ****** Events and Stats ******
 
@@ -126,6 +141,16 @@ module [HASIM_MODULE] mkDMem ();
     // * Stores are sent to the store buffer.
     // * Loads are sent to the store buffer and dcache simultaneously.
 
+    // Ports read:
+    // * creditFromCommitQ
+    // * bundleFromDMemQ
+
+    // Ports written:
+    // * reqToSB
+    // * searchToWB
+    // * loadToDCache
+
+    (* conservative_implicit_conditions *)
     rule stage1_begin (True);
     
         // Begin a model cycle.
@@ -133,63 +158,62 @@ module [HASIM_MODULE] mkDMem ();
         debugLog.nextModelCycle(cpu_iid);
     
         // Let's see if we have room in our output buffers.
-        let credit_from_commitQ <- creditFromCommitQ.receive(cpu_iid);
+        let m_slot <- creditFromCommitQ.receive(cpu_iid);
+        let m_bundle <- bundleFromDMemQ.receive(cpu_iid);
     
-        if (isValid(credit_from_commitQ) && bundleFromDMemQ.canDeq(cpu_iid))
+        if (m_slot matches tagged Valid .slot &&& m_bundle matches tagged Valid .bundle)
         begin
 
             // The DMemQ has an instruction in it... and the CommitQ has room.
-            let bundle = bundleFromDMemQ.peek(cpu_iid);
-            let tok = bundle.token;
+            let new_bundle = bundle;
+            new_bundle.commitQSlot = slot;
+            let tok = new_bundle.token;
 
             // Let's see if we should contact the store buffer and dcache.
-            if (bundle.isLoad && !tokIsPoisoned(tok) && !tokIsDummy(tok))
+            if (new_bundle.isLoad && !tokIsPoisoned(tok) && !tokIsDummy(tok))
             begin
 
                 // It's a load which did not page fault.
-                debugLog.record_next_cycle(cpu_iid, fshow("LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, fshow("1: LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(new_bundle.physicalAddress));
 
                 // Check if the the load result is either in the cache or the store buffer or the write buffer.
-                reqToSB.send(cpu_iid, tagged Valid initSBSearch(bundle));
-                searchToWB.send(cpu_iid, tagged Valid initWBSearch(bundle));
-                loadToDCache.send(cpu_iid, tagged Valid initDCacheLoad(bundle));
+                reqToSB.send(cpu_iid, tagged Valid initSBSearch(new_bundle));
+                searchToWB.send(cpu_iid, tagged Valid initWBSearch(new_bundle));
+                loadToDCache.send(cpu_iid, tagged Valid initDCacheLoad(new_bundle));
+                
+                // Tell the next stage to look for the load responses from the various ports.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_loadRsp slot);
 
             end
-            else if (bundle.isStore && !tokIsPoisoned(tok) && !tokIsDummy(tok))
+            else if (new_bundle.isStore && !tokIsPoisoned(tok) && !tokIsDummy(tok))
             begin
                 
                 // A store which did not page fault.
-                debugLog.record_next_cycle(cpu_iid, fshow("STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, fshow("1: STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(new_bundle.physicalAddress));
 
                 // Tell the store buffer about this new store.
-                reqToSB.send(cpu_iid, tagged Valid initSBComplete(bundle));
+                reqToSB.send(cpu_iid, tagged Valid initSBComplete(new_bundle));
 
                 // No load to the DCache. (The write buffer will do the store after it leaves the store buffer.)
                 loadToDCache.send(cpu_iid, tagged Invalid);
                 searchToWB.send(cpu_iid, tagged Invalid);
 
-                // Add it to the CommitQ already completed.
-                bundleFromDMemQ.doDeq(cpu_iid);
-                eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(tok)));
-                allocToCommitQ.send(cpu_iid, tagged Valid tuple2(bundle, True));
-
+                // Tell the next stage to send the bundle on completed.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_completed tuple2(new_bundle, slot));
 
             end
             else
             begin
 
                 // Not a memory operation. (Or a faulted memory operation.)
-                debugLog.record_next_cycle(cpu_iid, fshow("NO-MEMORY ") + fshow(tok));
+                debugLog.record_next_cycle(cpu_iid, fshow("1: NO-MEMORY ") + fshow(tok));
 
                 // Don't tell the cache/SB/WB about it.
                 reqToSB.send(cpu_iid, tagged Invalid);
                 searchToWB.send(cpu_iid, tagged Invalid);
                 loadToDCache.send(cpu_iid, tagged Invalid);
 
-                // Add it to the CommitQ already completed.
-                bundleFromDMemQ.doDeq(cpu_iid);
-                eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(tok)));
-                allocToCommitQ.send(cpu_iid, tagged Valid tuple2(bundle, True));
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_completed tuple2(new_bundle, slot));
 
             end
 
@@ -198,188 +222,237 @@ module [HASIM_MODULE] mkDMem ();
         begin
 
             // A bubble.
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
+            debugLog.record_next_cycle(cpu_iid, fshow("1: BUBBLE"));
 
             // No requests for the store buffer or dcache.
             reqToSB.send(cpu_iid, tagged Invalid);
             loadToDCache.send(cpu_iid, tagged Invalid);
             searchToWB.send(cpu_iid, tagged Invalid);
             
-            // Propogate the bubble.
-            bundleFromDMemQ.noDeq(cpu_iid);
-            allocToCommitQ.send(cpu_iid, tagged Invalid);
-            eventMem.recordEvent(cpu_iid, tagged Invalid);
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
         end
 
-        // Get the sb + wb + dcache response in the next stage.
-        stage2Q.enq(cpu_iid);
-
     endrule
-
 
 
     // stage2_loadRsp
     
-    // Get the dcache and store buffer response and enqueue it into the CommitQ.
-    // If we are in this stage we know that the MemQ is not empty, and the CommitQ is not full.
+    // Get the dcache, write buffer, and store buffer response (if any).
+    // If we got a hit, report the writeback to decode.
 
+    // Ports read:
+    // * rspFromSB
+    // * rspFromWB
+    // * loadRspFromDCache
+    
+    // Ports written:
+    // * writebackToDec
+
+    (* conservative_implicit_conditions *)
     rule stage2_loadRsp (True);
 
-        // Get our local context from the previous stage.
-        let cpu_iid = stage2Q.first();
-        stage2Q.deq();
+        // Get the current instance id from the previous stage.
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
         
-        // Get the responses from the store buffer and dcache.
+        // Get the responses from the store buffer, write buffer, and dcache.
         let m_sb_rsp <- rspFromSB.receive(cpu_iid);
         let m_wb_rsp <- rspFromWB.receive(cpu_iid);
         let m_dc_rsp <- loadRspFromDCache.receive(cpu_iid);
-
-        if (m_sb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged SB_hit)
-        begin
-
-            // We found the data in the Store buffer, 
-            // so we don't have to look at the DCache response or Write Buffer response.
-            // (Stores in the SB are always younger than those.)
-            debugLog.record(cpu_iid, fshow("SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
-            
-            // Send the writeback to decode.
-            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
-            
-            // Pass it to the next stage through the functional partition, 
-            // which actually retrieves the data.
-            doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
-
-            // Tell the next stage it was a hit:
-            stage3Q.enq(True);
-
-        end
-        else if (m_wb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged WB_hit)
-        begin
         
-            // We found the data in the Store buffer, 
-            // so we don't have to look at the DCache response.
-            debugLog.record(cpu_iid, fshow("WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
-
-            // Send the writeback to decode.
-            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
-            
-            // Pass it to the next stage through the functional partition, 
-            // which actually retrieves the data.
-            doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
-
-            // Tell the next stage it was a hit:
-            stage3Q.enq(True);
-
-        end
-        else if (m_dc_rsp matches tagged Valid .rsp)
-        begin
-        
-            // Let's see if the DCache found it.
-            let bundle = rsp.bundle;
-            let tok = rsp.bundle.token;
-
-            case (rsp.rspType) matches
-
-                tagged DCACHE_hit:
-                begin
-
-                    // Well, the cache found it.
-                    debugLog.record(cpu_iid, fshow("SB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
-
-                    // Send the writeback to decode.
-                    writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
-
-                    // Pass it to the next stage through the functional partition, 
-                    // which actually retrieves the data.
-                    doLoads.makeReq(initFuncpReqDoLoads(tok));
-
-                    // Tell the next stage it was a hit:
-                    stage3Q.enq(True);
-                end
-
-                tagged DCACHE_miss:
-                begin
-                
-                    // The cache missed, but is handling it. 
-                    debugLog.record(cpu_iid, fshow("SB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
-
-                    // No writebacks to report.
-                    writebackToDec.send(cpu_iid, tagged Invalid);
-
-                    // Pass it to the next stage through the functional partition, 
-                    // which actually retrieves the data.
-                    doLoads.makeReq(initFuncpReqDoLoads(tok));
-                    
-                    // Tell the next stage it was a miss:
-                    stage3Q.enq(False);
-
-
-                end
-
-                tagged DCACHE_retry:
-                begin
-                
-                    // The SB/WB Missed, and the cache needs us to retry.
-                    debugLog.record(cpu_iid, fshow("SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
-                
-                    // Don't pass it on to the commitQ. Don't do the load to the functional partition.
-                    bundleFromDMemQ.noDeq(cpu_iid);
-                    allocToCommitQ.send(cpu_iid, tagged Invalid);
-                    eventMem.recordEvent(cpu_iid, tagged Invalid);
-
-                    // No writebacks to report.
-                    writebackToDec.send(cpu_iid, tagged Invalid);
-
-                    // End of model cycle. (Path 1)
-                    localCtrl.endModelCycle(cpu_iid, 1);
-
-                end
-
-            endcase
-        
-        end
-        else
+        if (state matches STAGE2_bubble)
         begin
 
-            // Otherwise we're just here because of something that wasn't a load.
-            debugLog.record(cpu_iid, fshow("NON-LOAD FINISH "));
+            // It was a bubble, so we have no writebacks to report.
+            debugLog.record(cpu_iid, fshow("2: BUBBLE"));
         
             // Don't report any writebacks.
             writebackToDec.send(cpu_iid, tagged Invalid);
 
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
+            // Finish the bubble in the next stage.
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
+
+        end
+        else if (state matches tagged STAGE2_completed .info)
+        begin
+        
+            // We're just here because of something that was completed.
+            debugLog.record(cpu_iid, fshow("2: NON-LOAD"));
+        
+            // Don't report any writebacks.
+            writebackToDec.send(cpu_iid, tagged Invalid);
+
+            // Do the enqueue in the next stage.
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_completed info);
+        
+        end
+        else if (state matches tagged STAGE2_loadRsp .slot)
+        begin
+        
+            // Let's check the responses from the DCache/ Write buffer/ Store buffer
+        
+            if (m_sb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged SB_hit)
+            begin
+
+                // We found the data in the Store buffer, 
+                // so we don't have to look at the DCache response or Write Buffer response.
+                // (Stores in the SB are always younger than those.)
+                debugLog.record(cpu_iid, fshow("2: SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
+
+                // Send the writeback to decode.
+                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+
+                // Pass it to the next stage through the functional partition, 
+                // which actually retrieves the data.
+                doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
+
+                // Tell the next stage it was a hit:
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(rsp.bundle, True, slot));
+
+            end
+            else if (m_wb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged WB_hit)
+            begin
+
+                // We found the data in the Write buffer, 
+                // so we don't have to look at the DCache response.
+                debugLog.record(cpu_iid, fshow("2: SB MISS/WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
+
+                // Send the writeback to decode.
+                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+
+                // Pass it to the next stage through the functional partition, 
+                // which actually retrieves the data.
+                doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
+
+                // Tell the next stage it was a hit:
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(rsp.bundle, True, slot));
+
+            end
+            else if (m_dc_rsp matches tagged Valid .rsp)
+            begin
+
+                // Let's see if the DCache found it.
+                let bundle = rsp.bundle;
+                let tok = rsp.bundle.token;
+
+                case (rsp.rspType) matches
+
+                    tagged DCACHE_hit:
+                    begin
+
+                        // Well, the cache found it.
+                        debugLog.record(cpu_iid, fshow("2: SB/WB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+
+                        // Send the writeback to decode.
+                        writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
+
+                        // Pass it to the next stage through the functional partition, 
+                        // which actually retrieves the data.
+                        doLoads.makeReq(initFuncpReqDoLoads(tok));
+
+                        // Tell the next stage it was a hit:
+                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(bundle, True, slot));
+                    end
+
+                    tagged DCACHE_miss:
+                    begin
+
+                        // The cache missed, but is handling it. 
+                        debugLog.record(cpu_iid, fshow("2: SB/WB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+
+                        // No writebacks to report.
+                        writebackToDec.send(cpu_iid, tagged Invalid);
+
+                        // Pass it to the next stage through the functional partition, 
+                        // which actually retrieves the data.
+                        doLoads.makeReq(initFuncpReqDoLoads(tok));
+
+                        // Tell the next stage it was a miss:
+                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(bundle, False, slot));
+
+                    end
+
+                    tagged DCACHE_retry:
+                    begin
+
+                        // The SB/WB Missed, and the cache needs us to retry.
+                        debugLog.record(cpu_iid, fshow("2: SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+
+                        // No writebacks to report.
+                        writebackToDec.send(cpu_iid, tagged Invalid);
+
+                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
+
+                    end
+
+                endcase
+
+            end
+
         end
         
     endrule
     
+    // stage3_fpRsp
+    
+    // Get the functional partition response (if any).
+    // Enqueue the instruction into the commitQ, completed if its response is not coming from the DCache.
+
+    // Ports read:
+    // * None
+    
+    // Ports written:
+    // * bundleFromDMemQ
+    // * allocToCommitQ
+
     rule stage3_loadRsp (True);
     
-        // Get hit/miss from previous stage.
-        let hit = stage3Q.first();
-        stage3Q.deq();
+        match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
         
-        // Get the response from the functional partition.
-        let rsp = doLoads.getResp();
-        doLoads.deq();
+        if (state matches tagged STAGE3_bubble)
+        begin
         
-        // Get our context from the token.
-        let ctx = tokContextId(rsp.token);
-        
-        // assert DMemQ.canDeq
-        let bundle = bundleFromDMemQ.peek(ctx);
+            // Don't pass anything to the commitQ.
+            bundleFromDMemQ.noDeq(cpu_iid);
+            allocToCommitQ.send(cpu_iid, tagged Invalid);
+            eventMem.recordEvent(cpu_iid, tagged Invalid);
 
-        // Update the bundle with the new token.
-        bundle.token = rsp.token;
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
+
+        end
+        else if (state matches tagged STAGE3_completed {.bundle, .slot})
+        begin
         
-        // Send it to the commitQ, completed if we got a hit.
-        allocToCommitQ.send(ctx, tagged Valid tuple2(bundle, hit));
-        bundleFromDMemQ.doDeq(ctx);
-        eventMem.recordEvent(ctx, tagged Valid zeroExtend(tokTokenId(bundle.token)));
+            // Add it to the CommitQ already completed.
+            bundleFromDMemQ.doDeq(cpu_iid);
+            allocToCommitQ.send(cpu_iid, tagged Valid tuple3(bundle, slot, True));
+            eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(bundle.token)));
+
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
+
+        end
+        else if (state matches tagged STAGE3_loadRsp {.bundle, .hit, .slot})
+        begin
         
-        // End of model cycle. (Path 3)
-        localCtrl.endModelCycle(ctx, 3);
+            // Get the response from the functional partition.
+            let rsp = doLoads.getResp();
+            doLoads.deq();
+
+            // Update the bundle with the new token.
+            let new_bundle = bundle;
+            new_bundle.token = rsp.token;
+
+            // Send it to the commitQ, completed if we got a hit.
+            bundleFromDMemQ.doDeq(cpu_iid);
+            allocToCommitQ.send(cpu_iid, tagged Valid tuple3(new_bundle, slot, hit));
+            eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(new_bundle.token)));
+
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(cpu_iid, 3);
+
+        end
     
     endrule
 
