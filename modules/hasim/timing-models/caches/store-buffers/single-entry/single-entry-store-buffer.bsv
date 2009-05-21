@@ -82,8 +82,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS) inports  = newVector();
-    Vector#(1, PORT_CONTROLS) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_OUT) outports = newVector();
     inports[0]  = reqFromMem.ctrl;
     inports[1]  = deallocFromCom.ctrl;
     outports[0] = rspToMem.ctrl;

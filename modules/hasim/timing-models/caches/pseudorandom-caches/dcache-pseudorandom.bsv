@@ -96,8 +96,8 @@ module [HASIM_MODULE] mkDCache();
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_FILL) rspFromMemory <- mkPortRecv_Multiplexed("DCache_to_memory", `DCACHE_MISS_PENALTY);
 
     // communication with local controller
-    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
-    Vector#(5, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = storeReqFromCPU.ctrl;
@@ -134,6 +134,18 @@ module [HASIM_MODULE] mkDCache();
     endrule
 
     // stage1_loadReq
+
+    // Ports Read:
+    // * rspFromMemory
+    // * loadReqFromCPU
+    // * storeReqFromCPU
+    
+    // Ports Written:
+    // * loadRspImmToCPU
+    // * loadRspDelToCPU
+    // * storeRspImmToCPU
+    // * storeRspDelToCPU
+    // * reqToMemory
     
     rule stage1_loadReq (!initializingLFSRs);
 
@@ -183,18 +195,18 @@ module [HASIM_MODULE] mkDCache();
         // Deal with any load requests.
         case (msg_from_cpu) matches
 
-	    tagged Invalid:
-	    begin
+            tagged Invalid:
+            begin
 
                 // Propogate the bubble.
-	        loadRspImmToCPU.send(cpu_iid, tagged Invalid);
+                loadRspImmToCPU.send(cpu_iid, tagged Invalid);
 
                 // End of model cycle. (Path 1)
                 localCtrl.endModelCycle(cpu_iid, 1);
-	    end
+            end
 
-	    tagged Valid .req:
-	    begin
+            tagged Valid .req:
+            begin
 
                 // An actual cache would do something with the physical 
                 // address to determine hit or miss. We use a pseudo-random 
@@ -207,7 +219,7 @@ module [HASIM_MODULE] mkDCache();
                 begin
 
                     // They have to retry next cycle.
-	            loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadRetry(req));
+                    loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadRetry(req));
                     statLoadRetries.incr(cpu_iid);
                     
                     // End of model cycle. (Path 2)
@@ -249,7 +261,7 @@ module [HASIM_MODULE] mkDCache();
 
                 end
 
-	    end
+            end
 
         endcase
         
@@ -259,16 +271,16 @@ module [HASIM_MODULE] mkDCache();
         // Deal with any store requests.
         case (m_store_from_cpu) matches
 
-	    tagged Invalid:
-	    begin
+            tagged Invalid:
+            begin
 
                 // Propogate the bubble.
-	        storeRspImmToCPU.send(cpu_iid, tagged Invalid);
+                storeRspImmToCPU.send(cpu_iid, tagged Invalid);
 
-	    end
+            end
 
-	    tagged Valid {.tok, .phys_addr}:
-	    begin
+            tagged Valid {.tok, .phys_addr}:
+            begin
 
                 // An actual cache would do something with the physical 
                 // address to determine hit or miss. We use a pseudo-random 
@@ -281,7 +293,7 @@ module [HASIM_MODULE] mkDCache();
                 begin
 
                     // They should retry their store on a later model cycle.
-	            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                    storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
                     statStoreRetries.incr(cpu_iid);
 
                 end
@@ -296,7 +308,7 @@ module [HASIM_MODULE] mkDCache();
                         begin
                         
                             // The port is taken. They must retry next model cycle.
-	                    storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
                             statPortCollisions.incr(cpu_iid);
                         
                         end
@@ -307,7 +319,7 @@ module [HASIM_MODULE] mkDCache();
                             req_to_mem = tagged Valid initStoreFill(tok);
                             
                             // Tell the CPU we missed. They should delay until the store comes back.
-	                    storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(tok));
+                            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(tok));
                             statStoreMisses.incr(cpu_iid);
                         
                         end
@@ -317,14 +329,14 @@ module [HASIM_MODULE] mkDCache();
                     begin
                         
                         // Tell the CPU we hit.
-	                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
+                        storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
                         statStoreHits.incr(cpu_iid);
                                                 
                     end
 
                 end
 
-	    end
+            end
 
         endcase
 

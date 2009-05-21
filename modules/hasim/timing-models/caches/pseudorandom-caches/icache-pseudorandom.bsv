@@ -25,6 +25,16 @@ import LFSR::*;
 
 // An ICache module that hits or misses based on a pseudorandom number.
 
+typedef union tagged
+{
+    void STAGE2_bubble;
+    ICACHE_INPUT STAGE2_retry;
+    Tuple2#(Bool, ICACHE_INPUT) STAGE2_access;
+}
+STAGE2_STATE deriving (Eq, Bits);
+
+    
+
 module [HASIM_MODULE] mkICache();
 
     // ****** Dynamic Parameters ******
@@ -46,11 +56,6 @@ module [HASIM_MODULE] mkICache();
     LFSR#(Bit#(8)) iLFSR  <- mkLFSR_8();
     
     Reg#(Bool) initializingLFSR <- mkReg(True);
-
-
-    // ***** Unmodel State ******
-    
-    FIFO#(Tuple3#(CPU_INSTANCE_ID, Bool, IMEM_BUNDLE)) stage2Q <- mkFIFO();
 
 
     // ****** Soft Connections *******
@@ -75,8 +80,8 @@ module [HASIM_MODULE] mkICache();
 
     // ****** Local Controller ******
 
-    Vector#(2, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
-    Vector#(3, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = pcFromFet.ctrl;
     inports[1]  = rspFromMemory.ctrl;
     outports[0] = immToFet.ctrl;
@@ -84,6 +89,8 @@ module [HASIM_MODULE] mkICache();
     outports[2] = reqToMemory.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+
+    STAGE_CONTROLLER#(NUM_CPUS, STAGE2_STATE) stage2Ctrl <- mkStageController();
 
     // ****** Stats ******
 
@@ -105,8 +112,16 @@ module [HASIM_MODULE] mkICache();
 
     // stage1_loadReq
     
-    // Stores always hit in the cache. Loads also always hit but we also 
+    // Determine if stores hit or not using a pseudo-random number from an LFSR.
+    
+    // Ports Read:
+    // * rspFromMemory
+    // * pcFromFet
+    
+    // Ports Written:
+    // * delToFet
 
+    (* conservative_implicit_conditions *)
     rule stage1_instReq (!initializingLFSR);
 
         // Begin a new model cycle.
@@ -136,20 +151,16 @@ module [HASIM_MODULE] mkICache();
         // Check for a request.
         case (msg_from_cpu) matches
 
-	    tagged Invalid:
-	    begin
+            tagged Invalid:
+            begin
 
-                // Propogate the bubble.
-	        immToFet.send(cpu_iid, tagged Invalid);
-                reqToMemory.send(cpu_iid, tagged Invalid);
+                // Propogate the bubble in the next stage.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
-                // End of model cycle. (Path 1)
-                localCtrl.endModelCycle(cpu_iid, 1);
+            end
 
-	    end
-
-	    tagged Valid .req:
-	    begin
+            tagged Valid .req:
+            begin
 
 
                 // An actual cache would do something with the physical 
@@ -162,12 +173,8 @@ module [HASIM_MODULE] mkICache();
                 begin
 
                     // They have to retry next cycle.
-	            immToFet.send(cpu_iid, tagged Valid initICacheRetry(req));
-                    reqToMemory.send(cpu_iid, tagged Invalid);
                     statRetries.incr(cpu_iid);
-                    
-                    // End of model cycle. (Path 2)
-                    localCtrl.endModelCycle(cpu_iid, 2);
+                    stage2Ctrl.ready(cpu_iid, tagged STAGE2_retry req);
 
                 end
                 else
@@ -182,64 +189,99 @@ module [HASIM_MODULE] mkICache();
 
                         // A miss.
                         statMisses.incr(cpu_iid);
-                        
+
                         // Pass the miss to the next stage.
-                        stage2Q.enq(tuple3(cpu_iid, False, req));
-                    
+                        stage2Ctrl.ready(cpu_iid, tagged STAGE2_access tuple2(False, req));
+
                     end
                     else
                     begin
-                        
+
                         // A hit.
                         statHits.incr(cpu_iid);
 
                         // Pass the hit to the next stage.
-                        stage2Q.enq(tuple3(cpu_iid, True, req));
-                    
+                        stage2Ctrl.ready(cpu_iid, tagged STAGE2_access tuple2(True, req));
+
                     end
 
                 end
 
-	    end
+            end
 
         endcase
          
     endrule
+    
+    // stage2_instRsp
+    
+    // Get the functional partition response (if any).
+    // Calculate our response to the processor and also our request to memory, if any.
+    
+    // Ports Read:
+    // * None
+    
+    // Ports Written:
+    // * immToFet
+    // * reqToMemory
 
     rule stage2_instRsp (True);
         
-        // Get the response from the functional partition.
-        let rsp = getInstruction.getResp();
-        getInstruction.deq();
-
-        match {.cpu_iid, .hit, .bundle} = stage2Q.first();
-        stage2Q.deq();
-
-        // Take care of the hit or miss.
-        if (hit)
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+        if (state matches tagged STAGE2_bubble)
         begin
-        
-            // A hit, so no request to memory.
-	    immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));
+
+            // Propogate the bubble.
+            immToFet.send(cpu_iid, tagged Invalid);
             reqToMemory.send(cpu_iid, tagged Invalid);
 
-            // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(cpu_iid, 3);
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
 
         end
-        else
+        else if (state matches tagged STAGE2_retry .bundle)
         begin
-
-            // A miss, so delay the response a bit.
-            immToFet.send(cpu_iid, tagged Valid initICacheMiss(bundle));
-            reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(bundle, rsp.instruction));
-
-            // End of model cycle. (Path 4)
-            localCtrl.endModelCycle(cpu_iid, 4);
         
+            // Return the retry to the processor.
+            immToFet.send(cpu_iid, tagged Valid initICacheRetry(bundle));
+            reqToMemory.send(cpu_iid, tagged Invalid);
+            
+            // End of model cycle. (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
+
         end
+        // Take care of the hit or miss.
+        else if (state matches tagged STAGE2_access {.hit, .bundle})
+        begin
         
-     
+            // Get the response from the functional partition.
+            let rsp = getInstruction.getResp();
+            getInstruction.deq();
+
+            if (hit)
+            begin
+
+                // A hit, so no request to memory.
+                immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));
+                reqToMemory.send(cpu_iid, tagged Invalid);
+
+                // End of model cycle. (Path 3)
+                localCtrl.endModelCycle(cpu_iid, 3);
+
+            end
+            else
+            begin
+
+                // A miss, so delay the response a bit.
+                immToFet.send(cpu_iid, tagged Valid initICacheMiss(bundle));
+                reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(bundle, rsp.instruction));
+
+                // End of model cycle. (Path 4)
+                localCtrl.endModelCycle(cpu_iid, 4);
+
+            end
+        end
+
     endrule
 
 endmodule

@@ -99,8 +99,8 @@ module [HASIM_MODULE] mkIssue();
     Reg#(Bool)                                                               allPrevIssued <- mkReg(False);
     Reg#(Bool)                                                            allPrevMemIssued <- mkReg(False);
 
-    Vector#(0, PORT_CONTROLS#(1)) inports  = newVector();
-    Vector#(0, PORT_CONTROLS#(1)) outports = newVector();
+    Vector#(0, INSTANCE_CONTROL_IN#(1)) inports  = newVector();
+    Vector#(0, INSTANCE_CONTROL_OUT#(1)) outports = newVector();
     LOCAL_CONTROLLER#(1)                                                       localController <- mkLocalController(inports, outports);
 
     ROB_INDEX commitIndex = truncate(commitPtr);

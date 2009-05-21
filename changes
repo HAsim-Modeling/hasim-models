@@ -2831,3 +2831,27 @@ Directory modules/hasim/timing-models/caches/null-caches
   also works around a mysterious bug in the Bluespec compiler.
 
 Michael P.
+
+----------
+pellauer    Date: Thu May 21 15:21:31 EDT 2009  CSN: CSN-hasim-models-109
+                  Thu May 21 19:21:31 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          107 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified          107 
+ rob.bsv                   Locally Modified          107 
+
+Directory modules/hasim/timing-models/caches/store-buffers/single-entry
+ single-entry-store-buffer.bsv Locally Modified          107 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.bsv   Locally Modified          107 
+ dcache-pseudorandom.bsv   Locally Modified          107 
+
+
+* Update a few stragglers to the new type names.
+
+Michael P.

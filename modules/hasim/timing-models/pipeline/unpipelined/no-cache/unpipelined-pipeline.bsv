@@ -113,8 +113,8 @@ module [HASIM_MODULE] mkPipeline
     // Stats
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statCom <- mkStatCounter_Multiplexed(`STATS_CPU_INSTRUCTION_COMMIT);
 
-    Vector#(0, PORT_CONTROLS#(NUM_CPUS)) inports = newVector();
-    Vector#(0, PORT_CONTROLS#(NUM_CPUS)) outports = newVector();
+    Vector#(0, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(0, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 

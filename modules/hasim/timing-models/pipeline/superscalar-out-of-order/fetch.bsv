@@ -68,8 +68,8 @@ module [HASIM_MODULE] mkFetch();
     // Local Controller
     //
     // FIXME -- need to enumerate ports so balancing works for events
-    Vector#(0, PORT_CONTROLS#(1)) inports  = newVector();
-    Vector#(0, PORT_CONTROLS#(1)) outports = newVector();
+    Vector#(0, INSTANCE_CONTROL_IN#(1)) inports  = newVector();
+    Vector#(0, INSTANCE_CONTROL_OUT#(1)) outports = newVector();
 
     LOCAL_CONTROLLER#(1) localCtrl <- mkLocalController(inports, outports);
 
