@@ -114,7 +114,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
     // * None
 
     (* conservative_implicit_conditions *)
-    rule stage2_btbReq (True);
+    rule stage1_btbReq (True);
 
         // Get the next active instance.
         let cpu_iid <- localCtrl.startModelCycle();

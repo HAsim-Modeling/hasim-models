@@ -28,7 +28,7 @@ function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKE
 
 endfunction
 
-typedef Bit#(4) INSTQ_SLOT_ID;
+typedef Bit#(5) INSTQ_SLOT_ID;
 typedef Bit#(4) COMMITQ_SLOT_ID;
 
 typedef struct

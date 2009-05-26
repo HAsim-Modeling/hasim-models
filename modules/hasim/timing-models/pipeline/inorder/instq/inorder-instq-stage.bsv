@@ -78,7 +78,7 @@ module [HASIM_MODULE] mkInstructionQueue
     // ****** Model State (per Context) ******
 
     // Which tokens are complete? (Ready to issue)
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION))) completionsPool    <- mkMultiplexed(mkLUTRAM(tagged Invalid));
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION))) completionsPool    <- mkMultiplexed(mkLUTRAM(tagged Valid (?)));
 
     // Queue to rendezvous with instructions.
     MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE))   bundlesPool <- mkMultiplexed(mkLUTRAMU());
@@ -89,10 +89,8 @@ module [HASIM_MODULE] mkInstructionQueue
     // What's the oldest token we know about? (The next one which should issue when it's ready.)
     MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID))                 oldestSlotPool <- mkMultiplexed(mkReg(0));
 
-    // ****** UnModel State ******
-    
-    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
-    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
+    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_BRANCH_EPOCH)) curBranchEpochPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_FAULT_EPOCH))  curFaultEpochPool  <- mkMultiplexed(mkReg(0));
 
     // ****** Ports ******
 
@@ -106,7 +104,7 @@ module [HASIM_MODULE] mkInstructionQueue
         
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
 
     inports[0]  = allocateFromFetch.ctrl;
@@ -250,6 +248,8 @@ module [HASIM_MODULE] mkInstructionQueue
         LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION)) completions = completionsPool[cpu_iid];
         LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
 
+        Reg#(TOKEN_BRANCH_EPOCH) curBranchEpoch = curBranchEpochPool[cpu_iid];
+        Reg#(TOKEN_FAULT_EPOCH) curFaultEpoch = curFaultEpochPool[cpu_iid];
         Reg#(INSTQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
         Reg#(INSTQ_SLOT_ID) oldestSlot   = oldestSlotPool[cpu_iid];
 
@@ -265,12 +265,24 @@ module [HASIM_MODULE] mkInstructionQueue
             debugLog.record(cpu_iid, $format("ALLOC ADDR:0x%h", bundle.pc) + $format(" COMPLETE: %0b", pack(isValid(comp))));
             bundles.upd(slot, bundle);
             completions.upd(slot, comp);
+            if (bundle.branchEpoch != curBranchEpoch || bundle.faultEpoch != curFaultEpoch)
+            begin
+                debugLog.record(cpu_iid, $format("EPOCH CHANGE. NEW HEAD: %0d.", nextFreeSlot));
+                oldestSlot <= nextFreeSlot;
+                curBranchEpoch <= bundle.branchEpoch;
+                curFaultEpoch <= bundle.faultEpoch;
+            end
             new_next_free = nextFreeSlot + 1;
 
         end
         
         // Now check if we have a credit to send to fetch based on our (simulated) length.
-        if (new_next_free + 2 != oldestSlot) // This should really be +L+1, where L is the latency of the credit to Fetch.
+        let have_room = (new_next_free + 2 != oldestSlot); // This should really be +L+1, where L is the latency of the credit to Fetch.
+        
+        // Also check that the guy we're going to overwrite has already been completed.
+        let safe_to_allocate = isValid(completions.sub(new_next_free));
+        
+        if (have_room && safe_to_allocate)
         begin
         
             // We still have room.

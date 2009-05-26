@@ -63,10 +63,10 @@ module [HASIM_MODULE] mkCommitQueue
     MULTIPLEXED#(NUM_CPUS, LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE))   bundlesPool <- mkMultiplexed(mkLUTRAMU());
 
     // How many slots are taken?
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID))                 nextFreeSlotPool    <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID))                 nextFreeSlotPool    <- mkMultiplexed(mkReg(0));
     
     // What's the oldest slot we know about? (The next one which should issue when it's ready.)
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID))                 oldestSlotPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID))                 oldestSlotPool <- mkMultiplexed(mkReg(0));
 
     // ****** UnModel State ******
     
@@ -121,8 +121,8 @@ module [HASIM_MODULE] mkCommitQueue
         debugLog.nextModelCycle(cpu_iid);
 
         // Get the local state for the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
-        LUTRAM#(INSTQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
+        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
+        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
 
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
         Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
@@ -197,7 +197,7 @@ module [HASIM_MODULE] mkCommitQueue
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get the local state for the current instance.
-        Reg#(INSTQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
+        Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
         
         // Check for any dequeues/clears.
         let m_deq <- deqFromCom.receive(cpu_iid);

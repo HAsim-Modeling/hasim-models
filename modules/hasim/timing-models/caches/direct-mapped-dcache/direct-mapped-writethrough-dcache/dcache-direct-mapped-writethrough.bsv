@@ -104,7 +104,7 @@ module [HASIM_MODULE] mkDCache();
     // ****** Model State ******
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, False);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, True);
 
     
     // ****** Ports ******
@@ -485,8 +485,9 @@ module [HASIM_MODULE] mkDCache();
             // Turns out neither wanted the port.
             reqToMemory.send(cpu_iid, tagged Invalid);
 
-            // This should never happen, but let's put this here for safety.
+            // Propogate the bubble.
             storeRspImmToCPU.send(cpu_iid, tagged Invalid);
+    
             
             // End of model cycle. (Path 4)
             localCtrl.endModelCycle(cpu_iid, 4);
