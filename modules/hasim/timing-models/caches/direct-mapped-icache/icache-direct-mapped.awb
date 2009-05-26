@@ -1,6 +1,5 @@
 %name Direct Mapped
 %desc Direct Mapped Instruction Cache
-%requires hasim_icache_base_types hasim_icache_memory 
 %provides hasim_icache
 
 %attributes hasim model caches
@@ -9,3 +8,7 @@
 %sources -t DICT -v PUBLIC icache-direct-mapped.dic
 
 %param --dynamic ICACHE_ALWAYS_HIT  0     "0 for simulate cache, 1 for always hit"
+
+%param ICACHE_LINE_BITS 5 "Number of block offset bits."
+%param ICACHE_IDX_BITS 10 "Number of index bits."
+%param ICACHE_MISS_PENALTY 10 "Miss Penalty Cycles. (0 not a valid entry.)"

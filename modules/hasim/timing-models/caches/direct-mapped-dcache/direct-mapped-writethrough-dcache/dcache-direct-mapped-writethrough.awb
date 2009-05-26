@@ -7,15 +7,21 @@
 #/*
 # %AWB_START
 #
-# %name Direct mapped write through data cache
-# %desc Direct mapped write through data cache
-# %requires hasim_dcache_base_types hasim_dcache_memory  
+# %name Direct Mapped Writethrough Data Cache
+# %desc Direct Mapped Writethrough Data Cache
 # %provides hasim_dcache 
 #
 # %attributes hasim model caches
 #
-# %public dcache-direct-mapped-writethrough.bsv 
-# %sources -t DICT -v PUBLIC dcache-direct-mapped-writethrough.dic
+# %public  dcache-direct-mapped-writethrough.bsv 
+# %private dcache-direct-mapped-writethrough.dic
 #
+# %param --dynamic DCACHE_ALWAYS_HIT  0     "0 for simulate cache, 1 for always hit"
+#
+# %param DCACHE_LINE_BITS    5  "Number of block offset bits"
+# %param DCACHE_IDX_BITS     10 "Number of index bits"
+# %param DCACHE_MISS_PENALTY 10 "Miss penalty cycles (0 not a valid entry)"
+#
+
 # %AWB_END
 # */

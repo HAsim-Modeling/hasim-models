@@ -38,6 +38,8 @@ import FIFO::*;
 `include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
+`include "asim/provides/funcp_memstate_base_types.bsh"
+
 
 
 typedef Bit#(TLog#(`SB_NUM_ENTRIES)) SB_INDEX;
@@ -64,7 +66,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     // ****** Model State (per Context) ******
     
     MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))) tokIDPool       <- mkMultiplexed(mkReg(replicate(Invalid)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS)))) physAddressPool <- mkMultiplexed(mkReg(replicate(Invalid)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)))) physAddressPool <- mkMultiplexed(mkReg(replicate(Invalid)));
 
     MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) oldestCommittedPool   <- mkMultiplexed(mkReg(0));
     MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) numToCommitPool <- mkMultiplexed(mkReg(0));
@@ -126,7 +128,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
 
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
 
         // Check if the decode is allocating a new slot.
         let m_alloc <- allocFromDec.receive(cpu_iid);
@@ -187,7 +189,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
         // Get our local state based on the current context.
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
 
         // See if the DMem is completing or searching.
         let m_req <- reqFromDMem.receive(cpu_iid);
@@ -354,7 +356,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
 
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(ISA_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
 
         // See if the Write Buffer has room.
         let m_credit <- creditFromWriteQ.receive(cpu_iid);

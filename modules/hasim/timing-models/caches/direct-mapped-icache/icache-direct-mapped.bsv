@@ -1,254 +1,270 @@
 import Vector::*;
+import FIFO::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/fpga_components.bsh"
 `include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/funcp_base_types.bsh"
+`include "asim/provides/funcp_memstate_base_types.bsh"
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/platform_interface.bsh"
 
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/module_local_controller.bsh"
 
-`include "asim/provides/hasim_icache_memory.bsh"
-`include "asim/provides/hasim_icache_base_types.bsh"
-`include "asim/provides/hasim_icache_memory.bsh"
+`include "asim/provides/chip_base_types.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
-`include "asim/dict/STATS_ICACHE.bsh"
+`include "asim/dict/STATS_DIRECT_MAPPED_ICACHE.bsh"
 `include "asim/dict/PARAMS_HASIM_ICACHE.bsh"
+`include "asim/dict/VDEV_SCRATCH.bsh"
 
-typedef ISA_ADDRESS INST_ADDRESS;
-typedef ISA_ADDRESS DATA_ADDRESS;
+typedef Bit#(TSub#(`FUNCP_ISA_P_ADDR_SIZE, TAdd#(`ICACHE_LINE_BITS, `ICACHE_IDX_BITS))) ICACHE_TAG;
+typedef Bit#(`ICACHE_LINE_BITS) ICACHE_LINE_OFFSET;
+typedef Bit#(`ICACHE_IDX_BITS)  ICACHE_INDEX;
 
-typedef union tagged {
-		 INST_ADDRESS Inst_mem_ref;              // Instruction fetch from ICache
-		 INST_ADDRESS Inst_prefetch_ref;         // Instruction prefetch from ICache
-		 Tuple2#(INST_ADDRESS, DATA_ADDRESS) Data_read_mem_ref;         // Data read from DCache
-		 Tuple2#(INST_ADDRESS, DATA_ADDRESS)  Data_write_mem_ref;        // Data write to DCache
-		 Tuple2#(INST_ADDRESS, DATA_ADDRESS) Data_read_prefetch_ref;    // Data read prefetch
-		 ISA_ADDRESS Invalidate_line;           // Message to invalidate specific cache line
-		 Bool Invalidate_all;                   // Message to entire cache
-		 ISA_ADDRESS Flush_line;                // Flush specific cache line            
-		 Bool Flush_all;                        // Flush entire cache
-		 Bool Kill_all;                         // Kill all current operations of the cache      
-		 } 
-CacheInput deriving (Eq, Bits);
+function Tuple3#(ICACHE_TAG, ICACHE_INDEX, ICACHE_LINE_OFFSET) splitAddressICache(MEM_ADDRESS addr);
 
-typedef union tagged{
-   INST_ADDRESS Hit;
-   INST_ADDRESS Hit_servicing;
-   INST_ADDRESS Miss;
-   INST_ADDRESS Miss_servicing;
-   INST_ADDRESS Miss_retry;
-   } 
-CacheOutputImmediate deriving (Eq, Bits);
+    return unpack(addr);
 
-typedef union tagged{
-   INST_ADDRESS Miss_response;
-   INST_ADDRESS Hit_response;
-   }
-CacheOutputDelayed deriving (Eq, Bits);
+endfunction
 
-typedef enum {HandleReq, HandleRead, HandleStall} State deriving (Eq, Bits);
+function ICACHE_TAG getICacheTag(MEM_ADDRESS addr);
 
+    match {.tag, .idx, .off} = splitAddressICache(addr);
+    return tag;
+
+endfunction
+
+function ICACHE_INDEX getICacheIndex(MEM_ADDRESS addr);
+
+    match {.tag, .idx, .off} = splitAddressICache(addr);
+    return idx;
+
+endfunction
+
+
+function ICACHE_LINE_OFFSET getICacheOffset(MEM_ADDRESS addr);
+
+    match {.tag, .idx, .off} = splitAddressICache(addr);
+    return off;
+
+endfunction
+
+typedef union tagged
+{
+    void STAGE2_bubble;
+    ICACHE_INPUT STAGE2_access;
+}
+ICACHE_STAGE2_STATE deriving (Eq, Bits);
  
 module [HASIM_MODULE] mkICache();
-   
-   // ***** Dynamic parameters *****
-   PARAMETER_NODE paramNode <- mkDynamicParameterNode();
-
-   Param#(1) alwaysHitParam <- mkDynamicParameter(`PARAMS_HASIM_ICACHE_ICACHE_ALWAYS_HIT, paramNode);
-   function Bool alwaysClaimHit() = (alwaysHitParam == 1);
-
-   // FSM register
-   Reg#(State) state <- mkReg(HandleReq);
-   
-   // initialize cache memory
-   let cachememory <- mkICacheMemory();
-   
-   // BRAM for the cache tag store
-   BRAM#(ICACHE_INDEX, Maybe#(ICACHE_TAG)) icache_tag_store <- mkBRAMInitialized(tagged Invalid);     
-   // register to hold cache tag/index
-   Reg#(ICACHE_TAG) req_icache_tag<- mkReg(0);
-   Reg#(ICACHE_INDEX) req_icache_index <- mkReg(0);
-   Reg#(TOKEN) req_tok <- mkRegU;
-   Reg#(ISA_ADDRESS) req_addr <- mkReg(0);
-   
-   /* incoming ports */
-   // incoming port from the CPU with 0 latency
-   Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu <- mkPort_Receive("cpu_to_icache", 0);
-   
-   // incoming port from memory with 10 latency
-   Port_Receive#(Tuple2#(TOKEN, MemOutput)) port_from_memory <- mkPort_Receive("memory_to_icache", valueOf(TSub#(`ICACHE_MISS_PENALTY, 1)));
-   
-   /* outgoing ports */
-   // outgoing port to the CPU with 0 latency
-   Port_Send#(Tuple2#(TOKEN, CacheOutputImmediate)) port_to_cpu_imm <- mkPort_Send("icache_to_cpu_immediate");
-   Port_Send#(Tuple2#(TOKEN, CacheOutputDelayed)) port_to_cpu_del <- mkPort_Send("icache_to_cpu_delayed");
     
-   // outgoing port to memory with 10 latency
-   Port_Send#(Tuple2#(TOKEN, MemInput)) port_to_memory <- mkPort_Send("icache_to_memory");
+    // ***** Dynamic parameters *****
+    PARAMETER_NODE paramNode <- mkDynamicParameterNode();
+
+    Param#(1) alwaysHitParam <- mkDynamicParameter(`PARAMS_HASIM_ICACHE_ICACHE_ALWAYS_HIT, paramNode);
+    function Bool alwaysClaimHit() = (alwaysHitParam == 1);
+
+
+    // ****** Soft Connections *******
+
+    Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
+                       FUNCP_RSP_GET_INSTRUCTION)    getInstruction <- mkConnection_Client("funcp_getInstruction");
+
+
+    // ****** Ports ******
+
+    // Incoming port from CPU
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT) pcFromFet <- mkPortRecv_Multiplexed("CPU_to_ICache_req", 0);
+
+    // Outgoing ports to CPU
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immToFet <- mkPortSend_Multiplexed("ICache_to_CPU_immediate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)   delToFet <- mkPortSend_Multiplexed("ICache_to_CPU_delayed");
+
+    // Ports to simulate some latency to memory.
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED) reqToMemory   <- mkPortSend_Multiplexed("ICache_to_memory");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED) rspFromMemory <- mkPortRecv_Multiplexed("ICache_to_memory", `ICACHE_MISS_PENALTY);
+
+
+    // ****** Local Controller ******
+
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    inports[0]  = pcFromFet.ctrl;
+    inports[1]  = rspFromMemory.ctrl;
+    outports[0] = immToFet.ctrl;
+    outports[1] = delToFet.ctrl;
+    outports[2] = reqToMemory.ctrl;
+
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    
+    STAGE_CONTROLLER#(NUM_CPUS, ICACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+
+    // ****** Stats ******
+
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statHits       <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_ICACHE_ICACHE_HITS);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMisses     <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_ICACHE_ICACHE_MISSES);
    
-   // communication with local controller 
-   Vector#(2, Port_Control) inports  = newVector();
-   Vector#(3, Port_Control) outports = newVector();
-   inports[0]  = port_from_cpu.ctrl;
-   inports[1] = port_from_memory.ctrl;
-   outports[0] = port_to_cpu_imm.ctrl;
-   outports[1] = port_to_cpu_del.ctrl;
-   outports[2] = port_to_memory.ctrl;
-   LocalController local_ctrl <- mkLocalController(inports, outports); 
+    // ****** Model State (Per Instance) *****
    
-   // Stats
-   STAT stat_icache_hits <- mkStatCounter(`STATS_ICACHE_ICACHE_HITS);
-   STAT stat_icache_misses <- mkStatCounter(`STATS_ICACHE_ICACHE_MISSES);
-  
-   // rules
-   rule handlereq (state == HandleReq);
-      // read request from cpu
-      let req_from_cpu <- port_from_cpu.receive();
-      
-      // read response from memory
-      let resp_from_mem <- port_from_memory.receive();
-      
-      // check request type
-      case (req_from_cpu) matches
-	 // no request
-	 tagged Invalid:
-	    begin
-	       port_to_memory.send(tagged Invalid);
-	       port_to_cpu_imm.send(tagged Invalid);
-	       port_to_cpu_del.send(tagged Invalid);
-	    end
-	 // request
-	 tagged Valid {.tok_from_cpu, .addr_from_cpu}:
-	    begin
-	       // check request type
-	       case (addr_from_cpu) matches
-		  // standard read request
-		  tagged Inst_mem_ref .addr:
-		     begin
-                        if (! alwaysClaimHit())
-                          begin
-                              // Look up address in cache
-			      Tuple3#(ICACHE_TAG, ICACHE_INDEX, ICACHE_LINE_OFFSET) address_tup = unpack(addr);
-		              match {.tag, .idx, .line_offset} = address_tup;
-			      req_icache_tag <= tag;
-			      req_icache_index <= idx;
-			      req_tok <= tok_from_cpu;
-			      req_addr <= addr;
-			      // make the read request from BRAM tag store
-			      icache_tag_store.readReq(idx);
-			      state <= HandleRead;
-                          end
-                          else
-                          begin
-                              // Always hit (requested by dynamic parameter)
-		              port_to_memory.send(tagged Invalid);
-		              port_to_cpu_imm.send(tagged Valid tuple2(tok_from_cpu, tagged Hit addr));
-		              port_to_cpu_del.send(tagged Invalid);
-		              stat_icache_hits.incr();
-                          end
-		     end
-		  // no current implementation of other request types
-	       endcase
-	    end
-      endcase
-   endrule
+    // initialize cache memory
+    // Commented out for now until we stabilize memory interface.
+    // let cachememory <- mkICacheMemory();
+
+    // Initialize a scratchpad memory to store our tags in.   
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, False);     
+
+
+
+    // ****** Rules ******
+    
+    // stage1_handleReq
+    
+    // Handle a request from the CPU and possibly access the tag store.
+    
+    // Ports read:
+    // * pcFromFet
+    
+    // Ports written:
+    // * None
+
+    (* conservative_implicit_conditions *)
+    rule stage1_handleReq (True);
    
-   rule handleread (state == HandleRead);
-      
-      // read response from BRAM
-      let readtag <- icache_tag_store.readRsp();
-      
-      // check if there is a tag match
-      case (readtag) matches
-	 // cache miss because of invalid cache line
-	 tagged Invalid:
-	    begin
-	       port_to_memory.send(tagged Valid tuple2(req_tok, tagged Mem_fetch req_addr));
-	       port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_servicing req_addr));
-	       port_to_cpu_del.send(tagged Invalid);
-	       //update BRAM tag store
-	       icache_tag_store.write(req_icache_index, tagged Valid req_icache_tag);
-	       state <= HandleStall;
-	       stat_icache_misses.incr();
-	    end
-	 // valid cache line
-	 tagged Valid .storedtag:
-	    begin
-	       // cache hit
-	       if (storedtag == req_icache_tag)
-		  begin
-		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Hit req_addr));
-		     port_to_cpu_del.send(tagged Invalid);
-		     state <= HandleReq;
-		     stat_icache_hits.incr();
-		  end
-	       // cache miss
-	       else
-		  begin
-		     port_to_memory.send(tagged Valid tuple2(req_tok, tagged Mem_fetch req_addr));
-		     port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_servicing req_addr));
-		     port_to_cpu_del.send(tagged Invalid);
-		     // update BRAM tag store
-		     icache_tag_store.write(req_icache_index, tagged Valid req_icache_tag);
-		     state <= HandleStall;
-		     stat_icache_misses.incr();
-		  end
-	    end
-      endcase
-   endrule
-   
-   
-   rule readstall(state == HandleStall);
-	
-      // read request from CPU
-      let req_from_cpu <- port_from_cpu.receive();
-      // read response from memory
-      let resp_from_mem <- port_from_memory.receive();
-      
-      // check if memory has returned value
-      case (resp_from_mem) matches
-	 // not yet responded with data
-	 tagged Invalid:
-	    begin
-	       // check CPU request type
-	       case (req_from_cpu) matches
-		  // no request
-		  tagged Invalid:
-		     begin
-			port_to_memory.send(tagged Invalid);
-			port_to_cpu_imm.send(tagged Invalid);
-			port_to_cpu_del.send(tagged Invalid);
-		     end
-		  // CPU is making a request
-		  tagged Valid {.tok_from_cpu, .msg_from_cpu}:
-		     begin
-			case (msg_from_cpu) matches
-			   tagged Inst_mem_ref .addr_from_cpu:
-			      begin
-				 port_to_memory.send(tagged Invalid);
-				 port_to_cpu_imm.send(tagged Valid tuple2(req_tok, tagged Miss_retry addr_from_cpu));
-				 port_to_cpu_del.send(tagged Invalid);
-			      end
-			endcase
-		     end
-	       endcase
-	    end
-	 // memory responds with data
-	 tagged Valid {.tok_from_mem, .msg_from_mem}:
-	    begin
-	       case (msg_from_mem) matches
-		  tagged ValueRet .resp_pc:
-		     begin
-			port_to_memory.send(tagged Invalid);
-			port_to_cpu_imm.send(tagged Invalid);
-			port_to_cpu_del.send(tagged Valid tuple2(tok_from_mem, tagged Miss_response resp_pc));
-			state <= HandleReq;
-		     end
-	       endcase
-	    end
-      endcase
-   endrule
-   
+        // Start a new model cycle.
+        let cpu_iid <- localCtrl.startModelCycle();
+
+        // Read input port.
+        let msg_from_cpu <- pcFromFet.receive(cpu_iid);
+
+        // Check for a request.
+        case (msg_from_cpu) matches
+
+            tagged Invalid:
+            begin
+
+                // Propogate the bubble.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
+
+            end
+
+            tagged Valid .req:
+            begin
+                
+                // Look up the index in our tagStore.
+                let idx = getICacheIndex(req.physicalAddress);
+                iCacheTagStore.readReq(cpu_iid, idx);
+
+                // Pass it to the next stage through the functional partition, 
+                // which actually retrieves the instruction.
+                getInstruction.makeReq(initFuncpReqGetInstruction(cpu_iid, req.physicalAddress, req.offset));
+                
+                // Continue this instance in the next stage.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_access req);
+
+            end
+    
+        endcase
+    
+    endrule
+
+    // stage2_rspAndFill
+    
+    // Get the response from the scratchpad and also perform the fill from memory.
+    
+    // Ports read:
+    // * rspFromMemory
+    
+    // Ports written:
+    // * immToFet
+    // * delToFet
+    // * reqToMemory
+    
+
+    rule stage2_rspAndFill (True);
+
+        // Get the next instance id.
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+
+        // First check for fills.
+        let m_fill <- rspFromMemory.receive(cpu_iid);
+        
+        if (m_fill matches tagged Valid .fill)
+        begin
+       
+            // Get the index and tag.
+            let idx = getICacheIndex(fill.physicalAddress);
+            let tag = getICacheTag(fill.physicalAddress);
+       
+            // Record that the data is now in the cache.
+            iCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
+       
+            // Send the fill back to fetch.
+            delToFet.send(cpu_iid, tagged Valid fill);
+                
+        end
+        else
+        begin
+            
+            // No fill.
+            delToFet.send(cpu_iid, tagged Invalid);
+        
+        end
+        
+        if (state matches tagged STAGE2_bubble)
+        begin
+        
+            // Propogate the bubble
+            immToFet.send(cpu_iid, tagged Invalid);
+            reqToMemory.send(cpu_iid, tagged Invalid);
+
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
+
+        end
+        else if (state matches tagged STAGE2_access .bundle)
+        begin
+        
+            // Get the response from the tagStore.
+            let m_existing_tag <- iCacheTagStore.readRsp(cpu_iid);
+
+            // Get the response from the functional partition.
+            let rsp = getInstruction.getResp();
+            getInstruction.deq();
+
+            // See if the tag matches.
+            let target_tag = getICacheTag(bundle.physicalAddress);
+            Bool hit = m_existing_tag matches tagged Valid .existing_tag &&& (existing_tag == target_tag) ? True : False ;
+
+            if (hit || alwaysClaimHit())
+            begin
+
+                // A hit, so no request to memory.
+                immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));
+                reqToMemory.send(cpu_iid, tagged Invalid);
+
+                // End of model cycle. (Path 2)
+                statHits.incr(cpu_iid);
+                localCtrl.endModelCycle(cpu_iid, 2);
+
+            end
+            else
+            begin
+
+                // A miss, so send the request to memory.
+                immToFet.send(cpu_iid, tagged Valid initICacheMiss(bundle));
+                reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(bundle, rsp.instruction));
+
+                // End of model cycle. (Path 3)
+                statMisses.incr(cpu_iid);
+                localCtrl.endModelCycle(cpu_iid, 3);
+
+            end
+
+        end
+        
+    endrule
+
 endmodule

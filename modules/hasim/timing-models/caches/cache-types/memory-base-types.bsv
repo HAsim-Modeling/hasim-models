@@ -131,7 +131,7 @@ typedef struct
     TOKEN token;
     COMMITQ_SLOT_ID commitQSlot;
     ISA_ADDRESS virtualAddress;
-    ISA_ADDRESS physicalAddress;
+    MEM_ADDRESS physicalAddress;
     TOKEN_FAULT_EPOCH faultEpoch;
     Bool isLoad;
     Bool isStore;
@@ -194,7 +194,7 @@ endfunction
 
 
 typedef DMEM_BUNDLE DCACHE_LOAD_INPUT;
-typedef Tuple2#(TOKEN, ISA_ADDRESS) DCACHE_STORE_INPUT;
+typedef Tuple2#(TOKEN, MEM_ADDRESS) DCACHE_STORE_INPUT;
 
 function DCACHE_LOAD_INPUT initDCacheLoad(DMEM_BUNDLE bundle);
 
@@ -244,7 +244,7 @@ function DCACHE_LOAD_OUTPUT_DELAYED initDCacheLoadMissRsp(DMEM_BUNDLE bundle);
 endfunction
 
 
-function DCACHE_STORE_INPUT initDCacheStore(TOKEN tok, ISA_ADDRESS addr);
+function DCACHE_STORE_INPUT initDCacheStore(TOKEN tok, MEM_ADDRESS addr);
 
     return tuple2(tok, addr);
 
@@ -404,4 +404,4 @@ function SB_OUTPUT initSBMiss(DMEM_BUNDLE bundle);
 
 endfunction
 
-typedef Tuple2#(TOKEN, ISA_ADDRESS) WB_ENTRY;
+typedef Tuple2#(TOKEN, MEM_ADDRESS) WB_ENTRY;

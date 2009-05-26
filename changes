@@ -2855,3 +2855,32 @@ Directory modules/hasim/timing-models/caches/pseudorandom-caches
 * Update a few stragglers to the new type names.
 
 Michael P.
+
+----------
+mpellaue    Date: Tue May 26 13:13:59 EDT 2009  CSN: CSN-hasim-models-110
+                  Tue May 26 17:13:59 UTC 2009
+
+
+Directory config/pm/hasim-models/l1-caches
+ l1_caches.apm             Locally Modified          109 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.awb Locally Modified          109 
+ dcache-direct-mapped-writethrough.bsv Locally Modified          109 
+ dcache-direct-mapped-writethrough.dic Locally Modified          109 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          109 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          109 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.awb  Locally Modified          109 
+ icache-direct-mapped.bsv  Locally Modified          109 
+ icache-direct-mapped.dic  Locally Modified          109 
+
+
+* Update direct-mapped caches to use scratchpad memory.
+
+Michael P.
