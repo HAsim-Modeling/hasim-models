@@ -18,6 +18,7 @@
 
 // ****** Bluespec imports ******
 
+import FIFO::*;
 import FShow::*;
 import Vector::*;
 
@@ -46,35 +47,32 @@ import Vector::*;
 
 // mkIMem
 
-// Inorder IMem stage. Gets the response from the ITLB. On a page fault it redirects to the handler.
-// On a Hit it sends the response to the ICache.
+// Inorder IMem stage.
+// Gets the response from the ITLB.
+// If there was no fault and epoch is right, make an ICACHE request.
+// Get the ICACHE response, forward results to pccalc stage.
 
 // Expected Normal Flow
-// stage1: No page fault. Make ICache request.
-
-// Possible Ways a Model Cycle Can End
-// Path 1: Page Fault
-// Path 2: ITLB Hit, ICache request
-// Path 3: Bubble or request from wrong epoch.
-
+// stage1: Check for page fault, make ICache request.
+// stage2: Get ICache response.
 
 module [HASIM_MODULE] mkIMem
     // interface:
         ();
 
 
-    // ****** Model State (per Context) ******
+    // ****** Model State (per instance) ******
 
     MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH)) iTLBEpochPool <- mkMultiplexed(mkReg(0));
 
-
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                      rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                           rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                     physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_req");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(IMEM_EPOCH, ISA_ADDRESS)) faultToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_fault");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, IMEM_OUTPUT)                       iMemToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_response");
 
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_immediate");
 
     // ****** Local Controller ******
         
@@ -82,88 +80,143 @@ module [HASIM_MODULE] mkIMem
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
     inctrls[0]  = rspFromITLB.ctrl;
     outctrls[0] = physAddrToICache.ctrl;
-    outctrls[1] = faultToPCCalc.ctrl;
+    outctrls[1] = iMemToPCCalc.ctrl;
     
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
+    // Stage 2 data.
+    // If Invalid, means there was a bubble input to this stage.
+    // Otherwise contains output that should be sent to pccalc if icache
+    // responds with a bubble.
+    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(IMEM_OUTPUT)) stage2Ctrl <- mkStageController();
 
     // ****** Rules ******
 
-    // stage1_iTLBRsp
+    // stage1_iCacheReq
     
-    // Gets the ITLB response and checks for any page faults.
-    // An epoch check is important here since it is likely that there would
-    // be page faults back to back and we only want to redirect on the
-    // earliest fault.
+    // Gets the ITLB response, verifies the epoch and checks for page faults.
+    // If all is well, makes a an icache request.
+    // We perform the epoch check only to avoid making an uneccessary icache
+    // request.
+    //
+    // Ports read:
+    // * rspFromITLB
+    //
+    // Ports written:
+    // * physAddrToICache
 
     (* conservative_implicit_conditions *)
-    rule stage1_iTLBRsp (True);
+    rule stage1_iCacheReq (True);
 
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         
         // Get our local state using the current context.
         Reg#(IMEM_ITLB_EPOCH) iTLBEpoch = iTLBEpochPool[cpu_iid];
+
+        Maybe#(IMEM_OUTPUT) stage_data = Invalid;
         
         // See if there's a response from the ITLB.
         let m_rsp <- rspFromITLB.receive(cpu_iid);
-        
-        if (m_rsp matches tagged Valid .rsp &&& rsp.bundle.epoch.iTLB == iTLBEpoch)
+
+        if (m_rsp matches tagged Valid .rsp)
         begin
 
-            // Epoch check ensures that we haven't already redirected from a previous page fault.
-
-            // Check if we received a valid translation.
-            if (rsp.rspType == ITLB_pageFault)
+            if (rsp.bundle.epoch.iTLB == iTLBEpoch)
             begin
+                // Check if we received a valid translation.
+                if (rsp.rspType == ITLB_pageFault)
+                begin
 
-                // There was a page fault. :(
+                    // There was a page fault. :(
 
-                // Increment the epoch so we'll drop any following faults (which occur quite commonly).
-                iTLBEpoch <= iTLBEpoch + 1;
+                    // Increment the epoch so we'll drop any following faults (which occur quite commonly).
+                    iTLBEpoch <= iTLBEpoch + 1;
 
-                // No physical address to load.
-                physAddrToICache.send(cpu_iid, tagged Invalid);
+                    // No physical address to load from icache.
+                    physAddrToICache.send(cpu_iid, tagged Invalid);
 
-                // Redirect the PC to the handler.
-                // TODO: We have no way of getting a handler address currently. 
-                //       Instead just redirect back to the faulting PC.
-                //       This at least works for pseudo-random TLB models.
-                faultToPCCalc.send(cpu_iid, tagged Valid tuple2(rsp.bundle.epoch, rsp.bundle.virtualAddress));
+                    stage_data = tagged Valid IMEM_OUTPUT {
+                        bundle: rsp.bundle,
+                        response: IMEM_itlb_fault
+                    };
+                end
+                else
+                begin
+                    // ITLB was successful
+                    // Send the physical address on to the ICache.
+                    physAddrToICache.send(cpu_iid, tagged Valid initICacheLoad(rsp.bundle));
 
-                // End of model cycle. (Path 1)
-                localCtrl.endModelCycle(cpu_iid, 1);
-
+                    stage_data = tagged Valid IMEM_OUTPUT {
+                        bundle: rsp.bundle,
+                        response: ?
+                    };
+                end
             end
             else
             begin
+                // Epoch check failed. Don't make an icache request
+                physAddrToICache.send(cpu_iid, tagged Invalid);
 
-                // It was a successful translation. No need to resteer.
-                faultToPCCalc.send(cpu_iid, tagged Invalid);
-
-                // Send the physical address on to the ICache.
-                physAddrToICache.send(cpu_iid, tagged Valid initICacheLoad(rsp.bundle));
-
-                // End of model cycle. (Path 2)
-                localCtrl.endModelCycle(cpu_iid, 2);
-
+                stage_data = tagged Valid IMEM_OUTPUT {
+                    bundle: rsp.bundle,
+                    response: IMEM_bad_epoch
+                };
             end
-
         end
         else
         begin
-        
-            // It's a bubble or a request from the wrong epoch.
-            faultToPCCalc.send(cpu_iid, tagged Invalid);
-
-            // Send the physical address on to the ICache.
+            // Bubble. Don't make any icache request.
             physAddrToICache.send(cpu_iid, tagged Invalid);
-
-            // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(cpu_iid, 3);
-
+            stage_data = Invalid;
         end
-    
+
+        stage2Ctrl.ready(cpu_iid, stage_data);
+    endrule
+
+    // Ports read:
+    // * immRspFromICache
+    //
+    // Ports written:
+    // * iMemToPCCalc
+    //
+    rule stage2_iCacheRsp;
+        match {.cpu_iid, .m_stage_data} <- stage2Ctrl.nextReadyInstance();
+
+        let m_icache_rsp <- immRspFromICache.receive(cpu_iid); 
+
+        if (m_stage_data matches tagged Valid .stage_data)
+        begin
+            if (m_icache_rsp matches tagged Valid .icache_rsp)
+            begin
+                // Response from icache. Use the updated bundle, and
+                // corresponding imem response.
+                IMEM_RESPONSE response = case (icache_rsp.rspType)
+                    ICACHE_hit: IMEM_icache_hit;
+                    ICACHE_miss: IMEM_icache_miss;
+                    ICACHE_retry: IMEM_icache_retry;
+                endcase;
+
+                iMemToPCCalc.send(cpu_iid, tagged Valid IMEM_OUTPUT {
+                    bundle: icache_rsp.bundle,
+                    response: response
+                });
+            end
+            else
+            begin
+                // Nothing from the icache, so there must have been an itlb
+                // fault or bad epoch. Use the stage data as is.
+                iMemToPCCalc.send(cpu_iid, tagged Valid stage_data);
+            end
+        end
+        else
+        begin
+            // Bubble from ITLB. Send bubble onto pccalc.
+            iMemToPCCalc.send(cpu_iid, Invalid);
+        end
+
+        // End the model cycle.
+        localCtrl.endModelCycle(cpu_iid, 1);
     endrule
 
 endmodule

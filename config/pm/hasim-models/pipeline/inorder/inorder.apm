@@ -42,6 +42,7 @@ instq_stage=Inorder Instruction Queue Stage
 imem_stage=Inorder IMem Stage
 write_buffer=Blocking Write Buffer
 commitq_stage=Inorder Commit Queue Stage
+line_predictor=No Branch Line Predictor
 
 [Inorder Fetch Stage]
 File=modules/hasim/timing-models/pipeline/inorder/fetch/inorder-fetch-stage.awb
@@ -88,4 +89,8 @@ Packagehint=hasim-models
 
 [Inorder Commit Queue Stage]
 File=modules/hasim/timing-models/pipeline/inorder/commitq/inorder-commitq-stage.awb
+Packagehint=hasim-models
+
+[No Branch Line Predictor]
+File=modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch/nobranch-line-predictor.awb
 Packagehint=hasim-models

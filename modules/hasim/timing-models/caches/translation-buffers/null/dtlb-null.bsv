@@ -68,7 +68,8 @@ module [HASIM_MODULE] mkDTLB();
         let m_req <-reqFromInQ.receive(cpu_iid);
 
         // check request type
-        if (m_req matches tagged Valid .req &&& rspToOutQ.canEnq(cpu_iid))
+        let can_enq <- rspToOutQ.canEnq(cpu_iid);
+        if (m_req matches tagged Valid .req &&& can_enq)
 	begin
         
             // See if it's a memory operation.

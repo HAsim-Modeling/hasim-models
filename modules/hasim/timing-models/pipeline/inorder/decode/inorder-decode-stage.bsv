@@ -91,7 +91,7 @@ module [HASIM_MODULE] mkDecode ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                    deqToInstQ <- mkPortSend_Multiplexed("Dec_to_InstQ_deq");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN)                    allocToSB <- mkPortSend_Multiplexed("Dec_to_SB_alloc");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)      bundleFromInstQ      <- mkPortRecvGuarded_Multiplexed("InstQ_to_Dec_first", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)      bundleFromInstQ      <- mkPortRecv_Multiplexed("InstQ_to_Dec_first", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
@@ -109,7 +109,7 @@ module [HASIM_MODULE] mkDecode ();
  
     // ****** Local Controller ******
 
-    Vector#(8, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
+    Vector#(9, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = writebackFromExe.ctrl;
     inports[1]  = writebackFromMemHit.ctrl;
@@ -119,6 +119,7 @@ module [HASIM_MODULE] mkDecode ();
     inports[5]  = creditFromSB.ctrl;
     inports[6]  = mispredictFromExe.ctrl;
     inports[7]  = faultFromCom.ctrl;
+    inports[8]  = bundleFromInstQ.ctrl;
     outports[0] = bundleToIssueQ.ctrl.out;
     outports[1] = deqToInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
@@ -132,7 +133,7 @@ module [HASIM_MODULE] mkDecode ();
     // ****** Events ******
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventDec <- mkEventRecorder_Multiplexed(`EVENTS_DECODE_INSTRUCTION_DECODE);
 
-    // ****** Model State (per Context) ******
+    // ****** Model State (per Instance) ******
 
     Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
     Integer numFuncpPhyRegisters = valueof(FUNCP_NUM_PHYSICAL_REGS);
@@ -150,7 +151,7 @@ module [HASIM_MODULE] mkDecode ();
     MULTIPLEXED#(NUM_CPUS, COUNTER#(TOKEN_INDEX_SIZE))              numInstrsInFlightPool <- mkMultiplexed(mkLCounter(0));
     MULTIPLEXED#(NUM_CPUS, Reg#(Bool))                                  drainingAfterPool <- mkMultiplexed(mkReg(False));
     MULTIPLEXED#(NUM_CPUS, Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES))) memoDependenciesPool <- mkMultiplexed(mkReg(Invalid));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)))      prfValidPool <- mkMultiplexed(mkReg(prfValidInit));
+    Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool))      prfValid <- mkReg(prfValidInit);
 
     MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_EPOCH)) epochPool <- mkMultiplexed(mkReg(initEpoch(0, 0)));
 
@@ -165,7 +166,6 @@ module [HASIM_MODULE] mkDecode ();
 
         // Extract local state from the context.
         let cpu_iid = tokCpuInstanceId(tok);
-        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = prfValidPool[cpu_iid];
 
         // Check if each source register is ready.
         Bool rdy = True;
@@ -230,7 +230,6 @@ module [HASIM_MODULE] mkDecode ();
         
         // Extract local state from the context.
         let cpu_iid = tokCpuInstanceId(tok);
-        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = prfValidPool[cpu_iid];
         COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
 
         // Update the scoreboard.
@@ -299,7 +298,6 @@ module [HASIM_MODULE] mkDecode ();
         debugLog.nextModelCycle(cpu_iid);
         
         // Extract our local state from the context.
-        Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool)) prfValid = prfValidPool[cpu_iid];
         COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
 
         // Record how many registers have been written or instructions killed.
@@ -396,16 +394,17 @@ module [HASIM_MODULE] mkDecode ();
     (* conservative_implicit_conditions *)
     rule stage2_dependencies (True);
 
-        // Get the context from the previous stage.
+        // Get the cpu instance from the previous stage.
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
         
-        // Extract local state from the context.
+        // Extract local state from the cpu instance.
         Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
         Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
         
         let m_mispred <- mispredictFromExe.receive(cpu_iid);
         let m_fault   <- faultFromCom.receive(cpu_iid);
         let m_bundle  <- bundleFromInstQ.receive(cpu_iid);
+        let can_enq <- bundleToIssueQ.canEnq(cpu_iid);
 
         if (isValid(m_fault))
         begin
@@ -415,6 +414,7 @@ module [HASIM_MODULE] mkDecode ();
             
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
             epoch.fault <= epoch.fault + 1;
+            memoDependencies <= Invalid;
             
             // Tell the following stages it's a bubble.
             stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
@@ -428,6 +428,7 @@ module [HASIM_MODULE] mkDecode ();
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
             epoch.branch <= epoch.branch + 1;
+            memoDependencies <= Invalid;
         
             // Tell the following stages it's a bubble.
             stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
@@ -441,7 +442,7 @@ module [HASIM_MODULE] mkDecode ();
             begin
 
                 // Check if the issueQ has space.
-                if (bundleToIssueQ.canEnq(cpu_iid))
+                if (can_enq)
                 begin
 
                     // Let's get the dependencies, if we haven't already.                

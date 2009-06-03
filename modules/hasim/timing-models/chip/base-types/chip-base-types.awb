@@ -8,4 +8,6 @@
 
 %public chip-base-types.bsv
 
+%param NUM_CPUS 2 "Number of CPUs on the core"
+
 %AWB_END

@@ -1,0 +1,11 @@
+%AWB_START
+
+%name No Branch Line Predictor
+%desc Always predicts pc + 4
+%provides line_predictor
+
+%attributes hasim model pipeline inorder
+
+%public nobranch-line-predictor.bsv
+
+%AWB_END

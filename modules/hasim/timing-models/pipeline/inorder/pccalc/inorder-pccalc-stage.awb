@@ -7,5 +7,6 @@
 %attributes hasim model pipeline inorder
 
 %public  inorder-pccalc-stage.bsv
+%private pccalc.dic
 
 %AWB_END

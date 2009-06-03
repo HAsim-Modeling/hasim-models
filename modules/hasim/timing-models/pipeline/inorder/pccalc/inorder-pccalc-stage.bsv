@@ -41,42 +41,37 @@ import Vector::*;
 
 // ****** Generated files ******
 
-`include "asim/dict/EVENTS_FETCH.bsh"
-`include "asim/dict/STATS_FETCH.bsh"
+`include "asim/dict/STATS_PCCALC.bsh"
 
 
 // ****** Local Datatypes ******
 
+
+// PCC1_STATE
+
+// Record if the PCCAlc stage stalls for a rewind or fault.
+
 typedef union tagged
 {
-    void        STAGE2_bubble;
-    ISA_ADDRESS STAGE2_fetch;
+    void        STAGE2_noredirect;
+    ISA_ADDRESS STAGE2_redirect;
     void        STAGE2_faultRsp;
     ISA_ADDRESS STAGE2_rewindRsp;
 }
 PCC_STAGE2_STATE deriving (Bits, Eq);
 
 
+// ASSUMPTIONS made by pccalc:
+//   The input from BranchPrediction refers to the same instruction bundle as
+//   the input from IMem.
+// and probably more I don't realize yet.
+
+// PATHS:
+// 1. No fault from back end.
+// 2. Fault from back end.
+// 3. Rewind from back end.
+
 // ****** Modules ******
-
-
-// mkPCCalc
-
-// Inorder PCCalc stage. Takes the responses from the branch predictor and 
-// ITLB and ICache combines them with branch resteers from EXE and faults from
-// Commit. Produces a new PC, and may enqueue into the InstructionQ.
-
-// Normal flow:
-// stage1: no fault, rewind, icache retry, or TLB page fault. Take branch prediction. Enqueue into InstructionQ
-
-// Ways to end a model cycle:
-
-// Path 1: Normal flow
-// Path 2: A bubble because the InstQ is out of space.
-// Path 3: A fault from commit.
-// Path 4: A rewind due to branch misprediction, ICache retry, or ITLB fault.
-
-// NOTE: ITLB faults may have a different call to the functional partition in the future.
 
 
 module [HASIM_MODULE] mkPCCalc
@@ -85,12 +80,9 @@ module [HASIM_MODULE] mkPCCalc
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_pccalc.out");
 
-    // ****** Model State (per Context) ******
+    // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_FAULT_EPOCH))  faultEpochPool  <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_BRANCH_EPOCH)) branchEpochPool <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH))    iTLBEpochPool   <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ICACHE_EPOCH))  iCacheEpochPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_EPOCH))  epochPool <- mkMultiplexed(mkReg(initIMemEpoch(0, 0, 0, 0)));
 
     // ****** Soft Connections ******
 
@@ -104,324 +96,266 @@ module [HASIM_MODULE] mkPCCalc
     // ****** Ports ******
 
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(INSTQ_SLOT_ID, FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION))) bundleToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_allocate");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH)) nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_ALLOCATION)                  bundleToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_allocate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                              clearToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_clear");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Bool)                              creditResetToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_creditReset");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN) faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)                                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindFromExe <- mkPortRecv_Multiplexed("Exe_to_Fet_rewind", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(IMEM_EPOCH, ISA_ADDRESS))  faultFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_fault", 0);
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE)  immRspFromICache <- mkPortRecv_Multiplexed("ICache_to_CPU_immediate", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)              predFromBP       <- mkPortRecv_Multiplexed("BP_to_Fet_pred", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)              attrFromBP       <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 0);
-
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_OUTPUT) rspFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_response", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) predFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_pred", 2);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR) attrFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 2);
 
 
     // ****** Local Controller ******
 
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(5, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
 
-    inports[0] = faultFromCom.ctrl;
-    inports[1] = rewindFromExe.ctrl;
-    inports[2] = faultFromIMem.ctrl;
-    inports[3] = immRspFromICache.ctrl;
-    inports[4] = predFromBP.ctrl;
-    inports[5] = attrFromBP.ctrl;
-    outports[0]  = bundleToInstQ.ctrl;
-    outports[1]  = nextPCToFetch.ctrl;
+    inctrls[0] = faultFromCom.ctrl;
+    inctrls[1] = rewindFromExe.ctrl;
+    inctrls[2] = rspFromIMem.ctrl;
+    inctrls[3] = predFromBP.ctrl;
+    inctrls[4] = attrFromBP.ctrl;
+    outctrls[0]  = bundleToInstQ.ctrl;
+    outctrls[1]  = nextPCToFetch.ctrl;
+    outctrls[2]  = clearToInstQ.ctrl;
+    outctrls[3]  = creditResetToInstQ.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
     STAGE_CONTROLLER#(NUM_CPUS, PCC_STAGE2_STATE) stage2Ctrl <- mkStageController();
 
 
+    // ****** Stats ******
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLpBpMismatches <- mkStatCounter_Multiplexed(`STATS_PCCALC_LP_BP_MISMATCHES);
+
     // ****** Rules ******
-    
-    // stage1_nextPC
-    
-    // Calculate the next PC based on our input ports.
-    // Also calculate the ICache and ITLB epochs.
-    // These epochs are not passed to the rest of the pipeline.
-    
-    // Also enqueues the ICache response into the instructionQ.
     
     // Ports read:
     // * rewindFromExe
     // * faultFromCom
-    // * immRspFromICache
-    // * faultFromIMem
+    // * rspFromIMem
     // * predFromBP
-    
+    // * attrFromBP
+    //
     // Ports written:
     // * bundleToInstQ
-    
-    (* conservative_implicit_conditions *)
+    // * clearToInstQ
+    // * creditResetToInstQ
+
     rule stage1_nextPC (True);
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
 
-        // Get our state from the contexts.
-        Reg#(TOKEN_FAULT_EPOCH)   faultEpoch = faultEpochPool[cpu_iid];
-        Reg#(TOKEN_BRANCH_EPOCH) branchEpoch = branchEpochPool[cpu_iid];
-        Reg#(IMEM_ITLB_EPOCH)      iTLBEpoch = iTLBEpochPool[cpu_iid];
-        Reg#(IMEM_ICACHE_EPOCH)  iCacheEpoch = iCacheEpochPool[cpu_iid];
+        // Get our state from the instance.
+        Reg#(IMEM_EPOCH) epochReg = epochPool[cpu_iid];
+        IMEM_EPOCH epoch = epochReg;
 
         // Receive potential new PCs from our incoming ports.
         let m_rewind     <- rewindFromExe.receive(cpu_iid);
         let m_fault      <- faultFromCom.receive(cpu_iid);
-        let m_cache_rsp  <- immRspFromICache.receive(cpu_iid);
-        let m_itlb_fault <- faultFromIMem.receive(cpu_iid);
+        let m_imem_rsp  <- rspFromIMem.receive(cpu_iid);
         let m_pred_pc    <- predFromBP.receive(cpu_iid);
-        
-        // Later pipeline stages are given higher priority.
-        // fault > rewind > icache retry > itlb fault > prediction
-        
-        // Branch epochs are stored in the token and the functional partition.
-        // We track the fault epoch ourselves here.
-        // Assumed invariant:
-        // We will get no more redirects from that stage until an instruction
-        // of the new epoch reaches it. 
-        // (IE the stage has a local copy of the epoch and silently drops 
-        //  until it sees the new epoch.)
+        let m_attr <- attrFromBP.receive(cpu_iid);
 
+        PCC_STAGE2_STATE stage2_redirect_state = tagged STAGE2_noredirect;
+        Bool credit_reset = False;
+        Bool keep_reset_allocation = False;
+
+        Bool back_end_fault = False;
+
+        // Check for faults and rewinds from the back end.
+        // This is only to see if we need to redirect the pc. It has nothing
+        // to do with the instruction queue allocation or poisoning.
+        //
+        // If there is a fault or a rewind we increment the epoch, so that the
+        // next stage will never try to overide redirect, because the epoch is
+        // gaurenteed not to match.
         if (m_fault matches tagged Valid { .tok })
         begin
-            
-            // A fault occurred. Get the handler PC from the functional partition.
+            // A fault occurred. Get the handler PC from the functional
+            // partition.
             debugLog.record_next_cycle(cpu_iid, fshow("FAULT: ") + fshow(tok));
             handleFault.makeReq(initFuncpReqHandleFault(tok));
-            faultEpoch <= faultEpoch + 1;
+            epoch.fault = epoch.fault + 1;
 
-            // Tell the next stage to get the response from the functional partition.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_faultRsp);
+            back_end_fault = True;
+            stage2_redirect_state = tagged STAGE2_faultRsp;
 
         end
         else if (m_rewind matches tagged Valid { .tok, .fault_epoch, .addr} &&&
-                 fault_epoch == faultEpoch)
+                 fault_epoch == epoch.fault)
         begin
 
             // A branch misprediction occured.
             // Epoch check ensures we haven't already redirected from a fault.
             debugLog.record_next_cycle(cpu_iid, fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
-            branchEpoch <= branchEpoch + 1;
+            epoch.branch = epoch.branch + 1;
 
-            // Tell the next stage to wait until the functional partition indicates the rewind is complete.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_rewindRsp addr);
-
+            back_end_fault = True;
+            stage2_redirect_state = tagged STAGE2_rewindRsp addr;
         end
-        else if (m_cache_rsp matches tagged Valid .rsp &&&
-                 rsp.rspType matches tagged ICACHE_retry &&&
-                  rsp.bundle.epoch.fault == faultEpoch &&&
-                 rsp.bundle.epoch.branch == branchEpoch &&&
-                 rsp.bundle.epoch.iCache == iCacheEpoch)
+
+        // If we need to redirect, we put the pc to redirect to in here.
+        Maybe#(ISA_ADDRESS) redirect = Invalid;
+
+        // Figure out what to do with the INSTQ allocation.
+        if (m_imem_rsp matches tagged Valid .imem_rsp)
         begin
 
-            // A cache retry occured.
-            // Epoch check ensures we haven't already redirected from a fault or a branch misprediction.
-            debugLog.record_next_cycle(cpu_iid, $format("ICACHE RETRY ADDR:0x%h", rsp.bundle.virtualAddress));
-            
-            iCacheEpoch <= iCacheEpoch + 1;
-            
-            // The next stage will redirect to the new PC.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_fetch rsp.bundle.virtualAddress);
+            // If m_imem_rsp is valid, it means m_pred_pc and m_attr must be
+            // valid.
+            // assert isValid(m_pred_pc);
+            let pred_pc = validValue(m_pred_pc);
+            let attr = validValue(m_attr);
 
+            // Check for problems with this bundle.
+            if (imem_rsp.bundle.epoch != epoch)
+            begin
+                // Epoch is wrong. No need to redirect.
+                debugLog.record_next_cycle(cpu_iid, $format("WRONG EPOCH"));
+            end
+            else if (imem_rsp.response == IMEM_itlb_fault)
+            begin
+                // An ITLB fault occured. Increment the itlb epoch, redirect
+                // pc to the handler address, and credit_reset the INSTQ.
+                debugLog.record_next_cycle(cpu_iid, $format("ITLB FAULT"));
+                credit_reset = True;                
         
-        end
-        else if (m_itlb_fault matches tagged Valid {.epoch, .handler_addr} &&&
-                          epoch.fault == faultEpoch  &&&
-                         epoch.branch == branchEpoch &&&
-                         epoch.iCache == iCacheEpoch)
-        begin
-        
-            // An ITLB fault occured. Jump to the provided handler address.
-            // (Note: in the future we could be the one to retrieve the handler, as with faults.)
-            debugLog.record_next_cycle(cpu_iid, $format("ITLB PAGE FAULT ADDR:0x%h", handler_addr));
+                // For now we just go to whatever address we were trying to
+                // execute. This will likely have to change in the future.
+                redirect = tagged Valid imem_rsp.bundle.virtualAddress;
+                epoch.iTLB = epoch.iTLB + 1;
             
-            iTLBEpoch <= iTLBEpoch + 1;
+            end
+            else if (imem_rsp.response == IMEM_icache_retry)
+            begin
+                // ICACHE Retry. We need to increment the iCache epoch,
+                // redirect the PC and credit_reset the INSTQ.
+                debugLog.record_next_cycle(cpu_iid, $format("ICACHE RETRY"));
+                credit_reset = True;
 
-            // The next stage will redirect to the new PC.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_fetch handler_addr);
-        
-        end
-        else if (m_pred_pc matches tagged Valid .pred_pc)
-        begin
+                redirect = tagged Valid imem_rsp.bundle.virtualAddress;
+                epoch.iCache = epoch.iCache + 1;
+            end
+            else if (imem_rsp.bundle.linePrediction != pred_pc)
+            begin
+                // Line prediction doesn't match branch prediction.
+                // Increment the epoch (we use iCache epoch for this).
+                // Redirect to the branch prediction.
+                // Even though the line prediction was wrong, this instruction
+                // is still correct, so don't credit_reset the INSTQ now, but
+                // remeber that we need to do it next model cycle.
+                statLpBpMismatches.incr(cpu_iid);
+                debugLog.record_next_cycle(cpu_iid, $format("LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
+                credit_reset = True;
+                keep_reset_allocation = True;
 
-            // We got a response from the branch predictor. (This should be the normal flow.)
-            debugLog.record_next_cycle(cpu_iid, $format("BRANCH PRED:0x%h", pred_pc));
+                redirect = tagged Valid pred_pc;
+                epoch.iCache = epoch.iCache+1;
+            end
 
-            // The next stage will fetch the predicted PC.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_fetch pred_pc);
+            Bool delayed = (imem_rsp.response == IMEM_icache_miss);
+
+            // Make appropriate INSTQ_ALLOCATION
+            let bundle = FETCH_BUNDLE {
+                branchEpoch: imem_rsp.bundle.epoch.branch,
+                faultEpoch: imem_rsp.bundle.epoch.fault,
+                pc: imem_rsp.bundle.virtualAddress,
+                inst: imem_rsp.bundle.instruction,
+                branchAttr: attr
+            };
+
+            let instq_alloc = INSTQ_ALLOCATION {
+                credit: imem_rsp.bundle.instQCredit,
+                bundle: bundle,
+                delayed: delayed
+            };
+
+            bundleToInstQ.send(cpu_iid, tagged Valid instq_alloc);
 
         end
         else
         begin
-            
-            // There's a bubble, so keep the PC the same.
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
-
-            // The next stage will propogate the bubble.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
-
+            // There's a bubble from the front end.
+            bundleToInstQ.send(cpu_iid, Invalid);
         end
 
-        // Now we handle enqueuing into the instructionQ. First, get the branch attributes.
-        let m_attr <- attrFromBP.receive(cpu_iid);
+        // Now we deal with pc redirection.
+        if (!back_end_fault &&& redirect matches tagged Valid .new_pc)
+        begin
+            stage2_redirect_state = tagged STAGE2_redirect new_pc;
+        end
 
-        case (m_cache_rsp) matches
+        clearToInstQ.send(cpu_iid, back_end_fault ? tagged Valid (?) : Invalid);
 
-            tagged Invalid:
-            begin
+        // Do a credit reset if needed.
+        if (credit_reset)
+        begin
+            creditResetToInstQ.send(cpu_iid, tagged Valid keep_reset_allocation);
+        end
+        else
+        begin
+            creditResetToInstQ.send(cpu_iid, Invalid);
+        end
 
-                // No ICache response, so propogate the bubble.
-                debugLog.record_next_cycle(cpu_iid, fshow("CACHE BUBBLE"));
-                bundleToInstQ.send(cpu_iid, tagged Invalid); 
-                
-            end
+        stage2Ctrl.ready(cpu_iid, stage2_redirect_state);
 
-            tagged Valid .rsp &&& (rsp.rspType == ICACHE_hit):
-            begin
-
-                // We got a hit, but maybe it follows a retry.
-                if (rsp.bundle.epoch.iCache == iCacheEpoch)
-                begin
-
-                    // It's on the right path.
-                    debugLog.record_next_cycle(cpu_iid, $format("INSTQ ALLOC COMPLETED SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
-
-                    // assert isValid m_attr
-                    let bundle = FETCH_BUNDLE {branchEpoch: rsp.bundle.epoch.branch, faultEpoch: rsp.bundle.epoch.fault, pc: rsp.bundle.virtualAddress, inst: ?, branchAttr: validValue(m_attr)};
-
-                    // Enqueue it completed with an instruction.
-                    bundleToInstQ.send(cpu_iid, tagged Valid tuple3(rsp.bundle.instQSlot, bundle, tagged Valid rsp.bundle.instruction));
-
-                end
-                else
-                begin
-
-                    // It's on the wrong path.
-                    debugLog.record_next_cycle(cpu_iid, $format("CACHE HIT EPOCH DROP SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
-                    bundleToInstQ.send(cpu_iid, tagged Invalid); 
-
-                end
-
-            end
-
-            tagged Valid .rsp &&& (rsp.rspType == ICACHE_miss):
-            begin
-                
-                // We got a miss, but maybe it follows a retry.
-                if (rsp.bundle.epoch.iCache == iCacheEpoch)
-                begin
-
-                    // It's on the right path.
-                    debugLog.record_next_cycle(cpu_iid, $format("INSTQ ALLOC INCOMPLETE SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
-
-                    // Update the bundle epochs
-                    let epoch = initEpoch(rsp.bundle.epoch.branch, rsp.bundle.epoch.fault);
-
-                    // assert isValid m_attr
-                    let bundle = FETCH_BUNDLE {branchEpoch: rsp.bundle.epoch.branch, faultEpoch: rsp.bundle.epoch.fault, pc: rsp.bundle.virtualAddress, inst: ?, branchAttr: validValue(m_attr)};
-
-                    // Enqueue it incomplete with no instruction.
-                    bundleToInstQ.send(cpu_iid, tagged Valid tuple3(rsp.bundle.instQSlot, bundle, tagged Invalid));
-
-                end
-                else
-                begin
-
-                    // It's on the wrong path.
-                    debugLog.record_next_cycle(cpu_iid, $format("CACHE MISS EPOCH SLOT: %0d DROP ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
-                    bundleToInstQ.send(cpu_iid, tagged Invalid); 
-
-                end
-            end
-            
-            tagged Valid .rsp &&& (rsp.rspType == ICACHE_retry):
-            begin
-            
-                // It's a retry. Don't enqueue anything.
-                debugLog.record_next_cycle(cpu_iid, $format("CACHE RETRY NO ENQ SLOT: %0d ADDR:0x%h", rsp.bundle.instQSlot, rsp.bundle.virtualAddress));
-                bundleToInstQ.send(cpu_iid, tagged Invalid); 
-            
-            end
-        endcase
-
+        epochReg <= epoch;
     endrule
-
-
-    // stage2_rewindRsp
     
-    // Get a rewind/fault response (if any), transmit the next PC.
+
+    // stage2_redirect
     
+    // Get fault response, rewind response, or do pc redirection.
     // Ports read:
-    // * None
-    
+    //  (none)
     // Ports written:
     // * nextPCToFetch
 
-    rule stage2_rewindRsp (True);
-        
-        
+    rule stage2_redirect (True);
+
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
-        
-        // Get the state for the the current active instance.
-        Reg#(IMEM_ITLB_EPOCH)      iTLBEpoch = iTLBEpochPool[cpu_iid];
-        Reg#(IMEM_ICACHE_EPOCH)  iCacheEpoch = iCacheEpochPool[cpu_iid];
-        Reg#(TOKEN_FAULT_EPOCH)   faultEpoch = faultEpochPool[cpu_iid];
-        Reg#(TOKEN_BRANCH_EPOCH) branchEpoch = branchEpochPool[cpu_iid];
-        
-        if (state matches tagged STAGE2_bubble)
+
+        // Get our state based on the current cpu instance.
+        let epoch = epochPool[cpu_iid];
+
+            
+        // Redirect as appropriate.
+        if (state matches tagged STAGE2_noredirect) 
         begin
-        
-            // Send the new PC to the Fetch unit.        
             nextPCToFetch.send(cpu_iid, tagged Invalid);
-
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
-
         end
-        else if (state matches tagged STAGE2_fetch .new_pc)
+        else if (state matches tagged STAGE2_redirect .new_pc)
         begin
-        
-            // Send the new PC to the Fetch unit.        
-            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
-
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
-
-        end
-        if (state matches tagged STAGE2_rewindRsp .new_pc)
-        begin
-
-            // Get the rewind response.
-            let rsp = rewindToToken.getResp();
-            rewindToToken.deq();
-
-            // Send the new PC to the Fetch unit.        
-            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
-
-            // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(cpu_iid, 3);
-
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, epoch));
         end
         else if (state matches tagged STAGE2_faultRsp)
         begin
-
+        
             // Get the fault response.
             let rsp = handleFault.getResp();
             handleFault.deq();
 
             // Resteer to the handler.
-            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(rsp.nextInstructionAddress, initIMemEpoch(iTLBEpoch, iCacheEpoch, branchEpoch, faultEpoch)));
-
-            // End of model cycle. (Path 4)
-            localCtrl.endModelCycle(cpu_iid, 4);
-        
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(rsp.nextInstructionAddress, epoch));
         end
+        else if (state matches tagged STAGE2_rewindRsp .new_pc)
+        begin
+            let rsp = rewindToToken.getResp();
+            rewindToToken.deq();
+            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, epoch));
+
+        end
+
+        // End of model cycle. (Path 1)
+        localCtrl.endModelCycle(cpu_iid, 1);
 
     endrule
 

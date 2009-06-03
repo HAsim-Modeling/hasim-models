@@ -1,3 +1,4 @@
+
 import FIFO::*;
 import Vector::*;
 import LFSR::*;
@@ -66,10 +67,10 @@ module [HASIM_MODULE] mkDCache();
 
     // ****** UnModel State ******
     
-    LFSR#(Bit#(8)) loadLFSR  <- mkLFSR_8();
-    LFSR#(Bit#(8)) storeLFSR <- mkLFSR_8();
+    MULTIPLEXED#(NUM_CPUS, LFSR#(Bit#(8))) loadLFSRPool  <- mkMultiplexed(mkLFSR_8());
+    MULTIPLEXED#(NUM_CPUS, LFSR#(Bit#(8))) storeLFSRPool <- mkMultiplexed(mkLFSR_8());
     
-    Reg#(Bool) initializingLFSRs <- mkReg(True);
+    Reg#(Maybe#(INSTANCE_ID#(NUM_CPUS))) initializingLFSRs <- mkReg(tagged Valid 0);
 
     // ****** Ports ******
 
@@ -125,11 +126,22 @@ module [HASIM_MODULE] mkDCache();
 
     // initializeLFSRs
     
-    rule initializeLFSRs (initializingLFSRs);
+    rule initializeLFSRs (initializingLFSRs matches tagged Valid .iid);
+    
+        let loadLFSR  = loadLFSRPool[iid];
+        let storeLFSR = storeLFSRPool[iid];
     
         loadLFSR.seed(loadSeedParam);
         storeLFSR.seed(storeSeedParam);
-        initializingLFSRs <= False;
+        let new_iid = iid + 1;
+        if (new_iid == 0)
+        begin
+            initializingLFSRs <= tagged Invalid;
+        end
+        else
+        begin
+            initializingLFSRs <= tagged Valid new_iid;
+        end
     
     endrule
 
@@ -147,7 +159,7 @@ module [HASIM_MODULE] mkDCache();
     // * storeRspDelToCPU
     // * reqToMemory
     
-    rule stage1_loadReq (!initializingLFSRs);
+    rule stage1_loadReq (!isValid(initializingLFSRs));
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
@@ -185,6 +197,9 @@ module [HASIM_MODULE] mkDCache();
             storeRspDelToCPU.send(cpu_iid, tagged Invalid);
         
         end
+        
+        let loadLFSR  = loadLFSRPool[cpu_iid];
+        let storeLFSR = storeLFSRPool[cpu_iid];
         
         // Now read load input port.
         let msg_from_cpu <- loadReqFromCPU.receive(cpu_iid);

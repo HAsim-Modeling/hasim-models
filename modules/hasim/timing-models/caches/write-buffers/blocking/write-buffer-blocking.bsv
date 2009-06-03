@@ -56,7 +56,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_writebuffer.out");
 
 
-    // ****** Model State (per Context) ******
+    // ****** Model State (per instance) ******
     
     MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))))    buffPool   <- mkMultiplexed(mkReg(replicate(Invalid)));
 
@@ -84,8 +84,8 @@ module [HASIM_MODULE] mkWriteBuffer ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)          creditToSB <- mkPortSend_Multiplexed("WB_to_SB_credit");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)   rspToDMem     <- mkPortSend_Multiplexed("WB_to_DMem_rsp");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvGuarded_Multiplexed("DCache_to_CPU_store_immediate", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecvGuarded_Multiplexed("DCache_to_CPU_store_delayed", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_delayed");
 
     // ****** Soft Connections ******
     

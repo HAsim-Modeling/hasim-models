@@ -76,7 +76,7 @@ module [HASIM_MODULE] mkCommitQueue
     // ****** Ports ******
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(DMEM_BUNDLE, COMMITQ_SLOT_ID, Bool)) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                       deqFromCom       <- mkPortRecv_Multiplexed("commitQ_deq", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                       deqFromCom       <- mkPortRecvDependent_Multiplexed("commitQ_deq");
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 0);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToCom    <- mkPortSend_Multiplexed("commitQ_first");
@@ -85,11 +85,10 @@ module [HASIM_MODULE] mkCommitQueue
 
     // ****** Local Controller ******
 
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = allocateFromDMem.ctrl;
     inports[1]  = rspFromDCacheDelayed.ctrl;
-    inports[2]  = deqFromCom.ctrl;
     outports[0] = slotToDMem.ctrl;
     outports[1] = bundleToCom.ctrl;
     outports[2] = writebackToDec.ctrl;

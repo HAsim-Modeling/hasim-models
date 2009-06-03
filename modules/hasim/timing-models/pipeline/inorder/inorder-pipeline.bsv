@@ -28,6 +28,7 @@
 `include "asim/provides/commitq_stage.bsh"
 `include "asim/provides/commit_stage.bsh"
 
+`include "asim/provides/line_predictor.bsh"
 `include "asim/provides/branch_predictor.bsh"
 `include "asim/provides/store_buffer.bsh"
 `include "asim/provides/write_buffer.bsh"
@@ -44,6 +45,7 @@ module [HASIM_MODULE] mkPipeline ();
     let cq      <- mkCommitQueue();
     let commit  <- mkCommit();
 
+    let lp     <- mkLinePredictor();
     let bp     <- mkBranchPredictor();
     let sb     <- mkStoreBuffer();
     let wb     <- mkWriteBuffer();

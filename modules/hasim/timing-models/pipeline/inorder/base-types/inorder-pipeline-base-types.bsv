@@ -21,6 +21,7 @@ import hasim_modellib::*;
 import hasim_isa::*;
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/chip_base_types.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
 import Vector::*;
 import FShow::*;
@@ -37,6 +38,19 @@ typedef union tagged {
     ISA_ADDRESS BranchTaken;
 } BRANCH_ATTR deriving (Bits, Eq);
 
+
+typedef enum {
+    IMEM_itlb_fault,
+    IMEM_icache_hit,
+    IMEM_icache_miss,
+    IMEM_icache_retry,
+    IMEM_bad_epoch
+} IMEM_RESPONSE deriving (Bits, Eq);
+
+typedef struct {
+    IMEM_BUNDLE bundle;
+    IMEM_RESPONSE response;
+} IMEM_OUTPUT deriving (Bits, Eq);
 
 //
 // Messages from various stages to DECODE
@@ -74,6 +88,12 @@ typedef struct {
     ISA_INSTRUCTION inst;
     BRANCH_ATTR branchAttr;
 } FETCH_BUNDLE deriving (Bits, Eq);
+
+typedef struct {
+    INSTQ_CREDIT credit;
+    FETCH_BUNDLE bundle;
+    Bool delayed;
+} INSTQ_ALLOCATION deriving(Bits, Eq);
 
 typedef struct {
     TOKEN token;

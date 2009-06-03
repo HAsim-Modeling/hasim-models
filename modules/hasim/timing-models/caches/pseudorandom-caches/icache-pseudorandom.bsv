@@ -1,3 +1,4 @@
+
 import Vector::*;
 import FIFO::*;
 import LFSR::*;
@@ -53,9 +54,9 @@ module [HASIM_MODULE] mkICache();
 
     // ****** UnModel State ******
     
-    LFSR#(Bit#(8)) iLFSR  <- mkLFSR_8();
+    MULTIPLEXED#(NUM_CPUS, LFSR#(Bit#(8))) iLFSRPool  <- mkMultiplexed(mkLFSR_8());
     
-    Reg#(Bool) initializingLFSR <- mkReg(True);
+    Reg#(Maybe#(INSTANCE_ID#(NUM_CPUS))) initializingLFSR <- mkReg(tagged Valid 0);
 
 
     // ****** Soft Connections *******
@@ -103,10 +104,20 @@ module [HASIM_MODULE] mkICache();
 
     // initializeLFSRs
     
-    rule initializeLFSR (initializingLFSR);
+    rule initializeLFSR (initializingLFSR matches tagged Valid .iid);
     
+        let iLFSR = iLFSRPool[iid];
+
         iLFSR.seed(seedParam);
-        initializingLFSR <= False;
+        let next_iid = iid + 1;
+        if (next_iid == 0)
+        begin
+            initializingLFSR <= Invalid;
+        end
+        else
+        begin
+            initializingLFSR <= tagged Valid next_iid;
+        end
     
     endrule
 
@@ -122,7 +133,7 @@ module [HASIM_MODULE] mkICache();
     // * delToFet
 
     (* conservative_implicit_conditions *)
-    rule stage1_instReq (!initializingLFSR);
+    rule stage1_instReq (!isValid(initializingLFSR));
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
@@ -147,6 +158,8 @@ module [HASIM_MODULE] mkICache();
 
         // Now read input port.
         let msg_from_cpu <- pcFromFet.receive(cpu_iid);
+        
+        let iLFSR = iLFSRPool[cpu_iid];
 
         // Check for a request.
         case (msg_from_cpu) matches

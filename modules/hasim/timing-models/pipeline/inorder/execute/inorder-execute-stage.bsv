@@ -217,7 +217,8 @@ module [HASIM_MODULE] mkExecute ();
         
         let m_bundle <- bundleFromIssueQ.receive(cpu_iid);
 
-        if (m_bundle matches tagged Valid .bundle &&& bundleToMemQ.canEnq(cpu_iid))
+        let can_enq <- bundleToMemQ.canEnq(cpu_iid);
+        if (m_bundle matches tagged Valid .bundle &&& can_enq)
         begin
 
             // Yes... but is it something we should be executing?
@@ -227,7 +228,7 @@ module [HASIM_MODULE] mkExecute ();
             begin
                 
                 // It's on the good path.            
-                debugLog.record_next_cycle(cpu_iid, fshow("EXEC: ") + fshow(tok));
+                debugLog.record_next_cycle(cpu_iid, fshow("EXEC: ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
 
                 // Have the functional partition execute it.
                 getResults.makeReq(initFuncpReqGetResults(tok));
@@ -380,6 +381,7 @@ module [HASIM_MODULE] mkExecute ();
                     begin
 
                         // It was predicted correctly. Train, but don't resteer.
+                        debugLog.record(cpu_iid, fshow("(AS PREDICTED)"));
                         rewindToFet.send(cpu_iid, tagged Invalid);
                         rewindToDec.send(cpu_iid, tagged Invalid);
                         train.predCorrect = True;
@@ -390,6 +392,7 @@ module [HASIM_MODULE] mkExecute ();
                     begin
 
                         // The branch predictor predicted NotTaken.
+                        debugLog.record(cpu_iid, fshow("(MIS PREDICTED)"));
                         statMispred.incr(cpu_iid);
                         epoch.branch <= epoch.branch + 1;
 

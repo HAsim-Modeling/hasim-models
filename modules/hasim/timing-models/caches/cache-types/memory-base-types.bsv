@@ -14,7 +14,6 @@ typedef Bit#(`IMEM_ICACHE_EPOCH_BITS) IMEM_ICACHE_EPOCH;
 
 typedef struct
 {
-
     IMEM_ITLB_EPOCH iTLB;
     IMEM_ICACHE_EPOCH iCache;
     TOKEN_BRANCH_EPOCH branch;
@@ -28,23 +27,43 @@ function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKE
 
 endfunction
 
-typedef Bit#(5) INSTQ_SLOT_ID;
+typedef 32 NUM_INSTQ_SLOTS;
+typedef Bit#(TLog#(NUM_INSTQ_SLOTS)) INSTQ_SLOT_ID;
+typedef 2 NUM_INSTQ_SIDES;
+typedef Bit#(TLog#(NUM_INSTQ_SIDES)) INSTQ_SIDE;
+typedef Bit#(2) INSTQ_POISON_EPOCH;
+typedef struct {
+    INSTQ_SLOT_ID slot;
+    INSTQ_SIDE side;
+    INSTQ_POISON_EPOCH epoch;
+} INSTQ_CREDIT deriving(Bits, Eq);
+
+instance FShow#(INSTQ_CREDIT);
+    function Fmt fshow(INSTQ_CREDIT x);
+        Fmt s = fshow("slot = ") + fshow(x.slot);
+        s = s + fshow(" side = ") + fshow(x.side);
+        s = s + fshow(" epoch = ") + fshow(x.epoch);
+        return s;
+    endfunction
+endinstance
+
 typedef Bit#(4) COMMITQ_SLOT_ID;
 
 typedef struct
 {
     IMEM_EPOCH epoch;
-    INSTQ_SLOT_ID instQSlot;
+    INSTQ_CREDIT instQCredit;
     ISA_ADDRESS virtualAddress;
     MEM_OFFSET offset;
     MEM_ADDRESS physicalAddress;
     ISA_INSTRUCTION instruction;
+    ISA_ADDRESS linePrediction;
 }
 IMEM_BUNDLE deriving (Eq, Bits);
 
-function IMEM_BUNDLE initIMemBundle(IMEM_EPOCH ep, INSTQ_SLOT_ID sl, ISA_ADDRESS pc);
+function IMEM_BUNDLE initIMemBundle(IMEM_EPOCH ep, INSTQ_CREDIT cr, ISA_ADDRESS pc, ISA_ADDRESS lp);
 
-    return IMEM_BUNDLE {epoch: ep, instQSlot: sl, virtualAddress: pc, instruction: ?, offset: ?, physicalAddress: ?};
+    return IMEM_BUNDLE {epoch: ep, instQCredit: cr, virtualAddress: pc, instruction: ?, offset: ?, physicalAddress: ?, linePrediction: lp};
 
 endfunction
 

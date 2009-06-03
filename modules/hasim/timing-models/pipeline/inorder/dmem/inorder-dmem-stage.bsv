@@ -101,9 +101,9 @@ module [HASIM_MODULE] mkDMem ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
 
     // Zero-latency response ports for stage 2.
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE)  loadRspFromDCache <- mkPortRecvGuarded_Multiplexed("DCache_to_CPU_load_immediate", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvGuarded_Multiplexed("WB_to_DMem_rsp", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)                     rspFromSB         <- mkPortRecvGuarded_Multiplexed("SB_to_DMem_rsp", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_load_immediate");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvDependent_Multiplexed("WB_to_DMem_rsp");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)                     rspFromSB         <- mkPortRecvDependent_Multiplexed("SB_to_DMem_rsp");
 
 
     // ****** Local Controller ******

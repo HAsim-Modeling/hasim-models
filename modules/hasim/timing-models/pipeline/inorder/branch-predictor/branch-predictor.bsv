@@ -58,7 +58,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)       pcFromFet <- mkPortRecvGuarded_Multiplexed("Fet_to_BP_pc", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)       pcFromFet <- mkPortRecv_Multiplexed("Fet_to_BP_pc", 1);
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)       predToFet <- mkPortSend_Multiplexed("BP_to_Fet_pred");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)       attrToFet <- mkPortSend_Multiplexed("BP_to_Fet_attr");
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN) trainingFromExe <- mkPortRecv_Multiplexed("Exe_to_BP_training", 1);
@@ -66,10 +66,10 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     // ****** Local Controller ******
 
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
-    // inports[0]  = pcFromFet.ctrl;
-    inports[0]  = trainingFromExe.ctrl;
+    inports[0]  = pcFromFet.ctrl;
+    inports[1]  = trainingFromExe.ctrl;
     outports[0] = predToFet.ctrl;
     outports[1] = attrToFet.ctrl;
 
@@ -268,7 +268,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
             begin
 
                 // Update the BTB to note the actual target.            
-                debugLog.record_next_cycle(cpu_iid, $format("3: BTB TRAIN: %h -> %h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
+                debugLog.record(cpu_iid, $format("3: BTB TRAIN: %h -> %h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
                 btb.write(getIndex(pc), tagged Valid tuple2(getTag(pc),tgt));
                 taken = True;
 
@@ -278,7 +278,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
                 // BTB must be an alias for a different branch.  Remove BTB entry.
                 // Note: this is a bit aggressive. Two-bit predictor semantics could be an alternative?
-                debugLog.record_next_cycle(cpu_iid, $format("3: BTB TRAIN: %h not branch", pc) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
+                debugLog.record(cpu_iid, $format("3: BTB TRAIN: %h not branch", pc) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
                 btb.write(getIndex(pc), Invalid);
 
             end
@@ -298,7 +298,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
             begin
 
                 // Update the predictor with the training.
-                debugLog.record_next_cycle(cpu_iid, $format("3: BP TRAIN: %h, pred: %d, taken: %d", pc, pred, taken));
+                debugLog.record(cpu_iid, $format("3: BP TRAIN: %h, pred: %d, taken: %d", pc, pred, taken));
                 bPAlg.upd(bpt.branchPC, pred, taken);
 
             end

@@ -55,18 +55,53 @@ import Vector::*;
 // A completion buffer which rendezvous ICache miss responses with
 // the inorder instruction stream.
 
-// This actually stores information per-token, but artificially limits
-// the number of slots using a counter. Gaps between tokens (which can happen because of rewinds and faults)
-// are handled using a sequential search.
+// External Interface:
+//  "InstQ_to_fet_credit"
+//  Instruction Queue assumes every model cycle the front end will want a new
+//  slot in the instruction queue. If there's an available slot, instruction
+//  queue "credits" the slot to the front end. The credited slot must be
+//  "completed" before it can be reused.
+//
+//  "Fet_to_InstQ_allocate"
+//  When the front end is ready, it should send the instq a fetch bundle and
+//  info about how the slot will be used. This includes whether to use or
+//  "poison" the slot, and whether or not the icache will later update the
+//  slot. 
+//
+//  If poison is true, the data in the slot belongs to a wrong path
+//  instruction. It will be dropped from the queue.  If the slot is
+//  "poisoned", we assume that fetch will poison all credits not yet
+//  allocated.
+//
+//  If complete is true, the slot is considered "complete". If
+//  complete is false, the icache will send the correct instruction for that
+//  slot some number of model cycles in the future via ICache_to_CPU_delayed.
+// 
+//  "ICache_to_CPU_delayed"
+//  If there's a cache miss, it will take some time to get the instruction.
+//  Once the cache gets it, it passes it to the instq, thus completing the
+//  slot.
+//
+//  "Fet_to_InstQ_clear"
+//  If there's a fault or rewind, the allocated slots should be cleared.
+//
+//  "InstQ_to_Dec_first", "Dec_to_InstQ_deq"
+//  The instq will send the first bundle on the queue to decode if that bundle
+//  is complete and not poisoned. That bundle remains first on the queue until
+//  decode explicitly says to dequeue it. (Remember, poisoned bundles are
+//  automatically dropped and are never sent to decode).
 
-// Normal flow: stage 1: perform deallocate and complete -> stage 2: perform allocate
+// Internal Stuff:
+//  It's very complicated. Ask me some other time and maybe I'll tell you
+//  about it if I'm in a good mood.
 
-// Ways a model cycle can end:
-// Path 1: The next sequential token is the one we will try to issue next cycle.
-// Path 2: There is a gap and we stalled to find the next oldest token.
+// The OUTSTANDING_BOARD marks which slots have outstanding potential icache
+// rendezvous. If element [i][j] is True, then slot i, side j has an
+// outstanding request.
+typedef Vector#(NUM_INSTQ_SLOTS, Vector#(NUM_INSTQ_SIDES, Bool)) OUTSTANDING_BOARD;
 
-// NOTE: This module makes an assumption that a Branch Predictor response is 
-// faster than a cache miss response. This is probably a reasonable assumption.
+// The SIDE_MAP says which side is being used for each slot.
+typedef Vector#(NUM_INSTQ_SLOTS, INSTQ_SIDE) SIDE_MAP;
 
 module [HASIM_MODULE] mkInstructionQueue
     // interface:
@@ -75,232 +110,320 @@ module [HASIM_MODULE] mkInstructionQueue
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_instq.out");
 
 
-    // ****** Model State (per Context) ******
+    // ****** Model State (per instance) ******
 
-    // Which tokens are complete? (Ready to issue)
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION))) completionsPool    <- mkMultiplexed(mkLUTRAM(tagged Valid (?)));
+    // Which slots have outstanding potential icache rendezvous .
+    MULTIPLEXED#(NUM_CPUS, Reg#(OUTSTANDING_BOARD)) outstandingPool <- mkMultiplexed(mkReg(replicate(replicate(False))));
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE))   bundlesPool <- mkMultiplexed(mkLUTRAMU());
-
-    // How many slots are taken?
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID))                 nextFreeSlotPool    <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE)) bundlesPool <- mkMultiplexed(mkLUTRAMU());
     
-    // What's the oldest token we know about? (The next one which should issue when it's ready.)
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID))                 oldestSlotPool <- mkMultiplexed(mkReg(0));
+    // What side are we using of each slot?
+    MULTIPLEXED#(NUM_CPUS, Reg#(SIDE_MAP)) sideMapPool <- mkMultiplexed(mkRegU);
+    
+    // Pointer to the head slot, which contains the next bundle for the decode
+    // stage to look at.
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) headPtrPool <- mkMultiplexed(mkReg(0));
+    
+    // Pointer to the next slot we expect fetch to "allocate". All slots
+    // between here and the head slot contain bundles we plan to send to
+    // decode eventually. On poison we reset the credit pointer here.
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) allocPtrPool <- mkMultiplexed(mkReg(0));
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_BRANCH_EPOCH)) curBranchEpochPool <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_FAULT_EPOCH))  curFaultEpochPool  <- mkMultiplexed(mkReg(0));
+    // Pointer to the next slot we'll credit to the front end.
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) creditPtrPool <- mkMultiplexed(mkReg(0));
+
+    // Poison epoch. If incoming poisoned allocations don't match the epoch, we
+    // reset the credit pointer back to the alloc pointer so we don't have any
+    // holes in the queue.
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_POISON_EPOCH)) epochPool <- mkMultiplexed(mkReg(0));
+
+    // Some interesting facts:
+    //  Queue is EMPTY when headPtr == allocPtr 
+    //  Queue is FULL when creditPtr+1 == headPtr
+    //  Slots between headPtr and allocPtr contain bundles allocated by fetch
+    //  but not yet dequeued by decode.
+    //  Slots between allocPtr and creditPtr are slots fetch will soon be
+    //  allocating. They may be poisoned.
+
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(INSTQ_SLOT_ID, FETCH_BUNDLE, Maybe#(ISA_INSTRUCTION)))   allocateFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_allocate", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)                         rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_ALLOCATION)      allocateFromFetch    <- mkPortRecv_Multiplexed("Fet_to_InstQ_allocate", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                  clearFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_clear", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Bool)                  creditResetFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_creditReset", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED) rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)    bundleToDec  <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_SLOT_ID) creditToFetch  <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT) creditToFetch  <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
     
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)        deqFromDec <- mkPortRecvGuarded_Multiplexed("Dec_to_InstQ_deq", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)        deqFromDec <- mkPortRecvDependent_Multiplexed("Dec_to_InstQ_deq");
         
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
 
-    inports[0]  = allocateFromFetch.ctrl;
-    inports[1]  = rspFromICacheDelayed.ctrl;
-    outports[0] = creditToFetch.ctrl;
-    outports[1] = bundleToDec.ctrl;
+    inctrls[0]  = allocateFromFetch.ctrl;
+    inctrls[1]  = clearFromFetch.ctrl;
+    inctrls[2]  = creditResetFromFetch.ctrl;
+    inctrls[3]  = rspFromICacheDelayed.ctrl;
+    outctrls[0] = creditToFetch.ctrl;
+    outctrls[1] = bundleToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
-
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
 
     // ****** Rules ******
 
-    // stage1_sendAndComplete
-    // Check if the oldest slot is ready to go.
-    // If so we send it to decode.
-    // We also check for miss responses from the ICache
-
     // Ports read:
-    // * rspFromICacheDelayed
-    
+    // * rspFromICacheDelayed 
+    //
     // Ports written:
-    // * bundleToDec
+    // * bundleToDec;
 
     (* conservative_implicit_conditions *)
-    rule stage1_sendAndComplete (True);
+    rule stage1_first (True);
                 
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
 
-
-        // Get our local state based on the current context.
-        LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION)) completions = completionsPool[cpu_iid];
+        // Get our local state based on the current instance.
+        Reg#(OUTSTANDING_BOARD) outstanding = outstandingPool[cpu_iid];
+        Reg#(SIDE_MAP) sideMap = sideMapPool [cpu_iid];
         LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
 
-        Reg#(INSTQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
-    
-        // Let's see if the oldest token has been completed.
-        // If so, send it to the decode.
-        let empty = oldestSlot == nextFreeSlot;
+        Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) allocPtr = allocPtrPool[cpu_iid];
 
-        if (completions.sub(oldestSlot) matches tagged Valid .inst &&& !empty)
+        // Send the head bundle to decode if ready.
+        let empty = (headPtr == allocPtr);
+        let head_side = sideMap[headPtr];
+        let head_rdy = !outstanding[headPtr][head_side];
+        if (!empty && head_rdy)
         begin
-
             // It's ready to go.
-            let bundle = bundles.sub(oldestSlot);
-            debugLog.record_next_cycle(cpu_iid, $format("SEND READY ADDR:0x%h", bundle.pc));
-            
-            // Marshall it up and send it to the decode queue.
-            bundle.inst = inst;
+            let bundle = bundles.sub(headPtr);
+            debugLog.record_next_cycle(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", headPtr, bundle.pc));
             bundleToDec.send(cpu_iid, tagged Valid bundle);
-            
         end
         else
         begin
-            
-            // We're not ready to send anything to the decodeQ.
-            debugLog.record_next_cycle(cpu_iid, fshow("NO SEND"));
+            // We're not ready to send anything to the decode.
+            debugLog.record_next_cycle(cpu_iid, $format("NO SEND: ")
+                + $format(empty ? "EMPTY" : "HEAD NOT COMPLETE"));
+
             bundleToDec.send(cpu_iid, tagged Invalid);
-
         end
-        
-        // Now let's check for miss responses from the ICache.
 
-        let m_complete <- rspFromICacheDelayed.receive(cpu_iid);
-        
-        if (m_complete matches tagged Valid .rsp)
-        begin
-        
-            // We've got a new response.
-            debugLog.record_next_cycle(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.instQSlot));
-            
-            // Mark this slot as complete.
-            completions.upd(rsp.instQSlot, tagged Valid rsp.instruction);
-
-        end
-        
-        // Pass this context to the next stage.
         stage2Ctrl.ready(cpu_iid);
+
+    endrule
+
+    rule stage2_complete;
+        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+
+        // Get our local state based on the current instance.
+        Reg#(OUTSTANDING_BOARD) outstanding = outstandingPool[cpu_iid];
+        Reg#(SIDE_MAP) sideMap = sideMapPool [cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
+
+        // Check for icache rendezvous.
+        let m_rendezvous <- rspFromICacheDelayed.receive(cpu_iid);
+        if (m_rendezvous matches tagged Valid .rsp)
+        begin
+            debugLog.record(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.instQCredit));
+            let credit = rsp.instQCredit;
+
+            // Mark the virtual slot as no longer outstanding.
+            outstanding[credit.slot][credit.side] <= False;
+
+            // update the bundle if it's the right side
+            if (credit.side == sideMap[credit.slot])
+            begin
+                let bundle = bundles.sub(credit.slot);
+                bundle.inst = rsp.instruction;
+                bundles.upd(credit.slot, bundle);
+            end
+        end
+
+        // Pass this instance to the next stage.
+        stage3Ctrl.ready(cpu_iid);
 
     endrule
     
 
-    // stage2_deallocate
+    // stage3_deallocate
     // Check if decode is dequeing.
-    
+    //
     // Ports read:
     // * deqFromDec
-    
     // Ports written:
-    // * none
+    // (none)
 
-    (* conservative_implicit_conditions *)
-    rule stage2_deallocate (True);
+    rule stage3_deallocate (True);
 
         // Get the info from the previous stage.
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+        let cpu_iid <- stage3Ctrl.nextReadyInstance();
 
-        // Get the local state for the current instance.
-        Reg#(INSTQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
-        
-        // Check for any dequeues/clears.
+        // Get our local state based on the current instance.
+        Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
+
+        // Check for any dequeues from decode.
         let m_deq <- deqFromDec.receive(cpu_iid);
-        
+
         if (isValid(m_deq))
         begin
             
             // A dequeue occurred. Just drop the oldest guy.
-            debugLog.record(cpu_iid, fshow("DEQ"));
-            oldestSlot <= oldestSlot + 1;
+            debugLog.record(cpu_iid, $format("DEQ. NEW HEAD: 0x%0h", headPtr+1));
+            headPtr <= headPtr + 1;
 
         end
         
         // Send it to the next stage.
-        stage3Ctrl.ready(cpu_iid);
+        stage4Ctrl.ready(cpu_iid);
 
     endrule
 
 
-    // stage3_allocate
+    // stage4_clear_allocate_credit
     
     // Check for allocation requests. Based on allocate and deallocate
     // we can calculate a new credit to be sent to back to Fetch.
     
     // Ports read:
+    // * clearFromFetch
+    // * creditResetFromFetch
     // * allocateFromFetch
-    
     // Ports written:
     // * creditToFetch
 
-    (* conservative_implicit_conditions *)
-    rule stage3_allocate (True);
+    rule stage4_clear_allocate_credit (True);
 
-        // Get our context from the previous stage.
-        let cpu_iid <- stage3Ctrl.nextReadyInstance();
-        
-        // Get our local state based on the context.
-        LUTRAM#(INSTQ_SLOT_ID, Maybe#(ISA_INSTRUCTION)) completions = completionsPool[cpu_iid];
+        // Get our instance from the previous stage.
+        let cpu_iid <- stage4Ctrl.nextReadyInstance();
+
+        // Get our local state based on the current instance.
+        Reg#(OUTSTANDING_BOARD) outstandingReg = outstandingPool[cpu_iid];
+        let outstanding = outstandingReg;
+        Reg#(SIDE_MAP) sideMap = sideMapPool[cpu_iid];
         LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
+        Reg#(INSTQ_POISON_EPOCH) epochReg = epochPool[cpu_iid];
+        let epoch = epochReg;
 
-        Reg#(TOKEN_BRANCH_EPOCH) curBranchEpoch = curBranchEpochPool[cpu_iid];
-        Reg#(TOKEN_FAULT_EPOCH) curFaultEpoch = curFaultEpochPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID) oldestSlot   = oldestSlotPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) allocPtr = allocPtrPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) creditPtr = creditPtrPool[cpu_iid];
+        let head_ptr = headPtr;
+        let alloc_ptr = allocPtr;
+        let credit_ptr = creditPtr;
 
+        // Check for a clear request.
+        let m_clear <- clearFromFetch.receive(cpu_iid);
+        let m_reset <- creditResetFromFetch.receive(cpu_iid);
+        Bool keep_allocation = False;
+        Bool credit_reset = False;
+        if (isValid(m_clear))
+        begin
+            // Clear the queue.
+            debugLog.record(cpu_iid, $format("CLEAR. New Head: 0x%0h", alloc_ptr));
+            head_ptr = alloc_ptr;
+
+            credit_reset = True;
+            epoch = epoch + 1;
+        end
+        else if (m_reset matches tagged Valid .ka)
+        begin
+            // Reset the credit pointer
+            debugLog.record(cpu_iid, $format("CREDIT RESET. New Credit Pointer: 0x%0h, keep alloc: ", alloc_ptr) + $format(ka ? "YES" : "NO"));
+
+            keep_allocation = ka;
+            credit_reset = True;
+            epoch = epoch + 1;
+        end
+
+        
         // Check for any new allocations.
         let m_alloc <- allocateFromFetch.receive(cpu_iid);
-        
-        let new_next_free = nextFreeSlot;
 
-        if (m_alloc matches tagged Valid {.slot, .bundle, .comp})
+        if (m_alloc matches tagged Valid .alloc)
         begin
-
             // A new allocation.
-            debugLog.record(cpu_iid, $format("ALLOC ADDR:0x%h", bundle.pc) + $format(" COMPLETE: %0b", pack(isValid(comp))));
-            bundles.upd(slot, bundle);
-            completions.upd(slot, comp);
-            if (bundle.branchEpoch != curBranchEpoch || bundle.faultEpoch != curFaultEpoch)
+            debugLog.record(cpu_iid,
+                $format("ALLOC ADDR:0x%h", alloc.bundle.pc)
+              + $format(", CREDIT: ") + fshow(alloc.credit)
+              + $format(", DELAYED: ", (alloc.delayed ? "YES" : "NO"))
+            );
+
+            if (alloc.credit.epoch == epoch || keep_allocation)
             begin
-                debugLog.record(cpu_iid, $format("EPOCH CHANGE. NEW HEAD: %0d.", nextFreeSlot));
-                oldestSlot <= nextFreeSlot;
-                curBranchEpoch <= bundle.branchEpoch;
-                curFaultEpoch <= bundle.faultEpoch;
+                bundles.upd(alloc.credit.slot, alloc.bundle);
+                alloc_ptr = alloc.credit.slot+1;
+
+                debugLog.record(cpu_iid, $format("ALLOC ACCEPTED. NEW ALLOC PTR: 0x%0h", alloc_ptr));
             end
-            new_next_free = nextFreeSlot + 1;
+            else
+            begin
+                debugLog.record(cpu_iid, $format("ALLOC POISONED. ALLOC PTR REMAINS: 0x%0h", alloc_ptr));
+            end
+
+            if (!alloc.delayed)
+            begin
+                // This slot no longer is outstanding.
+                debugLog.record(cpu_iid, $format("COMPLETE: ") + fshow(alloc.credit));
+                outstanding[alloc.credit.slot][alloc.credit.side] = False;
+            end
 
         end
-        
-        // Now check if we have a credit to send to fetch based on our (simulated) length.
-        let have_room = (new_next_free + 2 != oldestSlot); // This should really be +L+1, where L is the latency of the credit to Fetch.
-        
-        // Also check that the guy we're going to overwrite has already been completed.
-        let safe_to_allocate = isValid(completions.sub(new_next_free));
-        
-        if (have_room && safe_to_allocate)
-        begin
-        
-            // We still have room.
-            debugLog.record(cpu_iid, fshow("SEND CREDIT"));
-            creditToFetch.send(cpu_iid, tagged Valid new_next_free);
 
+        // Now do the credit reset if needed.
+        if (credit_reset)
+        begin
+            credit_ptr = alloc_ptr;
+        end
+
+        
+        // Now check if we have a credit to send to fetch.
+        // NOTE: It's credit_ptr+2 so we don't advance the credit_ptr to the
+        // head pointer.
+        Bool full = (credit_ptr + 2 == head_ptr);
+        Bool some_side_is_free = (!outstanding[credit_ptr][0] || !outstanding[credit_ptr][1]);
+        if (!full && some_side_is_free)
+        begin
+            // We have room in this slot.
+            INSTQ_SIDE free_side = outstanding[credit_ptr][0] ? 1 : 0;
+            let credit = INSTQ_CREDIT {
+                slot: credit_ptr,
+                side: free_side,
+                epoch: epoch
+            };            
+            creditToFetch.send(cpu_iid, tagged Valid credit);
+            outstanding[credit_ptr][free_side] = True;
+            sideMap[credit_ptr] <= free_side;
+            credit_ptr = credit_ptr + 1;
+
+            debugLog.record(cpu_iid, $format("SEND CREDIT: ") + fshow(credit));
         end
         else
         begin
 
-            // We're full.
+            // No space here.
             debugLog.record(cpu_iid, fshow("NO CREDIT"));
             creditToFetch.send(cpu_iid, tagged Invalid);
 
         end
-        
-        // Update the next free slot
-        nextFreeSlot <= new_next_free;
+
+        outstandingReg <= outstanding;
+        creditPtr <= credit_ptr;
+        allocPtr <= alloc_ptr;
+        headPtr <= head_ptr;
+        epochReg <= epoch;
+
         
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
@@ -308,3 +431,4 @@ module [HASIM_MODULE] mkInstructionQueue
     endrule
 
 endmodule
+

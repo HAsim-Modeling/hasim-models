@@ -2918,3 +2918,98 @@ Directory modules/hasim/timing-models/pipeline/inorder/instq
 * Change incorrect rule name in the branch predictor.
 
 Michael P.
+
+----------
+ruhler      Date: Wed Jun  3 14:38:38 EDT 2009  CSN: CSN-hasim-models-112
+                  Wed Jun  3 18:38:38 UTC 2009
+
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified          111 
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          111 
+ chip-base-types.bsv       Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ line-predictor/           Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/line-predictor
+ nobranch/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch
+ nobranch-line-predictor.awb Locally Added               0 
+ nobranch-line-predictor.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          111 
+ pccalc.dic                Locally Added               0 
+ inorder-pccalc-stage.awb  Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder.awb               Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          111 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.bsv      Locally Modified          111 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          111 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          111 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.bsv   Locally Modified          111 
+ dcache-pseudorandom.bsv   Locally Modified          111 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          111 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          111 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          111 
+ itlb-null.bsv             Locally Modified          111 
+
+
+Rearranged front end of inorder model:
+    Added line predictor.
+    Branch predictor now has 2 cycle latency.
+    Added 1 cycle latency between fetch and itlb.
+    Added 1 cycle latency between fetch and branch predictor.
+    IMem now gets icache immediate response instead of it going to pccalc.
+
+Redesigned instruction queue to not store killed bundles if possible and still
+work with a nonzero latency front end.
+
+Fixed pseudorandom caches to have a different LSFR for each instance.
+
+
