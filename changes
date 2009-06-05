@@ -3013,3 +3013,25 @@ work with a nonzero latency front end.
 Fixed pseudorandom caches to have a different LSFR for each instance.
 
 
+
+----------
+pellauer    Date: Fri Jun  5 17:34:57 EDT 2009  CSN: CSN-hasim-models-113
+                  Fri Jun  5 21:34:57 UTC 2009
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          112 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          112 
+
+
+Fix a deadlock with multiple contexts. It seems that scratchpad readRsp/writeReq
+should not be called in the same rule. By moving it to a different rule all
+benchmarks pass with 2 contexts.
+
+The reason this bug only manifested when running with 2 contexts is that 1
+context would never fill up a FIFO2.
+
+Michael P.
+

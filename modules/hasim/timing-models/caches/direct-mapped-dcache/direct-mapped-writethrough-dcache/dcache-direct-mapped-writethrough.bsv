@@ -104,7 +104,7 @@ module [HASIM_MODULE] mkDCache();
     // ****** Model State ******
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, False);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, True);
 
     
     // ****** Ports ******
@@ -150,6 +150,7 @@ module [HASIM_MODULE] mkDCache();
 
     STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE3_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE3_STATE) stage4Ctrl <- mkStageController();
 
     // ****** Stats ******
 
@@ -248,7 +249,7 @@ module [HASIM_MODULE] mkDCache();
 
     endrule
     
-    // stage2_rspAndFill
+    // stage2_rsp
     
     // Get the response from the tag store, make a request to backing store.
     // Get the response from backing store, perform the fill.
@@ -263,57 +264,10 @@ module [HASIM_MODULE] mkDCache();
     // * storeRspDelToCPU
     // * reqToMemory
     
-    rule stage2_rspAndFill (True);
+    rule stage2_rsp (True);
     
         match {.cpu_iid, {.m_load_info, .m_store_info}} <- stage2Ctrl.nextReadyInstance();
     
-        // First check for fills.
-        let m_fill <- rspFromMemory.receive(cpu_iid);
-        
-        if (m_fill matches tagged Valid .fill)
-        begin
-       
-            // Send the fill to the right place.
-            case (fill) matches
-
-                tagged FILL_load .rsp:
-                begin
-                
-                    // The fill is a load response.
-                    loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
-                    storeRspDelToCPU.send(cpu_iid, tagged Invalid);
-                    
-                    // Update the Tag Store.
-                    let idx = getDCacheIndex(rsp.physicalAddress);
-                    let tag = getDCacheTag(rsp.physicalAddress);
-                    dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
-                
-                end
-
-                tagged FILL_store {.tok, .phys_addr}:
-                begin
-
-                    // The fill is a store response.
-                    loadRspDelToCPU.send(cpu_iid, tagged Invalid);
-                    storeRspDelToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelayOk(tok));
-                    
-                    // Update the Tag Store.
-                    let idx = getDCacheIndex(phys_addr);
-                    let tag = getDCacheTag(phys_addr);
-                    dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
-
-                end
-            endcase
-        
-        end
-        else
-        begin
-            
-            loadRspDelToCPU.send(cpu_iid, tagged Invalid);
-            storeRspDelToCPU.send(cpu_iid, tagged Invalid);
-        
-        end
-
         // Now handle loads.
         Maybe#(DCACHE_LOAD_INPUT) load_info = tagged Invalid;
     
@@ -366,9 +320,64 @@ module [HASIM_MODULE] mkDCache();
        
     endrule
     
-    rule stage3_storeRsp (True);
+    rule stage3_fill (True);
     
-        match {.cpu_iid, {.load_info, .m_store_info}} <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
+    
+        // Check for fills.
+        let m_fill <- rspFromMemory.receive(cpu_iid);
+        
+        if (m_fill matches tagged Valid .fill)
+        begin
+       
+            // Send the fill to the right place.
+            case (fill) matches
+
+                tagged FILL_load .rsp:
+                begin
+                
+                    // The fill is a load response.
+                    loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
+                    storeRspDelToCPU.send(cpu_iid, tagged Invalid);
+                    
+                    // Update the Tag Store.
+                    let idx = getDCacheIndex(rsp.physicalAddress);
+                    let tag = getDCacheTag(rsp.physicalAddress);
+                    dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
+                
+                end
+
+                tagged FILL_store {.tok, .phys_addr}:
+                begin
+
+                    // The fill is a store response.
+                    loadRspDelToCPU.send(cpu_iid, tagged Invalid);
+                    storeRspDelToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelayOk(tok));
+                    
+                    // Update the Tag Store.
+                    let idx = getDCacheIndex(phys_addr);
+                    let tag = getDCacheTag(phys_addr);
+                    dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
+
+                end
+            endcase
+        
+        end
+        else
+        begin
+            
+            loadRspDelToCPU.send(cpu_iid, tagged Invalid);
+            storeRspDelToCPU.send(cpu_iid, tagged Invalid);
+        
+        end
+        
+        stage4Ctrl.ready(cpu_iid, state);
+        
+    endrule
+
+    rule stage4_storeRsp (True);
+    
+        match {.cpu_iid, {.load_info, .m_store_info}} <- stage4Ctrl.nextReadyInstance();
     
         // Next handle stores.
         DCACHE_STORE_INFO store_info = tagged DCACHE_storeNop;

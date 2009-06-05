@@ -101,6 +101,7 @@ module [HASIM_MODULE] mkICache();
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
     
     STAGE_CONTROLLER#(NUM_CPUS, ICACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER_VOID#(NUM_CPUS)                 stage3Ctrl <- mkStageControllerVoid();
 
     // ****** Stats ******
 
@@ -114,7 +115,7 @@ module [HASIM_MODULE] mkICache();
     // let cachememory <- mkICacheMemory();
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, False);     
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, True);
 
 
 
@@ -183,45 +184,17 @@ module [HASIM_MODULE] mkICache();
     // * reqToMemory
     
 
-    rule stage2_rspAndFill (True);
+    rule stage2_rsp (True);
 
         // Get the next instance id.
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
 
-        // First check for fills.
-        let m_fill <- rspFromMemory.receive(cpu_iid);
-        
-        if (m_fill matches tagged Valid .fill)
-        begin
-       
-            // Get the index and tag.
-            let idx = getICacheIndex(fill.physicalAddress);
-            let tag = getICacheTag(fill.physicalAddress);
-       
-            // Record that the data is now in the cache.
-            iCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
-       
-            // Send the fill back to fetch.
-            delToFet.send(cpu_iid, tagged Valid fill);
-                
-        end
-        else
-        begin
-            
-            // No fill.
-            delToFet.send(cpu_iid, tagged Invalid);
-        
-        end
-        
         if (state matches tagged STAGE2_bubble)
         begin
         
             // Propogate the bubble
             immToFet.send(cpu_iid, tagged Invalid);
             reqToMemory.send(cpu_iid, tagged Invalid);
-
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
 
         end
         else if (state matches tagged STAGE2_access .bundle)
@@ -245,9 +218,7 @@ module [HASIM_MODULE] mkICache();
                 immToFet.send(cpu_iid, tagged Valid initICacheHit(bundle, rsp.instruction));
                 reqToMemory.send(cpu_iid, tagged Invalid);
 
-                // End of model cycle. (Path 2)
                 statHits.incr(cpu_iid);
-                localCtrl.endModelCycle(cpu_iid, 2);
 
             end
             else
@@ -257,13 +228,46 @@ module [HASIM_MODULE] mkICache();
                 immToFet.send(cpu_iid, tagged Valid initICacheMiss(bundle));
                 reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(bundle, rsp.instruction));
 
-                // End of model cycle. (Path 3)
                 statMisses.incr(cpu_iid);
-                localCtrl.endModelCycle(cpu_iid, 3);
 
             end
 
         end
+        
+        stage3Ctrl.ready(cpu_iid);
+        
+    endrule
+    
+    rule stage3_fill (True);
+    
+        let cpu_iid <- stage3Ctrl.nextReadyInstance();
+    
+        // Check for fills.
+        let m_fill <- rspFromMemory.receive(cpu_iid);
+        
+        if (m_fill matches tagged Valid .fill)
+        begin
+       
+            // Get the index and tag.
+            let idx = getICacheIndex(fill.physicalAddress);
+            let tag = getICacheTag(fill.physicalAddress);
+       
+            // Record that the data is now in the cache.
+            iCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
+       
+            // Send the fill back to fetch.
+            delToFet.send(cpu_iid, tagged Valid fill);
+                
+        end
+        else
+        begin
+            
+            // No fill.
+            delToFet.send(cpu_iid, tagged Invalid);
+        
+        end
+
+        localCtrl.endModelCycle(cpu_iid, 1);
         
     endrule
 
