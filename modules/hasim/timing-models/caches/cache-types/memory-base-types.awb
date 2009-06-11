@@ -5,3 +5,5 @@
 %attributes hasim model caches
 
 %public memory-base-types.bsv
+
+%param ICACHE_MISS_ID_SIZE 3 "Number of bits to identify ICache Misses. (3 = 8 outstanding misses.)"

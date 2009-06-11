@@ -236,8 +236,11 @@ module [HASIM_MODULE] mkInstructionQueue
         let m_rendezvous <- rspFromICacheDelayed.receive(cpu_iid);
         if (m_rendezvous matches tagged Valid .rsp)
         begin
-            debugLog.record(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.instQCredit));
-            let credit = rsp.instQCredit;
+            
+            // TODO: use rsp.missID to determine which slot it goes into, rather than rsp.bundle.instQCredit.
+        
+            debugLog.record(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.bundle.instQCredit));
+            let credit = rsp.bundle.instQCredit;
 
             // Mark the virtual slot as no longer outstanding.
             outstanding[credit.slot][credit.side] <= False;
@@ -246,7 +249,7 @@ module [HASIM_MODULE] mkInstructionQueue
             if (credit.side == sideMap[credit.slot])
             begin
                 let bundle = bundles.sub(credit.slot);
-                bundle.inst = rsp.instruction;
+                bundle.inst = rsp.bundle.instruction;
                 bundles.upd(credit.slot, bundle);
             end
         end
@@ -357,7 +360,7 @@ module [HASIM_MODULE] mkInstructionQueue
             debugLog.record(cpu_iid,
                 $format("ALLOC ADDR:0x%h", alloc.bundle.pc)
               + $format(", CREDIT: ") + fshow(alloc.credit)
-              + $format(", DELAYED: ", (alloc.delayed ? "YES" : "NO"))
+              + $format(", DELAYED: ", (isValid(alloc.missID) ? "YES" : "NO"))
             );
 
             if (alloc.credit.epoch == epoch || keep_allocation)
@@ -372,7 +375,7 @@ module [HASIM_MODULE] mkInstructionQueue
                 debugLog.record(cpu_iid, $format("ALLOC POISONED. ALLOC PTR REMAINS: 0x%0h", alloc_ptr));
             end
 
-            if (!alloc.delayed)
+            if (!isValid(alloc.missID))
             begin
                 // This slot no longer is outstanding.
                 debugLog.record(cpu_iid, $format("COMPLETE: ") + fshow(alloc.credit));

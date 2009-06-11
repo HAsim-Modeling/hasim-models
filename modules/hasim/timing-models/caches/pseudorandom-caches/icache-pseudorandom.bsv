@@ -52,11 +52,17 @@ module [HASIM_MODULE] mkICache();
     Bit#(8) iCacheRetryChance = retryChanceParam;
     Bit#(8) iCacheMissChance  = retryChanceParam + missChanceParam;
 
-    // ****** UnModel State ******
+    // ****** Model State ******
     
     MULTIPLEXED#(NUM_CPUS, LFSR#(Bit#(8))) iLFSRPool  <- mkMultiplexed(mkLFSR_8());
     
     Reg#(Maybe#(INSTANCE_ID#(NUM_CPUS))) initializingLFSR <- mkReg(tagged Valid 0);
+
+    // Track the next miss ID to give out.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(ICACHE_MISS_ID_SIZE)) nextMissIDPool <- mkMultiplexed(mkLCounter(0));
+
+    // A counter to track number of misses in flight. If we run out of IDs then we make the front-end retry.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(ICACHE_MISS_COUNT)) outstandingMissesPool <- mkMultiplexed(mkLCounter(0));
 
 
     // ****** Soft Connections *******
@@ -138,11 +144,17 @@ module [HASIM_MODULE] mkICache();
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
 
+        // Get our local state from the instance ID.
+        let outstandingMisses = outstandingMissesPool[cpu_iid];
+
         // First check for fills.
         let m_fill <- rspFromMemory.receive(cpu_iid);
         
         if (m_fill matches tagged Valid .fill)
         begin
+       
+            // Record that a miss came back.
+            outstandingMisses.down();
        
             // Send the fill back to fetch.
             delToFet.send(cpu_iid, tagged Valid fill);
@@ -241,6 +253,11 @@ module [HASIM_MODULE] mkICache();
     rule stage2_instRsp (True);
         
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+
+        // Get our local state from the instance ID.
+        let nextMissID = nextMissIDPool[cpu_iid];
+        let outstandingMisses = outstandingMissesPool[cpu_iid];
+
         if (state matches tagged STAGE2_bubble)
         begin
 
@@ -285,10 +302,34 @@ module [HASIM_MODULE] mkICache();
             else
             begin
 
-                // A miss, so delay the response a bit.
-                immToFet.send(cpu_iid, tagged Valid initICacheMiss(bundle));
-                reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(bundle, rsp.instruction));
+                // A miss, so try to get a Miss ID.
+                let num_outstanding = outstandingMisses.value();
+                
+                // We have a miss to allocate if the high bit is not 1.
+                let can_allocate = num_outstanding[valueof(ICACHE_MISS_ID_SIZE)] == 0;
+                
+                if (can_allocate)
+                begin
 
+                    // Allocate the next miss ID and give it to fetch.
+                    let miss_id = nextMissID.value();
+                    nextMissID.up();
+                    outstandingMisses.up();
+
+                    // Delay the response a bit.
+                    immToFet.send(cpu_iid, tagged Valid initICacheMiss(miss_id, bundle));
+                    reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(miss_id, bundle, rsp.instruction));
+
+                end
+                else
+                begin
+
+                    // Tell the front end to retry. This should be quite rare.
+                    immToFet.send(cpu_iid, tagged Valid initICacheRetry(bundle));
+                    reqToMemory.send(cpu_iid, tagged Invalid);
+
+                end
+                
                 // End of model cycle. (Path 4)
                 localCtrl.endModelCycle(cpu_iid, 4);
 

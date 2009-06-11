@@ -221,7 +221,7 @@ module [HASIM_MODULE] mkPCCalc
                 // Epoch is wrong. No need to redirect.
                 debugLog.record_next_cycle(cpu_iid, $format("WRONG EPOCH"));
             end
-            else if (imem_rsp.response == IMEM_itlb_fault)
+            else if (imem_rsp.response matches tagged IMEM_itlb_fault)
             begin
                 // An ITLB fault occured. Increment the itlb epoch, redirect
                 // pc to the handler address, and credit_reset the INSTQ.
@@ -234,7 +234,7 @@ module [HASIM_MODULE] mkPCCalc
                 epoch.iTLB = epoch.iTLB + 1;
             
             end
-            else if (imem_rsp.response == IMEM_icache_retry)
+            else if (imem_rsp.response matches tagged IMEM_icache_retry)
             begin
                 // ICACHE Retry. We need to increment the iCache epoch,
                 // redirect the PC and credit_reset the INSTQ.
@@ -261,7 +261,11 @@ module [HASIM_MODULE] mkPCCalc
                 epoch.iCache = epoch.iCache+1;
             end
 
-            Bool delayed = (imem_rsp.response == IMEM_icache_miss);
+            Maybe#(ICACHE_MISS_ID) miss_id = tagged Invalid;
+            if (imem_rsp.response matches tagged IMEM_icache_miss .id)
+            begin 
+                miss_id = tagged Valid id;
+            end
 
             // Make appropriate INSTQ_ALLOCATION
             let bundle = FETCH_BUNDLE {
@@ -275,7 +279,7 @@ module [HASIM_MODULE] mkPCCalc
             let instq_alloc = INSTQ_ALLOCATION {
                 credit: imem_rsp.bundle.instQCredit,
                 bundle: bundle,
-                delayed: delayed
+                missID: miss_id
             };
 
             bundleToInstQ.send(cpu_iid, tagged Valid instq_alloc);

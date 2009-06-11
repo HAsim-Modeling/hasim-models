@@ -117,6 +117,11 @@ module [HASIM_MODULE] mkICache();
     // Initialize a scratchpad memory to store our tags in.   
     MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, True);
 
+    // Track the next miss ID to give out.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(ICACHE_MISS_ID_SIZE)) nextMissIDPool <- mkMultiplexed(mkLCounter(0));
+
+    // A counter to track number of misses in flight. If we run out of IDs then we make the front-end retry.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(ICACHE_MISS_COUNT)) outstandingMissesPool <- mkMultiplexed(mkLCounter(0));
 
 
     // ****** Rules ******
@@ -188,6 +193,10 @@ module [HASIM_MODULE] mkICache();
 
         // Get the next instance id.
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+        
+        // Get our local state from the instance ID.
+        let nextMissID = nextMissIDPool[cpu_iid];
+        let outstandingMisses = outstandingMissesPool[cpu_iid];
 
         if (state matches tagged STAGE2_bubble)
         begin
@@ -224,11 +233,35 @@ module [HASIM_MODULE] mkICache();
             else
             begin
 
-                // A miss, so send the request to memory.
-                immToFet.send(cpu_iid, tagged Valid initICacheMiss(bundle));
-                reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(bundle, rsp.instruction));
+                // A miss, so try to get a Miss ID.
+                let num_outstanding = outstandingMisses.value();
+                
+                // We have a miss to allocate if the high bit is not 1.
+                let can_allocate = num_outstanding[valueof(ICACHE_MISS_ID_SIZE)] == 0;
+                
+                if (can_allocate)
+                begin
+                    // Allocate the next miss ID and give it to fetch.
+                    let miss_id = nextMissID.value();
+                    nextMissID.up();
+                    outstandingMisses.up();
+                    immToFet.send(cpu_iid, tagged Valid initICacheMiss(miss_id, bundle));
+                    
+                    // Send the request to memory with the appropriate miss ID.
+                    reqToMemory.send(cpu_iid, tagged Valid initICacheMissRsp(miss_id, bundle, rsp.instruction));
+                    statMisses.incr(cpu_iid);
 
-                statMisses.incr(cpu_iid);
+                end
+                else
+                begin
+                    // Since we're out of misses, the CPU must retry.
+                    // This should be pretty rare.
+                    immToFet.send(cpu_iid, tagged Valid initICacheRetry(bundle));
+                    
+                    // No request to memory.
+                    reqToMemory.send(cpu_iid, tagged Invalid);
+                    
+                end        
 
             end
 
@@ -242,6 +275,10 @@ module [HASIM_MODULE] mkICache();
     
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
     
+        // Get our local state from the instance ID.
+        let nextMissID = nextMissIDPool[cpu_iid];
+        let outstandingMisses = outstandingMissesPool[cpu_iid];
+
         // Check for fills.
         let m_fill <- rspFromMemory.receive(cpu_iid);
         
@@ -249,11 +286,14 @@ module [HASIM_MODULE] mkICache();
         begin
        
             // Get the index and tag.
-            let idx = getICacheIndex(fill.physicalAddress);
-            let tag = getICacheTag(fill.physicalAddress);
+            let idx = getICacheIndex(fill.bundle.physicalAddress);
+            let tag = getICacheTag(fill.bundle.physicalAddress);
        
             // Record that the data is now in the cache.
             iCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
+            
+            // One less miss is outstanding.
+            outstandingMisses.down();
        
             // Send the fill back to fetch.
             delToFet.send(cpu_iid, tagged Valid fill);

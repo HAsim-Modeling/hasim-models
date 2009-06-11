@@ -39,12 +39,12 @@ typedef union tagged {
 } BRANCH_ATTR deriving (Bits, Eq);
 
 
-typedef enum {
-    IMEM_itlb_fault,
-    IMEM_icache_hit,
-    IMEM_icache_miss,
-    IMEM_icache_retry,
-    IMEM_bad_epoch
+typedef union tagged {
+    void IMEM_itlb_fault;
+    void IMEM_icache_hit;
+    ICACHE_MISS_ID IMEM_icache_miss;
+    void IMEM_icache_retry;
+    void IMEM_bad_epoch;
 } IMEM_RESPONSE deriving (Bits, Eq);
 
 typedef struct {
@@ -92,7 +92,7 @@ typedef struct {
 typedef struct {
     INSTQ_CREDIT credit;
     FETCH_BUNDLE bundle;
-    Bool delayed;
+    Maybe#(ICACHE_MISS_ID) missID; // If invalid, then the instruction is not delayed.
 } INSTQ_ALLOCATION deriving(Bits, Eq);
 
 typedef struct {

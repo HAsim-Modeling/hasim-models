@@ -191,10 +191,10 @@ module [HASIM_MODULE] mkIMem
             begin
                 // Response from icache. Use the updated bundle, and
                 // corresponding imem response.
-                IMEM_RESPONSE response = case (icache_rsp.rspType)
-                    ICACHE_hit: IMEM_icache_hit;
-                    ICACHE_miss: IMEM_icache_miss;
-                    ICACHE_retry: IMEM_icache_retry;
+                IMEM_RESPONSE response = case (icache_rsp.rspType) matches
+                    tagged ICACHE_hit: tagged IMEM_icache_hit;
+                    tagged ICACHE_miss .miss_id: tagged IMEM_icache_miss miss_id;
+                    tagged ICACHE_retry: tagged IMEM_icache_retry;
                 endcase;
 
                 iMemToPCCalc.send(cpu_iid, tagged Valid IMEM_OUTPUT {

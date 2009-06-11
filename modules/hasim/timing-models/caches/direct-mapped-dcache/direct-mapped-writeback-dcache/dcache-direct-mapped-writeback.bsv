@@ -1,741 +1,508 @@
-
-// ****** Project imports ******
-
 import Vector::*;
-
-
-// ****** Project imports ******
+import FIFO::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
-`include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/fpga_components.bsh"
-
-
-// ****** Timing Model imports ******
-
-`include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/hasim_isa.bsh"
+`include "asim/provides/funcp_base_types.bsh"
+`include "asim/provides/funcp_memstate_base_types.bsh"
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/platform_interface.bsh"
 
+`include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/module_local_controller.bsh"
 
-// ****** Cache system imports ******
+`include "asim/provides/chip_base_types.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
-`include "asim/provides/hasim_dcache_memory.bsh"
-`include "asim/provides/hasim_dcache_base_types.bsh"
-`include "asim/provides/hasim_dcache_memory.bsh"
-
-
-// ****** Generated Files ******
-
+`include "asim/dict/STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE.bsh"
 `include "asim/dict/PARAMS_HASIM_DCACHE.bsh"
-`include "asim/dict/STATS_DIRECT_MAPPED_DCACHE_WRITEBACK.bsh"
+`include "asim/dict/VDEV_SCRATCH.bsh"
 
 
-// TODO: Make multi-context, pipeline across contexts.
+// ****** Memory Port Assignments ******
+`define READ_PORT_LOAD 0
+`define READ_PORT_STORE 1
 
-typedef enum {HandleReq, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite, Flush} State deriving (Eq, Bits);
-typedef Bit#(1) DCACHE_DIRTY_BIT;
-typedef Tuple2#(DCACHE_DIRTY_BIT, DCACHE_TAG) DCACHE_LINE;
+
+// ****** Local Types *******
+
+typedef Bit#(TSub#(`FUNCP_ISA_P_ADDR_SIZE, TAdd#(`DCACHE_LINE_BITS, `DCACHE_IDX_BITS))) DCACHE_TAG;
+typedef Bit#(`DCACHE_LINE_BITS) DCACHE_LINE_OFFSET;
+typedef Bit#(`DCACHE_IDX_BITS)  DCACHE_INDEX;
+
+function Tuple3#(DCACHE_TAG, DCACHE_INDEX, DCACHE_LINE_OFFSET) splitAddressDCache(MEM_ADDRESS addr);
+
+    return unpack(addr);
+
+endfunction
+
+function DCACHE_TAG getDCacheTag(MEM_ADDRESS addr);
+
+    match {.tag, .idx, .off} = splitAddressDCache(addr);
+    return tag;
+
+endfunction
+
+function DCACHE_INDEX getDCacheIndex(MEM_ADDRESS addr);
+
+    match {.tag, .idx, .off} = splitAddressDCache(addr);
+    return idx;
+
+endfunction
+
+
+function DCACHE_LINE_OFFSET getDCacheOffset(MEM_ADDRESS addr);
+
+    match {.tag, .idx, .off} = splitAddressDCache(addr);
+    return off;
+
+endfunction
+
+typedef union tagged
+{
+    DCACHE_LOAD_OUTPUT_DELAYED  FILL_load;
+    Tuple2#(TOKEN, MEM_ADDRESS) FILL_store;
+}
+DCACHE_FILL deriving (Eq, Bits);
+
+function DCACHE_FILL initLoadFill(DMEM_BUNDLE bundle);
+
+    return tagged FILL_load initDCacheLoadMissRsp(bundle);
+
+endfunction
+
+function DCACHE_FILL initStoreFill(TOKEN tok, MEM_ADDRESS addr);
+
+    return tagged FILL_store tuple2(tok, addr);
+
+endfunction
+
+typedef union tagged
+{
+    void DCACHE_storeNop;
+    DCACHE_STORE_INPUT DCACHE_storeRead;
+    TOKEN DCACHE_storeWrite;
+}
+DCACHE_STORE_INFO deriving (Eq, Bits);
+
+typedef Tuple2#(Maybe#(DCACHE_LOAD_INPUT), Maybe#(DCACHE_STORE_INPUT)) DCACHE_STAGE2_STATE;
+typedef Tuple2#(Maybe#(DCACHE_LOAD_INPUT), Maybe#(DCACHE_STORE_INPUT)) DCACHE_STAGE3_STATE;
 
 module [HASIM_MODULE] mkDCache();
-   
-   // ***** Dynamic parameters *****
-   PARAMETER_NODE paramNode <- mkDynamicParameterNode();
 
-   Param#(1) alwaysHitParam <- mkDynamicParameter(`PARAMS_HASIM_DCACHE_DCACHE_ALWAYS_HIT, paramNode);
-   function Bool alwaysClaimHit() = (alwaysHitParam == 1);
 
-   // initialize cache memory
-   let cachememory <- mkDCacheMemory();
-   
-   // state register
-   Reg#(State) state <- mkReg(HandleReq);
-      
-   // BRAM for cache tag store
-   BRAM_MULTI_READ#(2, DCACHE_INDEX, Maybe#(DCACHE_LINE)) dcache_tag_store <- mkBRAMMultiReadInitialized(tagged Invalid);
+    // ****** Dynamic Parameters ******
 
-   // registers to hold cache request fields
-   Reg#(DCACHE_TAG) req_dcache_tag_spec <- mkReg(0);
-   Reg#(DCACHE_INDEX) req_dcache_index_spec <- mkReg(0);
-   Reg#(TOKEN) req_tok_spec <- mkRegU();
-   Reg#(DATA_ADDRESS) req_dcache_addr_spec <- mkReg(0);
-   Reg#(INST_ADDRESS) inst_addr_spec <- mkReg(0);
-   
-   Reg#(DCACHE_TAG) req_dcache_tag_comm <- mkReg(0);
-   Reg#(DCACHE_INDEX) req_dcache_index_comm <- mkReg(0);
-   Reg#(TOKEN) req_tok_comm <- mkRegU();
-   Reg#(DATA_ADDRESS) req_dcache_addr_comm <- mkReg(0);
-   Reg#(INST_ADDRESS) inst_addr_comm <- mkReg(0); 
-   
-   Reg#(Bool) hit <- mkReg(False);
-   Reg#(Bool) read <- mkReg(False);
-   
-   // incoming ports
-   // incoming port from CPU with speculative stores
-   Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu_spec <- mkPort_Receive("cpu_to_dcache_speculative", 0);
-   
-   // incoming port from CPU with commited stores
-   Port_Receive#(Tuple2#(TOKEN, CacheInput)) port_from_cpu_comm <- mkPort_Receive("cpu_to_dcache_committed", 0);
-   
-   // incoming port from memory
-   Port_Receive#(Tuple2#(TOKEN, MemOutput)) port_from_memory <- mkPort_Receive("memory_to_dcache", valueOf(TSub#(`DCACHE_MISS_PENALTY, 1)));
-   
-   // outgoing ports
-   // port to CPU with speculative request immediate response
-   Port_Send#(Tuple2#(TOKEN, CacheOutputImmediate)) port_to_cpu_imm_spec <- mkPort_Send("dcache_to_cpu_immediate_speculative");
-   
-   // port to CPU with speculative request delayed response 
-   Port_Send#(Tuple2#(TOKEN, CacheOutputDelayed)) port_to_cpu_del_spec <- mkPort_Send("dcache_to_cpu_delayed_speculative");
-   
-   // port to CPU with commit request immediate response
-   Port_Send#(Tuple2#(TOKEN, CacheOutputImmediate)) port_to_cpu_imm_comm <- mkPort_Send("dcache_to_cpu_immediate_committed");
-   
-   // port to CPU with commit request delayed response
-   Port_Send#(Tuple2#(TOKEN, CacheOutputDelayed)) port_to_cpu_del_comm <- mkPort_Send("dcache_to_cpu_delayed_committed");
-   
-   // outgoing port to memory
-   Port_Send#(Tuple2#(TOKEN, MemInput)) port_to_memory <- mkPort_Send("dcache_to_memory");
-   
-   // communication with local controller
-   Vector#(3, Port_Control) inports = newVector();
-   Vector#(5, Port_Control) outports = newVector();
-   inports[0] = port_from_cpu_spec.ctrl;
-   inports[1] = port_from_cpu_comm.ctrl;
-   inports[2] = port_from_memory.ctrl;
-   outports[0] = port_to_cpu_imm_spec.ctrl;
-   outports[1] = port_to_cpu_del_spec.ctrl;
-   outports[2] = port_to_cpu_imm_comm.ctrl;
-   outports[3] = port_to_cpu_del_comm.ctrl;
-   outports[4] = port_to_memory.ctrl;
-   LocalController local_ctrl <- mkLocalController(inports, outports);
-   
-   // Stats
-   STAT stat_dcache_read_hits <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_READ_HITS);
-   STAT stat_dcache_read_misses <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_READ_MISSES);
-   STAT stat_dcache_write_hits <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_WRITE_HITS);
-   STAT stat_dcache_write_misses <- mkStatCounter(`STATS_DIRECT_MAPPED_DCACHE_WRITEBACK_DCACHE_WRITE_MISSES);
-     
-   // rules
+    PARAMETER_NODE paramNode <- mkDynamicParameterNode();
+
+    Param#(1) alwaysHitParam <- mkDynamicParameter(`PARAMS_HASIM_DCACHE_DCACHE_ALWAYS_HIT, paramNode);
+    function Bool alwaysClaimHit() = (alwaysHitParam == 1);
+
+ 
+    // ****** Model State ******
+
+    // Initialize a scratchpad memory to store our tags in.   
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, True);
 
     
-    //
-    // Handle requests while in the always hit mode (set by dynamic param)
-    //
-    rule handle_always_hit (alwaysClaimHit());
+    // ****** Ports ******
 
-        // read message from CPU speculative port
-        let msg_from_cpu_spec <- port_from_cpu_spec.receive();
+    // Incoming port from CPU with speculative stores
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_load", 0);
 
-        // read message from CPU commit port
-        let msg_from_cpu_comm <- port_from_cpu_comm.receive();
+    // Incoming port from CPU with committed stores
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_store", 0);
 
-        // read message from memory port
-        let msg_from_mem <- port_from_memory.receive();     
+    // Outgoing port to CPU with speculative immediate response
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_immediate");
 
-        // Read request
-        if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec} &&&
-            req_from_cpu_spec matches tagged Data_read_mem_ref {.cpu_addr_spec, .ref_addr_spec})
-        begin
-            port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Hit cpu_addr_spec));
-            stat_dcache_read_hits.incr();
-        end
-        else
-        begin
-            port_to_cpu_imm_spec.send(tagged Invalid);
-        end
+    // Outgoing port to CPU with speculative delayed response
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_delayed");
 
-        // Write request
-        if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm} &&&
-            req_from_cpu_comm matches tagged Data_write_mem_ref {.cpu_addr_comm, .ref_addr_comm})
-        begin
-            port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Hit cpu_addr_comm));
-            stat_dcache_write_hits.incr();
-        end
-        else
-        begin
-            port_to_cpu_imm_comm.send(tagged Invalid);
-        end
+    // Outgpong port to CPU with commit immediate response
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_immediate");
 
-        port_to_memory.send(tagged Invalid);
-        port_to_cpu_del_spec.send(tagged Invalid);
-        port_to_cpu_del_comm.send(tagged Invalid);
+    // Outgoing port to CPU with commit delayed response
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
+
+    // Ports to simulate some latency to memory.
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_FILL) reqToMemory   <- mkPortSend_Multiplexed("DCache_to_memory");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_FILL) rspFromMemory <- mkPortRecv_Multiplexed("DCache_to_memory", `DCACHE_MISS_PENALTY);
+
+
+    // ****** Local Controller ******
+
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    
+    inports[0] = loadReqFromCPU.ctrl;
+    inports[1] = storeReqFromCPU.ctrl;
+    inports[2] = rspFromMemory.ctrl;
+    outports[0] = loadRspImmToCPU.ctrl;
+    outports[1] = loadRspDelToCPU.ctrl;
+    outports[2] = storeRspImmToCPU.ctrl;
+    outports[3] = storeRspDelToCPU.ctrl;
+    outports[4] = reqToMemory.ctrl;
+
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+
+    STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE3_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE3_STATE) stage4Ctrl <- mkStageController();
+
+    // ****** Stats ******
+
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadHits            <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_READ_HITS);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadMisses          <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_READ_MISSES);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreHits           <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_WRITE_HITS);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreMisses         <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_WRITE_MISSES);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statPortCollisionsRead  <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_PORT_COLLISIONS_READ);
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statPortCollisionsWrite <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_PORT_COLLISIONS_WRITE);
+
+
+    // ****** Rules ******
+
+    // stage1_loadStoreReq
+    
+    // See if there are any new requests from the CPU.
+
+    // Ports read:
+    // * loadReqFromCPU
+    // * storeReqFromCPU
+    
+    // Ports written:
+    // * None
+    
+    (* conservative_implicit_conditions *)
+    rule stage1_loadStoreReq (True);
+
+        // Start a new model cycle
+        let cpu_iid <- localCtrl.startModelCycle();
+
+        // Read load input port.
+        let msg_from_cpu <- loadReqFromCPU.receive(cpu_iid);
+        
+        // Record the request we should make on our one memory port.
+        Maybe#(DCACHE_LOAD_INPUT)  load_info  = tagged Invalid;
+        Maybe#(DCACHE_STORE_INPUT) store_info = tagged Invalid;
+
+        
+        // Deal with any load requests.
+        case (msg_from_cpu) matches
+
+            tagged Invalid:
+            begin
+
+                // Record that the load won't need the memory port.
+                load_info = tagged Invalid;
+                
+            end
+
+            tagged Valid .req:
+            begin
+            
+                // Record that the load may need the memory port.
+                load_info = tagged Valid req;
+                
+                // Look up the index in our tag store.
+                let idx = getDCacheIndex(req.physicalAddress);
+                dCacheTagStore.readPorts[`READ_PORT_LOAD].readReq(cpu_iid, idx);
+                
+                // Pass the request on for tag comparison.
+
+            end
+
+        endcase
+        
+        // Now read the store input port.
+        let m_store_from_cpu <- storeReqFromCPU.receive(cpu_iid);
+        
+        // Deal with any store requests.
+        case (m_store_from_cpu) matches
+
+            tagged Invalid:
+            begin
+
+                // Record that the store won't need the memory port.
+                store_info = tagged Invalid;
+
+            end
+
+            tagged Valid {.tok, .phys_addr}:
+            begin
+            
+                // Record that the store may need the memory port.
+                store_info = tagged Valid tuple2(tok, phys_addr);
+                
+                // Look up the index in our tag store.
+                let idx = getDCacheIndex(phys_addr);
+                dCacheTagStore.readPorts[`READ_PORT_STORE].readReq(cpu_iid, idx);
+
+            end
+
+        endcase
+
+        // Proceed to the next stage to process responses.
+        stage2Ctrl.ready(cpu_iid, tuple2(load_info, store_info));
 
     endrule
     
+    // stage2_rsp
+    
+    // Get the response from the tag store, make a request to backing store.
+    // Get the response from backing store, perform the fill.
+    
+    // Ports Read:
+    // * rspFromMemory
+    
+    // Ports Written:
+    // * loadRspImmToCPU
+    // * loadRspDelToCPU
+    // * storeRspImmToCPU
+    // * storeRspDelToCPU
+    // * reqToMemory
+    
+    rule stage2_rsp (True);
+    
+        match {.cpu_iid, {.m_load_info, .m_store_info}} <- stage2Ctrl.nextReadyInstance();
+    
+        // Now handle loads.
+        Maybe#(DCACHE_LOAD_INPUT) load_info = tagged Invalid;
+    
+        if (m_load_info matches tagged Invalid)
+        begin
+        
+            // Propogate the bubble.
+            loadRspImmToCPU.send(cpu_iid, tagged Invalid);
+                
+            // Record that we don't need the memory port since there was no load.
+            load_info = tagged Invalid;
+        
+        end
+        else if (m_load_info matches tagged Valid .req)
+        begin
+    
+            // Get the response from the tagStore.
+            let m_existing_tag <- dCacheTagStore.readPorts[`READ_PORT_LOAD].readRsp(cpu_iid);
 
-   //
-   // Normal request entry path
-   //
-   rule handlereq (state == HandleReq && ! alwaysClaimHit());
-      
-      // read message from CPU speculative port
-      let msg_from_cpu_spec <- port_from_cpu_spec.receive();
-      
-      // read message from CPU commit port
-      let msg_from_cpu_comm <- port_from_cpu_comm.receive();
-      
-      // read message from memory port
-      let msg_from_mem <- port_from_memory.receive();     
-      
-      // check request type
-      case (tuple2(msg_from_cpu_spec, msg_from_cpu_comm)) matches
-	 // no activity on ports
-	 {tagged Invalid, tagged Invalid}:
-			     begin
-				port_to_cpu_imm_spec.send(tagged Invalid);
-				port_to_cpu_del_spec.send(tagged Invalid);
-				port_to_cpu_imm_comm.send(tagged Invalid);
-				port_to_cpu_del_comm.send(tagged Invalid);
-				port_to_memory.send(tagged Invalid);
-				//$display ("Invalid");
-			     end
-	 
-	 {tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec},
-	  tagged Invalid}:
-	     begin
-		// check memory reference type
-		case (req_from_cpu_spec) matches
-		   // standard memory read
-		   tagged Data_read_mem_ref {.cpu_addr_spec, .ref_addr_spec}:
-		      begin
-			 Tuple3#(DCACHE_TAG, DCACHE_INDEX, DCACHE_LINE_OFFSET) address_tup = unpack(ref_addr_spec);
-			 match {.tag, .idx, .line_offset} = address_tup;
-			 req_dcache_tag_spec <= tag;
-			 req_dcache_index_spec <= idx;
-			 req_tok_spec <= tok_from_cpu_spec;
-			 req_dcache_addr_spec <= ref_addr_spec;
-			 inst_addr_spec <= cpu_addr_spec;
-			 dcache_tag_store.readPorts[0].readReq(idx);
-			 state <= HandleRead;
-		      end
-		endcase
-	     end
-	 // activity on only committed port
-	 {tagged Invalid, 
-	  tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm}}:
-	     begin
-		// standard memory write
-		case (req_from_cpu_comm) matches
-		   // standard memory write
-		   tagged Data_write_mem_ref {.cpu_addr_comm, .ref_addr_comm}:
-		      begin
-			 Tuple3#(DCACHE_TAG, DCACHE_INDEX, DCACHE_LINE_OFFSET) address_tup = unpack(ref_addr_comm);
-			 match {.tag, .idx, .line_offset} = address_tup;
-			 req_dcache_tag_comm <= tag;
-			 req_dcache_index_comm <= idx;
-			 req_tok_comm <= tok_from_cpu_comm;
-			 req_dcache_addr_comm <= ref_addr_comm;
-			 inst_addr_comm <= cpu_addr_comm;
-			 dcache_tag_store.readPorts[0].readReq(idx);
-			 state <= HandleWrite;
-		      end
-		endcase
-		// activity on both speculative and commit ports
-	     end
-	 {tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec}, 
-	     tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm}}:
-		begin
-		   // read on speculative port and write on commit port
-		   case (tuple2(req_from_cpu_spec, req_from_cpu_comm)) matches
-		      {tagged Data_read_mem_ref {.cpu_addr_spec, .ref_addr_spec}, 
-			  tagged Data_write_mem_ref {.cpu_addr_comm, .ref_addr_comm}}:
-			     begin
-				Tuple3#(DCACHE_TAG, DCACHE_INDEX, DCACHE_LINE_OFFSET) address_tup_spec = unpack(ref_addr_spec);
-				match {.tag_spec, .idx_spec, .line_offset_spec} = address_tup_spec;
-				req_dcache_tag_spec <= tag_spec;
-				req_dcache_index_spec <= idx_spec;
-				req_tok_spec <= tok_from_cpu_spec;
-				req_dcache_addr_spec <= ref_addr_spec;
-				inst_addr_spec <= cpu_addr_spec;
-				dcache_tag_store.readPorts[0].readReq(idx_spec);
-				
-				Tuple3#(DCACHE_TAG, DCACHE_INDEX, DCACHE_LINE_OFFSET) address_tup_comm = unpack(ref_addr_comm);
-				match {.tag_comm, .idx_comm, .line_offset_comm} = address_tup_comm;
-				req_dcache_tag_comm <= tag_comm;
-				req_dcache_index_comm <= idx_comm;
-				req_tok_comm <= tok_from_cpu_comm;
-				req_dcache_addr_comm <= ref_addr_comm;
-				inst_addr_comm <= cpu_addr_comm;
-				dcache_tag_store.readPorts[1].readReq(idx_comm);
-				
-				state <= HandleReadWrite;
-			     end
-		   endcase
-		end
-	 
-      endcase
-   endrule
-   
-   rule handleread (state == HandleRead);
+            // See if the tag matches.
+            let target_tag = getDCacheTag(req.physicalAddress);
+            Bool hit = m_existing_tag matches tagged Valid .existing_tag &&& (existing_tag == target_tag) ? True : False ;
 
-      // read tag from BRAM
-      let tagstore <- dcache_tag_store.readPorts[0].readRsp();
-      
-      // check retrieved tag
-      case (tagstore) matches
-	 // cold read miss
-	 tagged Invalid:
-	    begin
-	       port_to_memory.send(tagged Valid tuple2(req_tok_spec, tagged Mem_fetch inst_addr_spec));
-	       port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_servicing inst_addr_spec));
-	       port_to_cpu_del_spec.send(tagged Invalid);
-	       port_to_cpu_imm_comm.send(tagged Invalid);
-	       port_to_cpu_del_comm.send(tagged Invalid);
-	       dcache_tag_store.write(req_dcache_index_spec, tagged Valid tuple2(0, req_dcache_tag_spec));
-	       state <= ReadStall;
-	       stat_dcache_read_misses.incr();
-	       //$display ("Read Miss, Tag %x, Index %d, Clean", req_dcache_tag_spec, req_dcache_index_spec);
-	    end
-	 tagged Valid {.dcache_dirty_bit, .dcache_tag}:
-	    begin
-	       // read hit
-	       if (dcache_tag == req_dcache_tag_spec) 
-		  begin
-		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Hit inst_addr_spec));
-		     port_to_cpu_del_spec.send(tagged Invalid);
-		     port_to_cpu_imm_comm.send(tagged Invalid);
-		     port_to_cpu_del_comm.send(tagged Invalid);
-		     state <= HandleReq;
-		     stat_dcache_read_hits.incr();
-		     //$display ("Read Hit, Tag %x, Index %d", req_dcache_tag_spec, req_dcache_index_spec);
-		  end
-	       // cache miss
-	       else
-		  begin
-		     if(dcache_dirty_bit == 0) 
-			begin
-			   port_to_memory.send(tagged Valid tuple2(req_tok_spec, tagged Mem_fetch inst_addr_spec));
-			   port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_servicing inst_addr_spec));
-			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Invalid);
-			   port_to_cpu_del_comm.send(tagged Invalid);
-			   dcache_tag_store.write(req_dcache_index_spec, tagged Valid tuple2(0, req_dcache_tag_spec));
-			   state <= ReadStall;
-			   //$display ("Read Miss, Tag %x, Index %d, Clean", req_dcache_tag_spec, req_dcache_index_spec);
-			end
-		     else
-			begin
-			   port_to_memory.send(tagged Valid tuple2(req_tok_spec, tagged Mem_fetch inst_addr_spec));
-			   port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_servicing inst_addr_spec));
-			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Invalid);
-			   port_to_cpu_del_comm.send(tagged Invalid);
-			   dcache_tag_store.write(req_dcache_index_spec, tagged Valid tuple2(0, req_dcache_tag_spec));
-			   state <= Flush;
-			   read <= True;
-			   //$display ("Read Miss, Tag %x, Index %d, Flush", req_dcache_tag_spec, req_dcache_index_spec);
-			end
-		     stat_dcache_read_misses.incr();
-		  end
-	    end
-      endcase
-   endrule
-   
-   rule flush (state == Flush);
-      
-      // read incoming memory port
-      let msg_from_mem <- port_from_memory.receive();
-      
-      // read incoming cpu speculative port
-      let msg_from_cpu_spec <- port_from_cpu_spec.receive();
-      
-      // read incoming cpu commit port
-      let msg_from_cpu_comm <- port_from_cpu_comm.receive();
-      
-      // check what memory is sending
-      case (msg_from_mem) matches
-	 // memory is servicing flush
-	 tagged Invalid:
-	    begin
-	       if (msg_from_cpu_spec matches tagged Invalid)
-		  port_to_cpu_imm_spec.send(tagged Invalid);
-	       if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec})
-		  begin
-		     case (req_from_cpu_spec) matches
-			tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-			   begin
-			      port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
-			   end
-		     endcase
-		  end
-	       port_to_cpu_del_spec.send(tagged Invalid);
-	       
-	       if (msg_from_cpu_comm matches tagged Invalid)
-		  port_to_cpu_imm_comm.send(tagged Invalid);
-	       if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm})
-		  begin
-		     case (req_from_cpu_comm) matches
-			tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-			   begin
-			      port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_mem_addr));
-			   end
-		     endcase
-		  end
-	       port_to_cpu_del_comm.send(tagged Invalid);
-	       port_to_memory.send(tagged Invalid);
-	    end
-	 // memory is returning value
-	 tagged Valid {.tok_from_memory, .resp_from_memory}:
-	    begin
-	       if (resp_from_memory matches tagged ValueRet .pc_from_mem)
-		  begin
-		     if (msg_from_cpu_spec matches tagged Invalid)
-			port_to_cpu_imm_spec.send(tagged Invalid);
-		     if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec})
-			begin
-			   case (req_from_cpu_spec) matches
-			      tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-				 begin
-				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
-				 end
-			   endcase
-			end
-		     port_to_cpu_del_spec.send(tagged Invalid);
-		     
-		     if (msg_from_cpu_comm matches tagged Invalid)
-			port_to_cpu_imm_comm.send(tagged Invalid);
-		     if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm})
-			begin
-			   case (req_from_cpu_comm) matches
-			      tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-				 begin
-				    port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_mem_addr));
-				 end
-			   endcase
-			end
-		     port_to_cpu_del_comm.send(tagged Invalid);
-		    // port_to_memory.send(tagged Valid tuple2(req_tok_spec, tagged Mem_fetch inst_addr_spec));
-		     
-		     if (read)
-			begin
-			   state <= ReadStall;
-			   port_to_memory.send(tagged Valid tuple2(req_tok_spec, tagged Mem_fetch inst_addr_spec));
-			end
-		     else
-			begin
-			   port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-			   state <= WriteStall;
-			end
-		  end
-	    end
-      endcase
-   endrule
-   
+            if (hit || alwaysClaimHit())
+            begin
 
-   rule readstall (state == ReadStall);
-      
-      // read incoming memory port
-      let msg_from_mem <- port_from_memory.receive();
-      
-      // read incoming cpu speculative port
-      let msg_from_cpu_spec <- port_from_cpu_spec.receive();
-      
-      // read incoming cpu commit port
-      let msg_from_cpu_comm <- port_from_cpu_comm.receive();
-      
-      // check what memory is sending
-      case (msg_from_mem) matches
-	 // memory is servicing previous read request
-	 tagged Invalid:
-	    begin
-	       if (msg_from_cpu_spec matches tagged Invalid)
-		  port_to_cpu_imm_spec.send(tagged Invalid);
-	       if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec})
-		  begin
-		     case (req_from_cpu_spec) matches
-			tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-			   begin
-			      port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
-			   end
-		     endcase
-		  end
- 	       port_to_cpu_del_spec.send(tagged Invalid);
-	       
-	       
-	       if (msg_from_cpu_comm matches tagged Invalid)
-		  port_to_cpu_imm_comm.send(tagged Invalid);
-	       if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm})
-		  begin
-		     case (req_from_cpu_comm) matches
-			tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-			   begin
-			      port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
-			   end
-		     endcase
-		  end
-	       port_to_cpu_del_comm.send(tagged Invalid); 
-	       
-	       port_to_memory.send(tagged Invalid);
-	    end
-	 // memory is returning value
-	 tagged Valid {.tok_from_memory, .resp_from_memory}:
-	    begin
-	       if (resp_from_memory matches tagged ValueRet .pc_from_mem)
-		  begin
-		     if (msg_from_cpu_spec matches tagged Invalid)
-			port_to_cpu_imm_spec.send(tagged Invalid);
-		     if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec})
-			begin
-			   case (req_from_cpu_spec) matches
-			      tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-				 begin
-				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
-				 end
-			   endcase
-			end
-		     port_to_cpu_del_spec.send(tagged Valid tuple2(tok_from_memory, tagged Miss_response pc_from_mem));
-		     		     
-		     if (msg_from_cpu_comm matches tagged Invalid)
-			port_to_cpu_imm_comm.send(tagged Invalid);
-		     if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm})
-			begin
-			   case (req_from_cpu_comm) matches
-			      tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-				 begin
-				    port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
-				 end
-			   endcase
-			end
-			   
-		     port_to_cpu_del_comm.send(tagged Invalid); 
-		     
-		     port_to_memory.send(tagged Invalid);    
-		     
-		     state <= HandleReq;
-		  end
-	    end
-      endcase
-   endrule
-   
-   
-   rule handlewrite (state == HandleWrite);
-      
-      // read rag from BRAM
-      let tagstore <- dcache_tag_store.readPorts[0].readRsp();
-      
-      // check retrieved tag
-      case (tagstore) matches
-	 // cold write miss
-	 tagged Invalid:
-	    begin
-	       port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-	       port_to_cpu_imm_spec.send(tagged Invalid);
-	       port_to_cpu_del_spec.send(tagged Invalid);
-	       port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_spec, tagged Miss_servicing inst_addr_comm));
-	       port_to_cpu_del_comm.send(tagged Invalid);
-	       dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
-	       state <= WriteStall;
-	       hit <= False;
-	       stat_dcache_write_misses.incr();
-	       //$display ("Write Miss, tag %x, index %d, clean", req_dcache_tag_comm, req_dcache_index_comm);
-	    end
-	 tagged Valid {.dcache_dirty_bit, .dcache_tag}:
-	    begin
-	       // write hit
-	       if (dcache_tag == req_dcache_tag_comm)
-		  begin
-		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu_imm_spec.send(tagged Invalid);
-		     port_to_cpu_del_spec.send(tagged Invalid);
-		     port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Hit inst_addr_comm));
-		     port_to_cpu_del_comm.send(tagged Invalid);
-		     dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
-		     state <= HandleReq;
-		     hit <= False;
-		     stat_dcache_write_hits.incr();
-		     //$display ("Write Hit, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
-		  end
-	       // cache miss
-	       else
-		  begin
-		     if(dcache_dirty_bit == 0)
-			begin
-			   port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-			   port_to_cpu_imm_spec.send(tagged Invalid);
-			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
-			   port_to_cpu_del_comm.send(tagged Invalid);
-			   dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
-			   state <= WriteStall;
-			   hit <= False;
-			   //$display ("Write Miss, tag %x, index %d, clean", req_dcache_tag_comm, req_dcache_index_comm);
-			end
-		     else
-			begin
-			   port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-			   port_to_cpu_imm_spec.send(tagged Invalid);
-			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
-			   port_to_cpu_del_comm.send(tagged Invalid);
-			   dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
-			   state <= Flush;
-			   read <= False;
-			   hit <= False;
-			   //$display ("Write Miss, tag %x, index %d, flush", req_dcache_tag_comm, req_dcache_index_comm);
-			end
-		     stat_dcache_write_misses.incr();
-		  end	      
-	    end
-      endcase
-   endrule
-   
-   rule writestall (state == WriteStall);
-      
-      // read incoming memory port
-      let msg_from_mem <- port_from_memory.receive();
-      
-      // read incoming cpu speculative request
-      let msg_from_cpu_spec <- port_from_cpu_spec.receive();
-      
-      // read incoming cpu commit request
-      let msg_from_cpu_comm <- port_from_cpu_comm.receive();
-      
-      // check what memory is sending
-      case (msg_from_mem) matches
-	 // memory is servicing previous write request
-	 tagged Invalid:
-	    begin
-	       if (msg_from_cpu_spec matches tagged Invalid)
-		  port_to_cpu_imm_spec.send(tagged Invalid);
-	       if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec})
-		  begin
-		     case (req_from_cpu_spec) matches
-			tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-			   begin
-			      port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
-			   end
-		     endcase
-		  end
-	       port_to_cpu_del_spec.send(tagged Invalid);
-	       
-	       if (msg_from_cpu_comm matches tagged Invalid)
-		  port_to_cpu_imm_comm.send(tagged Invalid);
-	       if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm})
-		  begin
-		     case (req_from_cpu_comm) matches
-			tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-			   begin
-			      port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
-			   end
-		     endcase
-		  end
-	       port_to_cpu_del_comm.send(tagged Invalid);	       
-	       
-	       port_to_memory.send(tagged Invalid);
-	    end
-	 // memory has returned previous request
-	 tagged Valid {.tok_from_memory, .resp_from_memory}:
-	    begin
-               if (resp_from_memory matches tagged ValueRet .pc_from_mem)
-		  begin
-		     if (msg_from_cpu_spec matches tagged Invalid)
-			port_to_cpu_imm_spec.send(tagged Invalid);
-		     if (msg_from_cpu_spec matches tagged Valid {.tok_from_cpu_spec, .req_from_cpu_spec})
-			begin
-			   case (req_from_cpu_spec) matches
-			      tagged Data_read_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-				 begin
-				    port_to_cpu_imm_spec.send(tagged Valid tuple2(tok_from_cpu_spec, tagged Miss_retry cpu_inst_addr));
-				 end
-			   endcase
-			end
-		     port_to_cpu_del_spec.send(tagged Invalid);
-					  
-		     if (msg_from_cpu_comm matches tagged Invalid)
-			port_to_cpu_imm_comm.send(tagged Invalid);
-		     if (msg_from_cpu_comm matches tagged Valid {.tok_from_cpu_comm, .req_from_cpu_comm})
-			begin
-			   case (req_from_cpu_comm) matches
-			      tagged Data_write_mem_ref {.cpu_inst_addr, .cpu_mem_addr}:
-				 begin
-				    port_to_cpu_imm_comm.send(tagged Valid tuple2(tok_from_cpu_comm, tagged Miss_retry cpu_inst_addr));
-				 end
-			   endcase
-			end
-			      
-		    // if (hit)
-			//port_to_cpu_del_comm.send(tagged Valid tuple2(tok_from_memory, tagged Hit_response pc_from_mem)); 
-		     //else
-		     port_to_cpu_del_comm.send(tagged Valid tuple2(tok_from_memory, tagged Miss_response pc_from_mem)); 
-		     
-		     port_to_memory.send(tagged Invalid);    
-		     
-		     state <= HandleReq;
-		  end
-	    end
-      endcase
-   endrule      
-					       
-   rule handlereadwrite (state == HandleReadWrite);
-					       
-      // get stored tag for read request
-      let tagstore_read <- dcache_tag_store.readPorts[0].readRsp();
-      
-      // get stored tag for write request
-      let tagstore_write <- dcache_tag_store.readPorts[1].readRsp();
-      
-      // cache is unable to distinguish conflicting read/write values
-      // the commit port has priority so we send a miss retry back to pipeline for the speculative case
-      case (tagstore_write) matches
-	 // cold write miss
-	 tagged Invalid:
-	    begin
-	       port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-	       port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
-	       port_to_cpu_del_spec.send(tagged Invalid);
-	       port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
-	       port_to_cpu_del_comm.send(tagged Invalid);
-	       dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
-	       state <= WriteStall;
-	       stat_dcache_write_misses.incr();
-	       //$display ("Write Miss, tag %x, index %d, clean", req_dcache_tag_comm, req_dcache_index_comm);
-	    end
-	 tagged Valid {.dcache_dirty_bit, .dcache_tag}:
-	    begin
-	       // write hit
-	       if (dcache_tag == req_dcache_tag_comm)
-		  begin
-		     port_to_memory.send(tagged Invalid);
-		     port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
-		     port_to_cpu_del_spec.send(tagged Invalid);
-		     port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Hit_servicing inst_addr_comm));
-		     port_to_cpu_del_comm.send(tagged Invalid);
-		     dcache_tag_store.write(req_dcache_index_comm,tagged Valid tuple2(1, req_dcache_tag_comm));
-		     state <= HandleReq;
-		     stat_dcache_write_hits.incr();
-		     //$display ("Write Hit, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
-		  end
-	       // write miss
-	       else
-		  begin
-		     if (dcache_dirty_bit == 0)
-			begin
-			   port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-			   port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
-			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
-			   port_to_cpu_del_comm.send(tagged Invalid);
-			   dcache_tag_store.write(req_dcache_index_comm,tagged Valid tuple2(1, req_dcache_tag_comm));
-			   state <= WriteStall;
-			   //$display ("Write Miss, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
-			end
-		     else
-			begin
-			   port_to_memory.send(tagged Valid tuple2(req_tok_comm, tagged Mem_fetch inst_addr_comm));
-			   port_to_cpu_imm_spec.send(tagged Valid tuple2(req_tok_spec, tagged Miss_retry inst_addr_spec));
-			   port_to_cpu_del_spec.send(tagged Invalid);
-			   port_to_cpu_imm_comm.send(tagged Valid tuple2(req_tok_comm, tagged Miss_servicing inst_addr_comm));
-			   port_to_cpu_del_comm.send(tagged Invalid);
-			   dcache_tag_store.write(req_dcache_index_comm, tagged Valid tuple2(1, req_dcache_tag_comm));
-			   //$display ("Write Miss, tag %x, index %d", req_dcache_tag_comm, req_dcache_index_comm);
-			   state <= Flush;
-			   read <= False;
-			
-			end
-		     stat_dcache_write_misses.incr();
-		  end
-	    end
-      endcase
-   endrule
+                // A hit, so give the data back.
+                loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadHit(req));
+                statLoadHits.incr(cpu_iid);
+
+                // Record that we got a hit and don't need the memory port.
+                load_info = tagged Invalid;
+
+            end
+            else
+            begin
+
+                // A miss, so no data to give back immediately.
+                loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadMiss(req));
+                statLoadMisses.incr(cpu_iid);
+
+                // Record that we got a miss and would like the memory port.
+                load_info = tagged Valid req;
+
+            end
+        
+        end
+        
+        stage3Ctrl.ready(cpu_iid, tuple2(load_info, m_store_info));
+       
+    endrule
+    
+    rule stage3_fill (True);
+    
+        match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
+    
+        // Check for fills.
+        let m_fill <- rspFromMemory.receive(cpu_iid);
+        
+        if (m_fill matches tagged Valid .fill)
+        begin
+       
+            // Send the fill to the right place.
+            case (fill) matches
+
+                tagged FILL_load .rsp:
+                begin
+                
+                    // The fill is a load response.
+                    loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
+                    storeRspDelToCPU.send(cpu_iid, tagged Invalid);
+                    
+                    // Update the Tag Store.
+                    let idx = getDCacheIndex(rsp.physicalAddress);
+                    let tag = getDCacheTag(rsp.physicalAddress);
+                    dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
+                
+                end
+
+                tagged FILL_store {.tok, .phys_addr}:
+                begin
+
+                    // The fill is a store response.
+                    loadRspDelToCPU.send(cpu_iid, tagged Invalid);
+                    storeRspDelToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelayOk(tok));
+                    
+                    // Update the Tag Store.
+                    let idx = getDCacheIndex(phys_addr);
+                    let tag = getDCacheTag(phys_addr);
+                    dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
+
+                end
+            endcase
+        
+        end
+        else
+        begin
+            
+            loadRspDelToCPU.send(cpu_iid, tagged Invalid);
+            storeRspDelToCPU.send(cpu_iid, tagged Invalid);
+        
+        end
+        
+        stage4Ctrl.ready(cpu_iid, state);
+        
+    endrule
+
+    rule stage4_storeRsp (True);
+    
+        match {.cpu_iid, {.load_info, .m_store_info}} <- stage4Ctrl.nextReadyInstance();
+    
+        // Next handle stores.
+        DCACHE_STORE_INFO store_info = tagged DCACHE_storeNop;
+        
+        if (m_store_info matches tagged Invalid)
+        begin
+            
+            // No store, so we don't need the memory port for that.
+            store_info = tagged DCACHE_storeNop;
+            
+        end
+        else if (m_store_info matches tagged Valid {.tok, .phys_addr})
+        begin
+
+            // Get the response from the tagStore.
+            let m_existing_tag <- dCacheTagStore.readPorts[`READ_PORT_STORE].readRsp(cpu_iid);
+
+            // See if the tag matches.
+            let target_tag = getDCacheTag(phys_addr);
+            Bool hit = m_existing_tag matches tagged Valid .existing_tag &&& (existing_tag == target_tag) ? True : False ;
+
+            if (hit || alwaysClaimHit())
+            begin
+
+                // A hit, so try to obtain the write port so we can writeback the data.
+                // Record that we got a hit so we DO WANT the memory port since we're writethrough.
+                store_info = tagged DCACHE_storeWrite tok;
+
+            end
+            else
+            begin
+
+                // A miss, so tell the user they should delay until the data comes back.
+
+                // Record that we got a miss and would like the memory port to read the data in.
+                // (This is more like simulating a coherent cache system.)
+                store_info = tagged DCACHE_storeRead tuple2(tok, phys_addr);
+
+            end
+            
+        end
+        
+        // Now arbitrate the memory port.
+    
+        if (load_info matches tagged Valid .req)
+        begin
+
+            // The load wants to use the port. Let's give it priority, so it gets it.
+            reqToMemory.send(cpu_iid, tagged Valid initLoadFill(req));
+
+            // If the store also wanted it, then the user must retry.
+            if (store_info matches tagged DCACHE_storeWrite .tok)
+            begin
+
+                // Tell the user to retry... we hit, but could not write through.
+                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                statPortCollisionsWrite.incr(cpu_iid);
+
+            end
+            else if (store_info matches tagged DCACHE_storeRead {.tok, .phys_addr})
+            begin
+
+                // Tell the user to retry... we missed, and could not make our fill request.
+                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                statPortCollisionsRead.incr(cpu_iid);
+
+            end
+            else
+            begin
+
+                // We should never get here, but let's put this here for safety.
+                storeRspImmToCPU.send(cpu_iid, tagged Invalid);
+
+            end
+
+            // End of model cycle. (Path 1)
+            localCtrl.endModelCycle(cpu_iid, 1);
+
+        end
+        else if (store_info matches tagged DCACHE_storeRead {.tok, .phys_addr})
+        begin
+
+            // The load doesn't want the port, so the store can use it to read.
+            reqToMemory.send(cpu_iid, tagged Valid initStoreFill(tok, phys_addr));
+
+            // Tell the user to delay until the store miss is filled.
+            statStoreMisses.incr(cpu_iid);
+            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(tok));
+
+            // End of model cycle (Path 2)
+            localCtrl.endModelCycle(cpu_iid, 2);
+
+
+        end
+        else if (store_info matches tagged DCACHE_storeWrite .tok)
+        begin
+
+            // The load didn't want the port, so the store can use it to write through.
+            // TODO: make this an actual store back to main memory.
+            reqToMemory.send(cpu_iid, tagged Invalid);
+
+            // Tell the user their store worked.
+            statStoreHits.incr(cpu_iid);
+            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
+
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(cpu_iid, 3);
+
+
+        end
+        else
+        begin
+
+            // Turns out neither wanted the port.
+            reqToMemory.send(cpu_iid, tagged Invalid);
+
+            // Propogate the bubble.
+            storeRspImmToCPU.send(cpu_iid, tagged Invalid);
+    
+            
+            // End of model cycle. (Path 4)
+            localCtrl.endModelCycle(cpu_iid, 4);
+
+        end
+
+    endrule
+
 endmodule

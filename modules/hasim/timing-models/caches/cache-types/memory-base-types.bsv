@@ -101,11 +101,15 @@ function ICACHE_INPUT initICacheLoad(IMEM_BUNDLE bundle);
 
 endfunction
 
-typedef enum
+typedef `ICACHE_MISS_ID_SIZE ICACHE_MISS_ID_SIZE;
+typedef Bit#(ICACHE_MISS_ID_SIZE) ICACHE_MISS_ID;
+typedef TAdd#(ICACHE_MISS_ID_SIZE, 1) ICACHE_MISS_COUNT;
+
+typedef union tagged
 {
-    ICACHE_hit,
-    ICACHE_miss,
-    ICACHE_retry
+    void ICACHE_hit;
+    ICACHE_MISS_ID ICACHE_miss;
+    void ICACHE_retry;
 }
 ICACHE_RESPONSE deriving (Eq, Bits);
 
@@ -116,7 +120,12 @@ typedef struct
 } 
 ICACHE_OUTPUT_IMMEDIATE deriving (Eq, Bits);
 
-typedef IMEM_BUNDLE ICACHE_OUTPUT_DELAYED;
+typedef struct
+{
+    ICACHE_MISS_ID missID;
+    IMEM_BUNDLE bundle;
+}
+ICACHE_OUTPUT_DELAYED deriving (Eq, Bits);
 
 function ICACHE_OUTPUT_IMMEDIATE initICacheHit(IMEM_BUNDLE bundle, ISA_INSTRUCTION inst);
 
@@ -125,9 +134,9 @@ function ICACHE_OUTPUT_IMMEDIATE initICacheHit(IMEM_BUNDLE bundle, ISA_INSTRUCTI
 
 endfunction
 
-function ICACHE_OUTPUT_IMMEDIATE initICacheMiss(IMEM_BUNDLE bundle);
+function ICACHE_OUTPUT_IMMEDIATE initICacheMiss(ICACHE_MISS_ID miss_id, IMEM_BUNDLE bundle);
 
-    return ICACHE_OUTPUT_IMMEDIATE {bundle: bundle, rspType: ICACHE_miss};
+    return ICACHE_OUTPUT_IMMEDIATE {bundle: bundle, rspType: tagged ICACHE_miss miss_id};
 
 endfunction
 
@@ -137,10 +146,10 @@ function ICACHE_OUTPUT_IMMEDIATE initICacheRetry(IMEM_BUNDLE bundle);
 
 endfunction
 
-function ICACHE_OUTPUT_DELAYED initICacheMissRsp(IMEM_BUNDLE bundle, ISA_INSTRUCTION inst);
+function ICACHE_OUTPUT_DELAYED initICacheMissRsp(ICACHE_MISS_ID miss_id, IMEM_BUNDLE bund, ISA_INSTRUCTION inst);
 
-    bundle.instruction = inst;
-    return bundle;
+    bund.instruction = inst;
+    return ICACHE_OUTPUT_DELAYED {missID: miss_id, bundle: bund};
 
 endfunction
 
