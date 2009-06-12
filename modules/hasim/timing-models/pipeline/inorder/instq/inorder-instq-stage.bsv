@@ -57,51 +57,40 @@ import Vector::*;
 
 // External Interface:
 //  "InstQ_to_fet_credit"
-//  Instruction Queue assumes every model cycle the front end will want a new
-//  slot in the instruction queue. If there's an available slot, instruction
-//  queue "credits" the slot to the front end. The credited slot must be
-//  "completed" before it can be reused.
+//  Whenever more space is freed up in the instruction queue, the instq sends
+//  to fetch a count of how much space was freed (conceptually a bunch of
+//  credits). The front end must not enqueue anything in the instq unless it
+//  has one of these credits.
 //
-//  "Fet_to_InstQ_allocate"
-//  When the front end is ready, it should send the instq a fetch bundle and
-//  info about how the slot will be used. This includes whether to use or
-//  "poison" the slot, and whether or not the icache will later update the
-//  slot. 
+//  "Fet_to_InstQ_enq"
+//  When the front end is ready, and if it has an instq credit, it can enqueue
+//  a fetch bundle on the instq. The front end should indicate if this bundle
+//  is associated with an icache miss, and if so provide the icache miss
+//  number. The front end can also specified the bundle as Invalid, in which
+//  case the instq doesn't enqueue it but reclaims the credit.
 //
-//  If poison is true, the data in the slot belongs to a wrong path
-//  instruction. It will be dropped from the queue.  If the slot is
-//  "poisoned", we assume that fetch will poison all credits not yet
-//  allocated.
-//
-//  If complete is true, the slot is considered "complete". If
-//  complete is false, the icache will send the correct instruction for that
-//  slot some number of model cycles in the future via ICache_to_CPU_delayed.
-// 
 //  "ICache_to_CPU_delayed"
-//  If there's a cache miss, it will take some time to get the instruction.
-//  Once the cache gets it, it passes it to the instq, thus completing the
-//  slot.
+//  If there's a icache miss, it will take some time to get the instruction.
+//  Once the icache gets the instruction, the icache passes the instruction to
+//  the instq, completing the bundle with corresponding icache miss number that
+//  has already been enqueued.
 //
 //  "Fet_to_InstQ_clear"
-//  If there's a fault or rewind, the allocated slots should be cleared.
+//  Clear all bundles from the instruction queue.
 //
 //  "InstQ_to_Dec_first", "Dec_to_InstQ_deq"
 //  The instq will send the first bundle on the queue to decode if that bundle
-//  is complete and not poisoned. That bundle remains first on the queue until
-//  decode explicitly says to dequeue it. (Remember, poisoned bundles are
-//  automatically dropped and are never sent to decode).
+//  is complete. That bundle remains first on the queue until decode explicitly
+//  says to dequeue it.
 
-// Internal Stuff:
-//  It's very complicated. Ask me some other time and maybe I'll tell you
-//  about it if I'm in a good mood.
+typedef Bit#(TLog#(NUM_INSTQ_SLOTS)) INSTQ_SLOT_ID;
 
-// The OUTSTANDING_BOARD marks which slots have outstanding potential icache
-// rendezvous. If element [i][j] is True, then slot i, side j has an
-// outstanding request.
-typedef Vector#(NUM_INSTQ_SLOTS, Vector#(NUM_INSTQ_SIDES, Bool)) OUTSTANDING_BOARD;
+typedef struct {
+    FETCH_BUNDLE bundle;
+    Bool complete;
+} INSTQ_SLOT_DATA deriving(Bits, Eq);
 
-// The SIDE_MAP says which side is being used for each slot.
-typedef Vector#(NUM_INSTQ_SLOTS, INSTQ_SIDE) SIDE_MAP;
+typedef Vector#(NUM_ICACHE_MISS_IDS, Bool) MISS_DROP_MAP;
 
 module [HASIM_MODULE] mkInstructionQueue
     // interface:
@@ -112,62 +101,44 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // ****** Model State (per instance) ******
 
-    // Which slots have outstanding potential icache rendezvous .
-    MULTIPLEXED#(NUM_CPUS, Reg#(OUTSTANDING_BOARD)) outstandingPool <- mkMultiplexed(mkReg(replicate(replicate(False))));
-
     // Queue to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE)) bundlesPool <- mkMultiplexed(mkLUTRAMU());
-    
-    // What side are we using of each slot?
-    MULTIPLEXED#(NUM_CPUS, Reg#(SIDE_MAP)) sideMapPool <- mkMultiplexed(mkRegU);
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA)) slotsPool <- mkMultiplexed(mkLUTRAMU());
+
+    // Record of which expected icache miss delayed updates we should ignore.
+    MULTIPLEXED#(NUM_CPUS, Reg#(MISS_DROP_MAP)) shouldDropPool <- mkMultiplexed(mkRegU());
+
+    // Miss Address File (MAF).
+    // Maps from icache miss ID to instq slot.
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(ICACHE_MISS_ID, INSTQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
     
     // Pointer to the head slot, which contains the next bundle for the decode
     // stage to look at.
     MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) headPtrPool <- mkMultiplexed(mkReg(0));
     
-    // Pointer to the next slot we expect fetch to "allocate". All slots
-    // between here and the head slot contain bundles we plan to send to
-    // decode eventually. On poison we reset the credit pointer here.
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) allocPtrPool <- mkMultiplexed(mkReg(0));
-
-    // Pointer to the next slot we'll credit to the front end.
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) creditPtrPool <- mkMultiplexed(mkReg(0));
-
-    // Poison epoch. If incoming poisoned allocations don't match the epoch, we
-    // reset the credit pointer back to the alloc pointer so we don't have any
-    // holes in the queue.
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_POISON_EPOCH)) epochPool <- mkMultiplexed(mkReg(0));
-
-    // Some interesting facts:
-    //  Queue is EMPTY when headPtr == allocPtr 
-    //  Queue is FULL when creditPtr+1 == headPtr
-    //  Slots between headPtr and allocPtr contain bundles allocated by fetch
-    //  but not yet dequeued by decode.
-    //  Slots between allocPtr and creditPtr are slots fetch will soon be
-    //  allocating. They may be poisoned.
-
+    // Pointer to the tail slot, which is the next slot we'll use when
+    // enqueuing a new bundle.
+    // Note: Queue is EMPTY when headPtr == allocPtr 
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) tailPtrPool <- mkMultiplexed(mkReg(0));
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_ALLOCATION)      allocateFromFetch    <- mkPortRecv_Multiplexed("Fet_to_InstQ_allocate", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                  clearFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_clear", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Bool)                  creditResetFromFetch <- mkPortRecv_Multiplexed("Fet_to_InstQ_creditReset", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED) rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)          enqFromFetch         <- mkPortRecv_Multiplexed("Fet_to_InstQ_enq", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                   clearFromFetch       <- mkPortRecv_Multiplexed("Fet_to_InstQ_clear", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)  rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)    bundleToDec  <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT) creditToFetch  <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)       bundleToDec   <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT_COUNT) creditToFetch <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
     
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)        deqFromDec <- mkPortRecvDependent_Multiplexed("Dec_to_InstQ_deq");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID) deqFromDec <- mkPortRecvDependent_Multiplexed("Dec_to_InstQ_deq");
         
     // ****** Local Controller ******
 
-    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
 
-    inctrls[0]  = allocateFromFetch.ctrl;
+    inctrls[0]  = enqFromFetch.ctrl;
     inctrls[1]  = clearFromFetch.ctrl;
-    inctrls[2]  = creditResetFromFetch.ctrl;
-    inctrls[3]  = rspFromICacheDelayed.ctrl;
+    inctrls[2]  = rspFromICacheDelayed.ctrl;
     outctrls[0] = creditToFetch.ctrl;
     outctrls[1] = bundleToDec.ctrl;
 
@@ -179,11 +150,13 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // ****** Rules ******
 
-    // Ports read:
-    // * rspFromICacheDelayed 
+    // stage1_first
+    // Send the head to decode.
     //
-    // Ports written:
-    // * bundleToDec;
+    // Ports Read:
+    //  (none)
+    // Ports Written
+    // * bundleToDec
 
     (* conservative_implicit_conditions *)
     rule stage1_first (True);
@@ -193,23 +166,18 @@ module [HASIM_MODULE] mkInstructionQueue
         debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current instance.
-        Reg#(OUTSTANDING_BOARD) outstanding = outstandingPool[cpu_iid];
-        Reg#(SIDE_MAP) sideMap = sideMapPool [cpu_iid];
-        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
-
-        Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID) allocPtr = allocPtrPool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
+        INSTQ_SLOT_ID head_ptr = headPtrPool[cpu_iid];
+        INSTQ_SLOT_ID tail_ptr = tailPtrPool[cpu_iid];
 
         // Send the head bundle to decode if ready.
-        let empty = (headPtr == allocPtr);
-        let head_side = sideMap[headPtr];
-        let head_rdy = !outstanding[headPtr][head_side];
-        if (!empty && head_rdy)
+        let empty = (head_ptr == tail_ptr);
+        let first = slots.sub(head_ptr);
+        if (!empty && first.complete)
         begin
             // It's ready to go.
-            let bundle = bundles.sub(headPtr);
-            debugLog.record_next_cycle(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", headPtr, bundle.pc));
-            bundleToDec.send(cpu_iid, tagged Valid bundle);
+            debugLog.record_next_cycle(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", head_ptr, first.bundle.pc));
+            bundleToDec.send(cpu_iid, tagged Valid first.bundle);
         end
         else
         begin
@@ -224,209 +192,142 @@ module [HASIM_MODULE] mkInstructionQueue
 
     endrule
 
-    rule stage2_complete;
+    // stage2_complete
+    // Rendezvous an icache miss with it's bundle, if any.
+    //
+    // Ports Read:
+    // * rspFromICacheDelayed
+    // Ports Written
+    // (none)
+    rule stage2_complete (True);
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get our local state based on the current instance.
-        Reg#(OUTSTANDING_BOARD) outstanding = outstandingPool[cpu_iid];
-        Reg#(SIDE_MAP) sideMap = sideMapPool [cpu_iid];
-        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
+        Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool[cpu_iid];
+        MISS_DROP_MAP should_drop = shouldDrop;
+        LUTRAM#(ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
 
         // Check for icache rendezvous.
         let m_rendezvous <- rspFromICacheDelayed.receive(cpu_iid);
         if (m_rendezvous matches tagged Valid .rsp)
         begin
-            
-            // TODO: use rsp.missID to determine which slot it goes into, rather than rsp.bundle.instQCredit.
-        
-            debugLog.record(cpu_iid, fshow("COMPLETE: ") + fshow(rsp.bundle.instQCredit));
-            let credit = rsp.bundle.instQCredit;
-
-            // Mark the virtual slot as no longer outstanding.
-            outstanding[credit.slot][credit.side] <= False;
-
-            // update the bundle if it's the right side
-            if (credit.side == sideMap[credit.slot])
+            if (should_drop[rsp.missID])
             begin
-                let bundle = bundles.sub(credit.slot);
-                bundle.inst = rsp.bundle.instruction;
-                bundles.upd(credit.slot, bundle);
+                debugLog.record(cpu_iid, fshow("DROP DELAYED. MISS ID = ") + fshow(rsp.missID));
+            end
+            else
+            begin
+                INSTQ_SLOT_ID slot = maf.sub(rsp.missID);
+
+                let slot_data = slots.sub(slot);
+                slot_data.bundle.inst = rsp.bundle.instruction;
+                slot_data.complete = True;
+                slots.upd(slot, slot_data);
+
+                debugLog.record(cpu_iid, fshow("COMPLETE. MISS ID = ") + fshow(rsp.missID));
             end
         end
 
         // Pass this instance to the next stage.
         stage3Ctrl.ready(cpu_iid);
-
     endrule
-    
 
-    // stage3_deallocate
-    // Check if decode is dequeing.
+    // stage3_deq_clear_enq_credit
+    // Handle deq, clear, and enq
+    // Send credits to fetch.
     //
-    // Ports read:
+    // Ports Read:
     // * deqFromDec
-    // Ports written:
-    // (none)
-
-    rule stage3_deallocate (True);
-
+    // * clearFromFetch
+    // * enqFromFetch
+    // Ports Written
+    // * creditToFetch
+    rule stage3_deq_clear_enq_credit (True);
         // Get the info from the previous stage.
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
 
         // Get our local state based on the current instance.
+        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
+        Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool[cpu_iid];
+        MISS_DROP_MAP should_drop = shouldDrop;
+        LUTRAM#(ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
         Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
+        Reg#(INSTQ_SLOT_ID) tailPtr = tailPtrPool[cpu_iid];
+        INSTQ_SLOT_ID head_ptr = headPtr;
+    
+        INSTQ_CREDIT_COUNT credits = 0;
 
-        // Check for any dequeues from decode.
+        // Check for dequeue from decode.
         let m_deq <- deqFromDec.receive(cpu_iid);
 
         if (isValid(m_deq))
         begin
-            
             // A dequeue occurred. Just drop the oldest guy.
-            debugLog.record(cpu_iid, $format("DEQ. NEW HEAD: 0x%0h", headPtr+1));
-            headPtr <= headPtr + 1;
-
+            debugLog.record(cpu_iid, $format("DEQ. NEW HEAD: 0x%0h", head_ptr+1));
+            head_ptr = head_ptr + 1;
+            credits = credits + 1;
         end
-        
-        // Send it to the next stage.
-        stage4Ctrl.ready(cpu_iid);
 
-    endrule
-
-
-    // stage4_clear_allocate_credit
-    
-    // Check for allocation requests. Based on allocate and deallocate
-    // we can calculate a new credit to be sent to back to Fetch.
-    
-    // Ports read:
-    // * clearFromFetch
-    // * creditResetFromFetch
-    // * allocateFromFetch
-    // Ports written:
-    // * creditToFetch
-
-    rule stage4_clear_allocate_credit (True);
-
-        // Get our instance from the previous stage.
-        let cpu_iid <- stage4Ctrl.nextReadyInstance();
-
-        // Get our local state based on the current instance.
-        Reg#(OUTSTANDING_BOARD) outstandingReg = outstandingPool[cpu_iid];
-        let outstanding = outstandingReg;
-        Reg#(SIDE_MAP) sideMap = sideMapPool[cpu_iid];
-        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) bundles = bundlesPool[cpu_iid];
-        Reg#(INSTQ_POISON_EPOCH) epochReg = epochPool[cpu_iid];
-        let epoch = epochReg;
-
-        Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID) allocPtr = allocPtrPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID) creditPtr = creditPtrPool[cpu_iid];
-        let head_ptr = headPtr;
-        let alloc_ptr = allocPtr;
-        let credit_ptr = creditPtr;
-
-        // Check for a clear request.
+        // Check for clear from fetch.
         let m_clear <- clearFromFetch.receive(cpu_iid);
-        let m_reset <- creditResetFromFetch.receive(cpu_iid);
-        Bool keep_allocation = False;
-        Bool credit_reset = False;
         if (isValid(m_clear))
         begin
-            // Clear the queue.
-            debugLog.record(cpu_iid, $format("CLEAR. New Head: 0x%0h", alloc_ptr));
-            head_ptr = alloc_ptr;
+            debugLog.record(cpu_iid, $format("CLEAR"));
 
-            credit_reset = True;
-            epoch = epoch + 1;
-        end
-        else if (m_reset matches tagged Valid .ka)
-        begin
-            // Reset the credit pointer
-            debugLog.record(cpu_iid, $format("CREDIT RESET. New Credit Pointer: 0x%0h, keep alloc: ", alloc_ptr) + $format(ka ? "YES" : "NO"));
-
-            keep_allocation = ka;
-            credit_reset = True;
-            epoch = epoch + 1;
+            INSTQ_CREDIT_COUNT add = tailPtr - head_ptr;
+            credits = credits + add;
+            head_ptr = tailPtr;
+            should_drop = replicate(True);
         end
 
-        
-        // Check for any new allocations.
-        let m_alloc <- allocateFromFetch.receive(cpu_iid);
 
-        if (m_alloc matches tagged Valid .alloc)
+        // Check for enqueue
+        let m_enq <- enqFromFetch.receive(cpu_iid);
+
+        if (m_enq matches tagged Valid .enq)
         begin
-            // A new allocation.
-            debugLog.record(cpu_iid,
-                $format("ALLOC ADDR:0x%h", alloc.bundle.pc)
-              + $format(", CREDIT: ") + fshow(alloc.credit)
-              + $format(", DELAYED: ", (isValid(alloc.missID) ? "YES" : "NO"))
-            );
-
-            if (alloc.credit.epoch == epoch || keep_allocation)
+            if (enq.bundle matches tagged Valid .bundle)
             begin
-                bundles.upd(alloc.credit.slot, alloc.bundle);
-                alloc_ptr = alloc.credit.slot+1;
+                // Enqueue a bundle
+                let slot_data = INSTQ_SLOT_DATA {
+                    bundle: bundle,
+                    complete: !isValid(enq.missID)
+                };
+        
+                slots.upd(tailPtr, slot_data);
+                tailPtr <= tailPtr + 1;
 
-                debugLog.record(cpu_iid, $format("ALLOC ACCEPTED. NEW ALLOC PTR: 0x%0h", alloc_ptr));
+                debugLog.record(cpu_iid, $format("ENQ pc = 0x%0h", bundle.pc));
+
+                if (enq.missID matches tagged Valid .miss_id)
+                begin
+                    maf.upd(miss_id, tailPtr);
+                    should_drop[miss_id] = False;
+                end
             end
             else
             begin
-                debugLog.record(cpu_iid, $format("ALLOC POISONED. ALLOC PTR REMAINS: 0x%0h", alloc_ptr));
+                // No bundle to enqueue. Reclaim the credit.
+                credits = credits+1;
+
+                debugLog.record(cpu_iid, $format("NO ENQ"));
+
+                if (enq.missID matches tagged Valid .miss_id)
+                begin
+                    should_drop[miss_id] = True;
+                end
             end
 
-            if (!isValid(alloc.missID))
-            begin
-                // This slot no longer is outstanding.
-                debugLog.record(cpu_iid, $format("COMPLETE: ") + fshow(alloc.credit));
-                outstanding[alloc.credit.slot][alloc.credit.side] = False;
-            end
-
         end
 
-        // Now do the credit reset if needed.
-        if (credit_reset)
-        begin
-            credit_ptr = alloc_ptr;
-        end
+        // Send credits to fetch.
+        debugLog.record(cpu_iid, $format("CREDITING TO FETCH %0d", credits));
+        creditToFetch.send(cpu_iid, tagged Valid credits);
 
-        
-        // Now check if we have a credit to send to fetch.
-        // NOTE: It's credit_ptr+2 so we don't advance the credit_ptr to the
-        // head pointer.
-        Bool full = (credit_ptr + 2 == head_ptr);
-        Bool some_side_is_free = (!outstanding[credit_ptr][0] || !outstanding[credit_ptr][1]);
-        if (!full && some_side_is_free)
-        begin
-            // We have room in this slot.
-            INSTQ_SIDE free_side = outstanding[credit_ptr][0] ? 1 : 0;
-            let credit = INSTQ_CREDIT {
-                slot: credit_ptr,
-                side: free_side,
-                epoch: epoch
-            };            
-            creditToFetch.send(cpu_iid, tagged Valid credit);
-            outstanding[credit_ptr][free_side] = True;
-            sideMap[credit_ptr] <= free_side;
-            credit_ptr = credit_ptr + 1;
-
-            debugLog.record(cpu_iid, $format("SEND CREDIT: ") + fshow(credit));
-        end
-        else
-        begin
-
-            // No space here.
-            debugLog.record(cpu_iid, fshow("NO CREDIT"));
-            creditToFetch.send(cpu_iid, tagged Invalid);
-
-        end
-
-        outstandingReg <= outstanding;
-        creditPtr <= credit_ptr;
-        allocPtr <= alloc_ptr;
+        // State updates.
         headPtr <= head_ptr;
-        epochReg <= epoch;
-
+        shouldDrop <= should_drop;
         
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);

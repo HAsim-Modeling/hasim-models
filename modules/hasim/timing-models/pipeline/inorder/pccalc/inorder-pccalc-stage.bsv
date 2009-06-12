@@ -96,9 +96,8 @@ module [HASIM_MODULE] mkPCCalc
     // ****** Ports ******
 
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_ALLOCATION)                  bundleToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_allocate");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)                  enqToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_enq");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                              clearToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_clear");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Bool)                              creditResetToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_creditReset");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)                                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
@@ -112,17 +111,16 @@ module [HASIM_MODULE] mkPCCalc
     // ****** Local Controller ******
 
     Vector#(5, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
-    Vector#(4, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
 
     inctrls[0] = faultFromCom.ctrl;
     inctrls[1] = rewindFromExe.ctrl;
     inctrls[2] = rspFromIMem.ctrl;
     inctrls[3] = predFromBP.ctrl;
     inctrls[4] = attrFromBP.ctrl;
-    outctrls[0]  = bundleToInstQ.ctrl;
+    outctrls[0]  = enqToInstQ.ctrl;
     outctrls[1]  = nextPCToFetch.ctrl;
     outctrls[2]  = clearToInstQ.ctrl;
-    outctrls[3]  = creditResetToInstQ.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
@@ -142,9 +140,8 @@ module [HASIM_MODULE] mkPCCalc
     // * attrFromBP
     //
     // Ports written:
-    // * bundleToInstQ
+    // * enqToInstQ
     // * clearToInstQ
-    // * creditResetToInstQ
 
     rule stage1_nextPC (True);
 
@@ -164,14 +161,12 @@ module [HASIM_MODULE] mkPCCalc
         let m_attr <- attrFromBP.receive(cpu_iid);
 
         PCC_STAGE2_STATE stage2_redirect_state = tagged STAGE2_noredirect;
-        Bool credit_reset = False;
-        Bool keep_reset_allocation = False;
 
         Bool back_end_fault = False;
 
         // Check for faults and rewinds from the back end.
         // This is only to see if we need to redirect the pc. It has nothing
-        // to do with the instruction queue allocation or poisoning.
+        // to do with the instruction queue enqueing.
         //
         // If there is a fault or a rewind we increment the epoch, so that the
         // next stage will never try to overide redirect, because the epoch is
@@ -204,8 +199,9 @@ module [HASIM_MODULE] mkPCCalc
 
         // If we need to redirect, we put the pc to redirect to in here.
         Maybe#(ISA_ADDRESS) redirect = Invalid;
+        Bool enqueue = ?;
 
-        // Figure out what to do with the INSTQ allocation.
+        // Figure out what to do with the INSTQ.
         if (m_imem_rsp matches tagged Valid .imem_rsp)
         begin
 
@@ -219,14 +215,15 @@ module [HASIM_MODULE] mkPCCalc
             if (imem_rsp.bundle.epoch != epoch)
             begin
                 // Epoch is wrong. No need to redirect.
+                enqueue = False;
                 debugLog.record_next_cycle(cpu_iid, $format("WRONG EPOCH"));
             end
             else if (imem_rsp.response matches tagged IMEM_itlb_fault)
             begin
                 // An ITLB fault occured. Increment the itlb epoch, redirect
-                // pc to the handler address, and credit_reset the INSTQ.
+                // pc to the handler address.
+                enqueue = False;
                 debugLog.record_next_cycle(cpu_iid, $format("ITLB FAULT"));
-                credit_reset = True;                
         
                 // For now we just go to whatever address we were trying to
                 // execute. This will likely have to change in the future.
@@ -237,9 +234,9 @@ module [HASIM_MODULE] mkPCCalc
             else if (imem_rsp.response matches tagged IMEM_icache_retry)
             begin
                 // ICACHE Retry. We need to increment the iCache epoch,
-                // redirect the PC and credit_reset the INSTQ.
+                // redirect the PC.
+                enqueue = False;
                 debugLog.record_next_cycle(cpu_iid, $format("ICACHE RETRY"));
-                credit_reset = True;
 
                 redirect = tagged Valid imem_rsp.bundle.virtualAddress;
                 epoch.iCache = epoch.iCache + 1;
@@ -250,45 +247,55 @@ module [HASIM_MODULE] mkPCCalc
                 // Increment the epoch (we use iCache epoch for this).
                 // Redirect to the branch prediction.
                 // Even though the line prediction was wrong, this instruction
-                // is still correct, so don't credit_reset the INSTQ now, but
-                // remeber that we need to do it next model cycle.
+                // is still correct, so we still want to enqueue it on the
+                // INSTQ.
+                enqueue = True;
                 statLpBpMismatches.incr(cpu_iid);
                 debugLog.record_next_cycle(cpu_iid, $format("LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
-                credit_reset = True;
-                keep_reset_allocation = True;
 
                 redirect = tagged Valid pred_pc;
                 epoch.iCache = epoch.iCache+1;
             end
+            else
+            begin
+                // Normal flow. Everything's happy. Enqueue the bundle.
+                enqueue = True;
+            end
 
+            // Check for icache miss. This is independant of anything we've
+            // done so far, because regardless of whether or not we drop the
+            // incoming bundle, we need to tell the instruction queue to expect
+            // a delayed reply from icache.
             Maybe#(ICACHE_MISS_ID) miss_id = tagged Invalid;
             if (imem_rsp.response matches tagged IMEM_icache_miss .id)
             begin 
                 miss_id = tagged Valid id;
             end
 
-            // Make appropriate INSTQ_ALLOCATION
-            let bundle = FETCH_BUNDLE {
-                branchEpoch: imem_rsp.bundle.epoch.branch,
-                faultEpoch: imem_rsp.bundle.epoch.fault,
-                pc: imem_rsp.bundle.virtualAddress,
-                inst: imem_rsp.bundle.instruction,
-                branchAttr: attr
-            };
+            Maybe#(FETCH_BUNDLE) bundle = Invalid;
+            if (enqueue)
+            begin
+                // Make appropriate INSTQ_ENQUEUE
+                bundle = tagged Valid FETCH_BUNDLE {
+                    branchEpoch: imem_rsp.bundle.epoch.branch,
+                    faultEpoch: imem_rsp.bundle.epoch.fault,
+                    pc: imem_rsp.bundle.virtualAddress,
+                    inst: imem_rsp.bundle.instruction,
+                    branchAttr: attr
+                };
+            end
 
-            let instq_alloc = INSTQ_ALLOCATION {
-                credit: imem_rsp.bundle.instQCredit,
+            let instq_enq = INSTQ_ENQUEUE {
                 bundle: bundle,
                 missID: miss_id
             };
-
-            bundleToInstQ.send(cpu_iid, tagged Valid instq_alloc);
+            enqToInstQ.send(cpu_iid, tagged Valid instq_enq);
 
         end
         else
         begin
             // There's a bubble from the front end.
-            bundleToInstQ.send(cpu_iid, Invalid);
+            enqToInstQ.send(cpu_iid, Invalid);
         end
 
         // Now we deal with pc redirection.
@@ -298,16 +305,6 @@ module [HASIM_MODULE] mkPCCalc
         end
 
         clearToInstQ.send(cpu_iid, back_end_fault ? tagged Valid (?) : Invalid);
-
-        // Do a credit reset if needed.
-        if (credit_reset)
-        begin
-            creditResetToInstQ.send(cpu_iid, tagged Valid keep_reset_allocation);
-        end
-        else
-        begin
-            creditResetToInstQ.send(cpu_iid, Invalid);
-        end
 
         stage2Ctrl.ready(cpu_iid, stage2_redirect_state);
 

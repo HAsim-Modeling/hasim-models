@@ -3076,3 +3076,28 @@ Directory modules/hasim/timing-models/caches/direct-mapped-icache
 Michael P.
 
 
+
+----------
+ruhler      Date: Fri Jun 12 13:52:27 EDT 2009  CSN: CSN-hasim-models-115
+                  Fri Jun 12 17:52:27 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          114 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          114 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          114 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          114 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          114 
+
+Implemented a new instruction queue scheme for the inorder model which
+separates slot assignments from credits and will hopefully more easily
+generalize to multiple threads.
+

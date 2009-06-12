@@ -89,11 +89,20 @@ typedef struct {
     BRANCH_ATTR branchAttr;
 } FETCH_BUNDLE deriving (Bits, Eq);
 
+typedef 16 NUM_INSTQ_SLOTS;
+typedef TSub#(NUM_INSTQ_SLOTS, 1) NUM_INSTQ_CREDITS;
+typedef Bit#(TLog#(NUM_INSTQ_SLOTS)) INSTQ_CREDIT_COUNT;
+
+// INSTQ_ENQUEUE
+// If missID is Invalid, there was no icache miss.
+// If missID is Valid, then expect a delayed icache response associated with
+// this bundle.
+// If bundle is Invalid, then don't enqueue the bundle, but reclaim the credit,
+// and if there is an icache miss, just drop the response when you get it.
 typedef struct {
-    INSTQ_CREDIT credit;
-    FETCH_BUNDLE bundle;
-    Maybe#(ICACHE_MISS_ID) missID; // If invalid, then the instruction is not delayed.
-} INSTQ_ALLOCATION deriving(Bits, Eq);
+    Maybe#(FETCH_BUNDLE) bundle;
+    Maybe#(ICACHE_MISS_ID) missID;
+} INSTQ_ENQUEUE deriving(Bits, Eq);
 
 typedef struct {
     TOKEN token;

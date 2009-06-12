@@ -61,6 +61,7 @@ module [HASIM_MODULE] mkFetch ();
 
     MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS))    pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
     MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_EPOCH))  epochPool <- mkMultiplexed(mkReg(initIMemEpoch(0, 0, 0, 0)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_CREDIT_COUNT)) creditsPool <- mkMultiplexed(mkReg(fromInteger(valueof(NUM_INSTQ_CREDITS))));
 
     // ****** Soft Connections ******
 
@@ -69,7 +70,7 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT)                     creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT_COUNT)                     creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
@@ -110,7 +111,11 @@ module [HASIM_MODULE] mkFetch ();
     // The pc we send to the line predictor is whatever we think pc is, unless
     // pccalc sends us a redirected pc, in which case we used the redirected pc.
     //
+    // Also update the number of instq credits we have if the instq gives us
+    // more.
+    //
     // Ports read:
+    // * creditFromInstQ
     // * newPCFromPCCalc
     //
     // Ports written:
@@ -128,6 +133,12 @@ module [HASIM_MODULE] mkFetch ();
         // Get our local state using the instance.
         Reg#(ISA_ADDRESS)         pc = pcPool[cpu_iid];
         Reg#(IMEM_EPOCH)       epoch = epochPool[cpu_iid];
+        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool[cpu_iid];
+
+        // Get credits from the instruction queue and update our count of them.
+        let m_creditFromInstQ <- creditFromInstQ.receive(cpu_iid);
+        credits <= credits + fromMaybe(0, m_creditFromInstQ);
+
         
         let pc_for_line_prediction = pc;
 
@@ -153,10 +164,10 @@ module [HASIM_MODULE] mkFetch ();
     endrule
 
     // stage2_fetchReq
-    // If we have space in the instruction queue, send fetch request to ITLB and    // Branch Predictors.
+    // If we have a credit for the instruction queue, send fetch request to
+    // ITLB and Branch Predictors.
     //
     // Ports read:
-    // * creditFromInstQ
     // * newPCFromLP
     //
     // Ports written:
@@ -169,38 +180,41 @@ module [HASIM_MODULE] mkFetch ();
         // Get our local state using the instance.
         Reg#(ISA_ADDRESS)         pc = pcPool[cpu_iid];
         Reg#(IMEM_EPOCH)       epoch = epochPool[cpu_iid];
+        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool[cpu_iid];
 
         // Get the line prediction
         // assert isValid(m_line_prediction)
         let m_line_prediction <- newPCFromLP.receive(cpu_iid);
         let line_prediction = validValue(m_line_prediction);
         
-        // See if we have room in the instructionQ.
-        let m_credit <- creditFromInstQ.receive(cpu_iid);
-        
-        if (m_credit matches tagged Valid .credit)
+        // See if we have any credits for the instruction queue.
+        if (credits != 0)
         begin
         
             // The instructionQ still has room...
             // Send the current PC to the ITLB and Branch predictor and line
             // predictor
-            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(epoch, credit, pc, line_prediction));
+            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(epoch, pc, line_prediction));
             pcToBP.send(cpu_iid, tagged Valid pc);
 
             // Set the pc as predicted
             pc <= line_prediction;
+
+            // Use the credit
+            credits <= credits - 1;
         
             // End of model cycle. (Path 1)
             eventFet.recordEvent(cpu_iid, tagged Valid truncate(pc));
             statFet.incr(cpu_iid);
-            debugLog.record(cpu_iid, $format("FETCH ADDR:0x%h", pc) + $format(" SLOT:%0d", credit));
+            debugLog.record(cpu_iid, $format("FETCH ADDR:0x%h", pc));
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
         else
         begin
 
-            // The instructionQ is full... Nothing we can do.
+            // We have no credits for the instructionQ.
+            // Nothing we can do.
             debugLog.record(cpu_iid, $format("BUBBLE"));
             eventFet.recordEvent(cpu_iid, tagged Invalid);
             

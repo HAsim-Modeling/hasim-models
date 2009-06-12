@@ -27,32 +27,11 @@ function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKE
 
 endfunction
 
-typedef 32 NUM_INSTQ_SLOTS;
-typedef Bit#(TLog#(NUM_INSTQ_SLOTS)) INSTQ_SLOT_ID;
-typedef 2 NUM_INSTQ_SIDES;
-typedef Bit#(TLog#(NUM_INSTQ_SIDES)) INSTQ_SIDE;
-typedef Bit#(2) INSTQ_POISON_EPOCH;
-typedef struct {
-    INSTQ_SLOT_ID slot;
-    INSTQ_SIDE side;
-    INSTQ_POISON_EPOCH epoch;
-} INSTQ_CREDIT deriving(Bits, Eq);
-
-instance FShow#(INSTQ_CREDIT);
-    function Fmt fshow(INSTQ_CREDIT x);
-        Fmt s = fshow("slot = ") + fshow(x.slot);
-        s = s + fshow(" side = ") + fshow(x.side);
-        s = s + fshow(" epoch = ") + fshow(x.epoch);
-        return s;
-    endfunction
-endinstance
-
 typedef Bit#(4) COMMITQ_SLOT_ID;
 
 typedef struct
 {
     IMEM_EPOCH epoch;
-    INSTQ_CREDIT instQCredit;
     ISA_ADDRESS virtualAddress;
     MEM_OFFSET offset;
     MEM_ADDRESS physicalAddress;
@@ -61,9 +40,9 @@ typedef struct
 }
 IMEM_BUNDLE deriving (Eq, Bits);
 
-function IMEM_BUNDLE initIMemBundle(IMEM_EPOCH ep, INSTQ_CREDIT cr, ISA_ADDRESS pc, ISA_ADDRESS lp);
+function IMEM_BUNDLE initIMemBundle(IMEM_EPOCH ep, ISA_ADDRESS pc, ISA_ADDRESS lp);
 
-    return IMEM_BUNDLE {epoch: ep, instQCredit: cr, virtualAddress: pc, instruction: ?, offset: ?, physicalAddress: ?, linePrediction: lp};
+    return IMEM_BUNDLE {epoch: ep, virtualAddress: pc, instruction: ?, offset: ?, physicalAddress: ?, linePrediction: lp};
 
 endfunction
 
@@ -102,6 +81,7 @@ function ICACHE_INPUT initICacheLoad(IMEM_BUNDLE bundle);
 endfunction
 
 typedef `ICACHE_MISS_ID_SIZE ICACHE_MISS_ID_SIZE;
+typedef TExp#(ICACHE_MISS_ID_SIZE) NUM_ICACHE_MISS_IDS;
 typedef Bit#(ICACHE_MISS_ID_SIZE) ICACHE_MISS_ID;
 typedef TAdd#(ICACHE_MISS_ID_SIZE, 1) ICACHE_MISS_COUNT;
 
