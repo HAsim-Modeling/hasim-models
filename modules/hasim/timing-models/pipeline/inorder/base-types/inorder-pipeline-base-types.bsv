@@ -28,7 +28,9 @@ import FShow::*;
 
 // Mapping from cpu id to context ids and back.
 function CPU_INSTANCE_ID tokCpuInstanceId(TOKEN tok) = tokContextId(tok);
+function CPU_INSTANCE_ID storeTokCpuInstanceId(STORE_TOKEN st_tok) = storeTokContextId(st_tok);
 function CONTEXT_ID getContextId(CPU_INSTANCE_ID cpu_iid) = cpu_iid;
+
 
 typedef Bit#(1) UNIT;
 

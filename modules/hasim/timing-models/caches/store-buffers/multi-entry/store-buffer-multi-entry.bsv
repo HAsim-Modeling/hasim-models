@@ -66,6 +66,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     // ****** Model State (per Context) ******
     
     MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))) tokIDPool       <- mkMultiplexed(mkReg(replicate(Invalid)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)))   storeTokenPool  <- mkMultiplexed(mkRegU());
     MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)))) physAddressPool <- mkMultiplexed(mkReg(replicate(Invalid)));
 
     MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) oldestCommittedPool   <- mkMultiplexed(mkReg(0));
@@ -311,6 +312,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
 
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = tokIDPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool[cpu_iid];
 
         // See if we're getting a deallocation request.
         let m_dealloc <- deallocFromCom.receive(cpu_iid);
@@ -332,6 +334,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
             // Update the token with the latest value.
             debugLog.record(cpu_iid, fshow("DEALLOC REQ ") + fshow(req.token));
             tokID[oldestCommitted + numToCommit] <= tagged Valid req.token;
+            storeToken[oldestCommitted + numToCommit] <= req.storeToken;
 
             // Record that the commit path has work to do.
             numToCommit <= numToCommit + 1;
@@ -357,6 +360,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = tokIDPool[cpu_iid];
         Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool[cpu_iid];
 
         // See if the Write Buffer has room.
         let m_credit <- creditFromWriteQ.receive(cpu_iid);
@@ -393,7 +397,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         numToCommit <= numToCommit - 1;
 
                         // Send it to the writeBuffer.
-                        storeToWriteQ.send(cpu_iid, tagged Valid tuple2(tok, phys_addr));
+                        let store_tok = storeToken[oldestCommitted];
+                        storeToWriteQ.send(cpu_iid, tagged Valid tuple2(store_tok, phys_addr));
 
                     end
                     else

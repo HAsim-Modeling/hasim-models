@@ -123,6 +123,7 @@ module [HASIM_MODULE] mkPipeline
     // Mapping from cpu id to context ids and back.
     function CPU_INSTANCE_ID getCpuInstanceId(CONTEXT_ID ctx_id) = ctx_id;
     function CPU_INSTANCE_ID tokCpuInstanceId(TOKEN tok) = tokContextId(tok);
+    function CPU_INSTANCE_ID storeTokCpuInstanceId(STORE_TOKEN st_tok) = storeTokContextId(st_tok);
     function CONTEXT_ID getContextId(CPU_INSTANCE_ID cpu_iid) = cpu_iid;
 
 
@@ -437,8 +438,9 @@ module [HASIM_MODULE] mkPipeline
         begin
 
             // Request global commit of stores.
-            linkToGCO.makeReq(initFuncpReqCommitStores(tok));
-            debugLog.record(cpu_iid, $format("Globally committing stores for token: %0d", tokTokenId(tok)));
+            let st_tok = validValue(rsp.storeToken);
+            linkToGCO.makeReq(initFuncpReqCommitStores(st_tok));
+            debugLog.record(cpu_iid, $format("Globally committing stores for token: %0d (store token: %0d)", tokTokenId(tok), storeTokTokenId(st_tok)));
 
         end
         else
@@ -456,10 +458,10 @@ module [HASIM_MODULE] mkPipeline
         let rsp = linkToGCO.getResp();
         linkToGCO.deq();
 
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
+        let st_tok = rsp.storeToken;
+        let cpu_iid = storeTokCpuInstanceId(st_tok);
 
-        debugLog.record(cpu_iid, fshow(tok.index) + $format("GCO Responded for token: %0d", tokTokenId(tok)));
+        debugLog.record(cpu_iid, fshow(st_tok.index) + $format("GCO Responded for store token: %0d", storeTokTokenId(st_tok)));
 
         endModelCycle(cpu_iid);
 

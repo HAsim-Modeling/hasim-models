@@ -34,9 +34,9 @@ function DCACHE_FILL initLoadFill(DMEM_BUNDLE bundle);
 
 endfunction
 
-function DCACHE_FILL initStoreFill(TOKEN tok);
+function DCACHE_FILL initStoreFill(STORE_TOKEN st_tok);
 
-    return tagged FILL_store initDCacheStoreDelayOk(tok);
+    return tagged FILL_store initDCacheStoreDelayOk(st_tok);
 
 endfunction
 
@@ -294,7 +294,7 @@ module [HASIM_MODULE] mkDCache();
 
             end
 
-            tagged Valid {.tok, .phys_addr}:
+            tagged Valid .req:
             begin
 
                 // An actual cache would do something with the physical 
@@ -308,7 +308,7 @@ module [HASIM_MODULE] mkDCache();
                 begin
 
                     // They should retry their store on a later model cycle.
-                    storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                    storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(req.storeToken));
                     statStoreRetries.incr(cpu_iid);
 
                 end
@@ -323,7 +323,7 @@ module [HASIM_MODULE] mkDCache();
                         begin
                         
                             // The port is taken. They must retry next model cycle.
-                            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(req.storeToken));
                             statPortCollisions.incr(cpu_iid);
                         
                         end
@@ -331,10 +331,10 @@ module [HASIM_MODULE] mkDCache();
                         begin
 
                             // The port is free. We'll use it to delay the store for a while.
-                            req_to_mem = tagged Valid initStoreFill(tok);
+                            req_to_mem = tagged Valid initStoreFill(req.storeToken);
                             
                             // Tell the CPU we missed. They should delay until the store comes back.
-                            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(tok));
+                            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(req.storeToken));
                             statStoreMisses.incr(cpu_iid);
                         
                         end
@@ -344,9 +344,9 @@ module [HASIM_MODULE] mkDCache();
                     begin
                         
                         // Tell the CPU we hit.
-                        storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
+                        storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(req.storeToken));
                         statStoreHits.incr(cpu_iid);
-                                                
+
                     end
 
                 end

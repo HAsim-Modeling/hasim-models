@@ -145,7 +145,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
                 begin
                     // It's a hit if it's a store to the same address. (It must be older than the load.)
                     let addr_match = case (buff[x]) matches
-                                        tagged Valid {.tok, .addr}: return addr == target_addr;
+                                        tagged Valid {.st_tok, .addr}: return addr == target_addr;
                                         tagged Invalid: return False;
                                      endcase;
 
@@ -196,18 +196,18 @@ module [HASIM_MODULE] mkWriteBuffer ();
         
         let new_tail = tail;
         
-        if (m_enq matches tagged Valid {.tok, .addr})
+        if (m_enq matches tagged Valid {.st_tok, .addr})
         begin
         
             // Allocate a new slot.
             // assert !full(cpu_iid)
-            debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
-            buff[tail] <= tagged Valid tuple2(tok, addr);
+            debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(st_tok));
+            buff[tail] <= tagged Valid tuple2(st_tok, addr);
 
             new_tail = tail + 1;
             
             // Tell the functional partition to commit the store.
-            commitStores.makeReq(initFuncpReqCommitStores(tok));
+            commitStores.makeReq(initFuncpReqCommitStores(st_tok));
             stallForStoreRsp[cpu_iid] <= True;
         
         end
@@ -247,8 +247,8 @@ module [HASIM_MODULE] mkWriteBuffer ();
         begin
 
             // Request a store of the oldest write.
-            match {.tok, .phys_addr} = validValue(buff[head]);
-            storeReqToDCache.send(cpu_iid, tagged Valid initDCacheStore(tok, phys_addr));
+            match {.st_tok, .phys_addr} = validValue(buff[head]);
+            storeReqToDCache.send(cpu_iid, tagged Valid initDCacheStore(st_tok, phys_addr));
 
         end
 
@@ -331,9 +331,9 @@ module [HASIM_MODULE] mkWriteBuffer ();
     
         let rsp = commitStores.getResp();
         commitStores.deq();
-        let tok = rsp.token;
+        let st_tok = rsp.storeToken;
         
-        let cpu_iid = tokCpuInstanceId(tok);
+        let cpu_iid = storeTokCpuInstanceId(st_tok);
         stallForStoreRsp[cpu_iid] <= False;
     
     endrule

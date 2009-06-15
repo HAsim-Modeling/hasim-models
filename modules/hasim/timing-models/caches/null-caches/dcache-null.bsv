@@ -75,14 +75,14 @@ module [HASIM_MODULE] mkDCache();
 
 	    end
 
-	    tagged Valid {.tok, .addr}:
+	    tagged Valid .req:
 	    begin
 
 
                 // An actual cache would do something with the physical 
                 // address to determine hit or miss. We always hit.
 
-	        storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
+	        storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(req.storeToken));
 	        storeRspDelToCPU.send(cpu_iid, tagged Invalid);
 
 	    end

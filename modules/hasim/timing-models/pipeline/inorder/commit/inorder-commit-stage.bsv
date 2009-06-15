@@ -300,10 +300,13 @@ module [HASIM_MODULE] mkCommit ();
             // Handle stores.
             if (bundle.isStore) 
             begin
+    
+                // assert .storeToken isValid
+                let st_tok = validValue(rsp.storeToken);
 
                 // Tell the store buffer to deallocate and do the store.
-                debugLog.record_next_cycle(cpu_iid, fshow("2: SB STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress));
-                deallocToSB.send(cpu_iid, tagged Valid initSBWriteback(tok));
+                debugLog.record_next_cycle(cpu_iid, fshow("2: SB STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress) + fshow("STORE TOKEN: ") + fshow(st_tok));
+                deallocToSB.send(cpu_iid, tagged Valid initSBWriteback(tok, st_tok));
 
             end
             else

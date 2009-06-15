@@ -202,7 +202,13 @@ endfunction
 
 
 typedef DMEM_BUNDLE DCACHE_LOAD_INPUT;
-typedef Tuple2#(TOKEN, MEM_ADDRESS) DCACHE_STORE_INPUT;
+
+typedef struct
+{
+    STORE_TOKEN storeToken;
+    MEM_ADDRESS physicalAddress;
+}
+DCACHE_STORE_INPUT deriving (Eq, Bits);
 
 function DCACHE_LOAD_INPUT initDCacheLoad(DMEM_BUNDLE bundle);
 
@@ -252,9 +258,9 @@ function DCACHE_LOAD_OUTPUT_DELAYED initDCacheLoadMissRsp(DMEM_BUNDLE bundle);
 endfunction
 
 
-function DCACHE_STORE_INPUT initDCacheStore(TOKEN tok, MEM_ADDRESS addr);
+function DCACHE_STORE_INPUT initDCacheStore(STORE_TOKEN st_tok, MEM_ADDRESS phy_addr);
 
-    return tuple2(tok, addr);
+    return DCACHE_STORE_INPUT {storeToken: st_tok, physicalAddress: phy_addr};
 
 endfunction
 
@@ -268,34 +274,34 @@ DCACHE_STORE_RESPONSE deriving (Eq, Bits);
 
 typedef struct
 {
-    TOKEN token;
+    STORE_TOKEN storeToken;
     DCACHE_STORE_RESPONSE rspType;
 } 
 DCACHE_STORE_OUTPUT_IMMEDIATE deriving (Eq, Bits);
 
-typedef TOKEN DCACHE_STORE_OUTPUT_DELAYED;
+typedef STORE_TOKEN DCACHE_STORE_OUTPUT_DELAYED;
 
-function DCACHE_STORE_OUTPUT_IMMEDIATE initDCacheStoreOk(TOKEN tok);
+function DCACHE_STORE_OUTPUT_IMMEDIATE initDCacheStoreOk(STORE_TOKEN st_tok);
 
-    return DCACHE_STORE_OUTPUT_IMMEDIATE {token: tok, rspType: DCACHE_ok};
-
-endfunction
-
-function DCACHE_STORE_OUTPUT_IMMEDIATE initDCacheStoreDelay(TOKEN tok);
-
-    return DCACHE_STORE_OUTPUT_IMMEDIATE {token: tok, rspType: DCACHE_delay};
+    return DCACHE_STORE_OUTPUT_IMMEDIATE {storeToken: st_tok, rspType: DCACHE_ok};
 
 endfunction
 
-function DCACHE_STORE_OUTPUT_IMMEDIATE initDCacheStoreRetry(TOKEN tok);
+function DCACHE_STORE_OUTPUT_IMMEDIATE initDCacheStoreDelay(STORE_TOKEN st_tok);
 
-    return DCACHE_STORE_OUTPUT_IMMEDIATE {token: tok, rspType: DCACHE_retryStore};
+    return DCACHE_STORE_OUTPUT_IMMEDIATE {storeToken: st_tok, rspType: DCACHE_delay};
 
 endfunction
 
-function DCACHE_STORE_OUTPUT_DELAYED initDCacheStoreDelayOk(TOKEN tok);
+function DCACHE_STORE_OUTPUT_IMMEDIATE initDCacheStoreRetry(STORE_TOKEN st_tok);
 
-    return tok;
+    return DCACHE_STORE_OUTPUT_IMMEDIATE {storeToken: st_tok, rspType: DCACHE_retryStore};
+
+endfunction
+
+function DCACHE_STORE_OUTPUT_DELAYED initDCacheStoreDelayOk(STORE_TOKEN st_tok);
+
+    return st_tok;
 
 endfunction
 
@@ -335,19 +341,20 @@ SB_DEALLOC_REQUEST deriving (Eq, Bits);
 typedef struct
 {
     TOKEN token;
+    STORE_TOKEN storeToken;
     SB_DEALLOC_REQUEST reqType;
 }
 SB_DEALLOC_INPUT deriving (Eq, Bits);
 
-function SB_DEALLOC_INPUT initSBWriteback(TOKEN tok);
+function SB_DEALLOC_INPUT initSBWriteback(TOKEN tok, STORE_TOKEN store_tok);
 
-    return SB_DEALLOC_INPUT {token: tok, reqType: tagged SB_writeback};
+    return SB_DEALLOC_INPUT {token: tok, storeToken: store_tok, reqType: tagged SB_writeback};
 
 endfunction
 
 function SB_DEALLOC_INPUT initSBDrop(TOKEN tok);
 
-    return SB_DEALLOC_INPUT {token: tok, reqType: tagged SB_drop};
+    return SB_DEALLOC_INPUT {token: tok, storeToken: ?, reqType: tagged SB_drop};
 
 endfunction
 
@@ -412,4 +419,4 @@ function SB_OUTPUT initSBMiss(DMEM_BUNDLE bundle);
 
 endfunction
 
-typedef Tuple2#(TOKEN, MEM_ADDRESS) WB_ENTRY;
+typedef Tuple2#(STORE_TOKEN, MEM_ADDRESS) WB_ENTRY;

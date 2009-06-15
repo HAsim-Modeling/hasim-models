@@ -3101,3 +3101,44 @@ Implemented a new instruction queue scheme for the inorder model which
 separates slot assignments from credits and will hopefully more easily
 generalize to multiple threads.
 
+
+----------
+mpellaue    Date: Mon Jun 15 14:54:54 EDT 2009  CSN: CSN-hasim-models-116
+                  Mon Jun 15 18:54:54 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          115 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          115 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ commit.bsv                Locally Modified          115 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          115 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          115 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ dcache-pseudorandom.bsv   Locally Modified          115 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          115 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          115 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          115 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ dcache-null.bsv           Locally Modified          115 
+
+
+* Update inorder, ooo, and unpipelined models to use store tokens.
+* Null, pseudorandom, and direct mapped caches use store tokens.
+
+Michael P.

@@ -63,7 +63,7 @@ endfunction
 typedef union tagged
 {
     DCACHE_LOAD_OUTPUT_DELAYED  FILL_load;
-    Tuple2#(TOKEN, MEM_ADDRESS) FILL_store;
+    DCACHE_STORE_INPUT FILL_store;
 }
 DCACHE_FILL deriving (Eq, Bits);
 
@@ -73,9 +73,9 @@ function DCACHE_FILL initLoadFill(DMEM_BUNDLE bundle);
 
 endfunction
 
-function DCACHE_FILL initStoreFill(TOKEN tok, MEM_ADDRESS addr);
+function DCACHE_FILL initStoreFill(DCACHE_STORE_INPUT req);
 
-    return tagged FILL_store tuple2(tok, addr);
+    return tagged FILL_store req;
 
 endfunction
 
@@ -83,7 +83,7 @@ typedef union tagged
 {
     void DCACHE_storeNop;
     DCACHE_STORE_INPUT DCACHE_storeRead;
-    TOKEN DCACHE_storeWrite;
+    STORE_TOKEN DCACHE_storeWrite;
 }
 DCACHE_STORE_INFO deriving (Eq, Bits);
 
@@ -230,14 +230,14 @@ module [HASIM_MODULE] mkDCache();
 
             end
 
-            tagged Valid {.tok, .phys_addr}:
+            tagged Valid .req:
             begin
             
                 // Record that the store may need the memory port.
-                store_info = tagged Valid tuple2(tok, phys_addr);
+                store_info = tagged Valid req;
                 
                 // Look up the index in our tag store.
-                let idx = getDCacheIndex(phys_addr);
+                let idx = getDCacheIndex(req.physicalAddress);
                 dCacheTagStore.readPorts[`READ_PORT_STORE].readReq(cpu_iid, idx);
 
             end
@@ -347,16 +347,16 @@ module [HASIM_MODULE] mkDCache();
                 
                 end
 
-                tagged FILL_store {.tok, .phys_addr}:
+                tagged FILL_store .req:
                 begin
 
                     // The fill is a store response.
                     loadRspDelToCPU.send(cpu_iid, tagged Invalid);
-                    storeRspDelToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelayOk(tok));
+                    storeRspDelToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelayOk(req.storeToken));
                     
                     // Update the Tag Store.
-                    let idx = getDCacheIndex(phys_addr);
-                    let tag = getDCacheTag(phys_addr);
+                    let idx = getDCacheIndex(req.physicalAddress);
+                    let tag = getDCacheTag(req.physicalAddress);
                     dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
 
                 end
@@ -389,14 +389,14 @@ module [HASIM_MODULE] mkDCache();
             store_info = tagged DCACHE_storeNop;
             
         end
-        else if (m_store_info matches tagged Valid {.tok, .phys_addr})
+        else if (m_store_info matches tagged Valid .req)
         begin
 
             // Get the response from the tagStore.
             let m_existing_tag <- dCacheTagStore.readPorts[`READ_PORT_STORE].readRsp(cpu_iid);
 
             // See if the tag matches.
-            let target_tag = getDCacheTag(phys_addr);
+            let target_tag = getDCacheTag(req.physicalAddress);
             Bool hit = m_existing_tag matches tagged Valid .existing_tag &&& (existing_tag == target_tag) ? True : False ;
 
             if (hit || alwaysClaimHit())
@@ -404,7 +404,7 @@ module [HASIM_MODULE] mkDCache();
 
                 // A hit, so try to obtain the write port so we can writeback the data.
                 // Record that we got a hit so we DO WANT the memory port since we're writethrough.
-                store_info = tagged DCACHE_storeWrite tok;
+                store_info = tagged DCACHE_storeWrite req.storeToken;
 
             end
             else
@@ -414,7 +414,7 @@ module [HASIM_MODULE] mkDCache();
 
                 // Record that we got a miss and would like the memory port to read the data in.
                 // (This is more like simulating a coherent cache system.)
-                store_info = tagged DCACHE_storeRead tuple2(tok, phys_addr);
+                store_info = tagged DCACHE_storeRead req;
 
             end
             
@@ -429,19 +429,19 @@ module [HASIM_MODULE] mkDCache();
             reqToMemory.send(cpu_iid, tagged Valid initLoadFill(req));
 
             // If the store also wanted it, then the user must retry.
-            if (store_info matches tagged DCACHE_storeWrite .tok)
+            if (store_info matches tagged DCACHE_storeWrite .st_tok)
             begin
 
                 // Tell the user to retry... we hit, but could not write through.
-                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(st_tok));
                 statPortCollisionsWrite.incr(cpu_iid);
 
             end
-            else if (store_info matches tagged DCACHE_storeRead {.tok, .phys_addr})
+            else if (store_info matches tagged DCACHE_storeRead .req)
             begin
 
                 // Tell the user to retry... we missed, and could not make our fill request.
-                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(tok));
+                storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry(req.storeToken));
                 statPortCollisionsRead.incr(cpu_iid);
 
             end
@@ -457,22 +457,22 @@ module [HASIM_MODULE] mkDCache();
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
-        else if (store_info matches tagged DCACHE_storeRead {.tok, .phys_addr})
+        else if (store_info matches tagged DCACHE_storeRead .req)
         begin
 
             // The load doesn't want the port, so the store can use it to read.
-            reqToMemory.send(cpu_iid, tagged Valid initStoreFill(tok, phys_addr));
+            reqToMemory.send(cpu_iid, tagged Valid initStoreFill(req));
 
             // Tell the user to delay until the store miss is filled.
             statStoreMisses.incr(cpu_iid);
-            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(tok));
+            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(req.storeToken));
 
             // End of model cycle (Path 2)
             localCtrl.endModelCycle(cpu_iid, 2);
 
 
         end
-        else if (store_info matches tagged DCACHE_storeWrite .tok)
+        else if (store_info matches tagged DCACHE_storeWrite .st_tok)
         begin
 
             // The load didn't want the port, so the store can use it to write through.
@@ -481,7 +481,7 @@ module [HASIM_MODULE] mkDCache();
 
             // Tell the user their store worked.
             statStoreHits.incr(cpu_iid);
-            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(tok));
+            storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk(st_tok));
 
             // End of model cycle. (Path 3)
             localCtrl.endModelCycle(cpu_iid, 3);
