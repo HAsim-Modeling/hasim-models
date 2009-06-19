@@ -64,7 +64,6 @@ module [HASIM_MODULE] mkIssue();
     PORT_CREDIT_SEND#(PREDICT_UPDATE_BUNDLE, `ALU_NUM, LOG_ALU_NUM)      predictUpdatePort <- mkPortCreditSend("predictUpdate");
 
     PORT_CREDIT_SEND#(REWIND_BUNDLE, 1, 1)                                     resteerPort <- mkPortCreditSend("resteer");
-    PORT_CREDIT_SEND#(FAULT_BUNDLE, 1, 1)                                        faultPort <- mkPortCreditSend("fault");
 
     Connection_Send#(CONTROL_MODEL_CYCLE_MSG)                                   modelCycle <- mkConnection_Send("model_cycle");
     Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES, FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
@@ -94,7 +93,6 @@ module [HASIM_MODULE] mkIssue();
     LUTRAM#(ROB_INDEX, Bool)                                                      passFail <- mkLUTRAMU();
 
     Reg#(REWIND_BUNDLE)                                                       rewindBundle <- mkReg(nullRewindBundle);
-    Reg#(FAULT_BUNDLE)                                                         faultBundle <- mkReg(makeNoFaultBundle());
 
     Reg#(Bool)                                                               allPrevIssued <- mkReg(False);
     Reg#(Bool)                                                            allPrevMemIssued <- mkReg(False);
@@ -269,8 +267,6 @@ module [HASIM_MODULE] mkIssue();
             issuePtr <= commitPtr;
             allPrevIssued <= True;
             allPrevMemIssued <= True;
-            faultPort.send(faultBundle);
-            faultBundle <= makeNoFaultBundle();
         end
         else if(!robValid[commitIndex])
         begin
@@ -306,16 +302,17 @@ module [HASIM_MODULE] mkIssue();
             newRobEpoch[commitIndex] = True;
             robEpoch <= newRobEpoch;
 
-            // Set the poison bit in the token sent back to the front end.
+            // Set the poison bit in the token sent back to commit.
             // It was never updated in the ROB itself.
-            let tok = entry.token;
-            tok.poison = True;
-            faultBundle <= makeFaultBundle(tok, True, commitIndex);
+            entry.token.poison = True;
+            // Send the faulting inst onto commit, 
+            // who will handle the fault as a side effecct.
+            commitPort.enq(makeCommitBundle(entry, commitIndex));
             resteerWait <= True;
         end
         else
         begin
-            commitPort.enq(makeCommitBundle(entry));
+            commitPort.enq(makeCommitBundle(entry, commitIndex));
             robValid[commitIndex] <= !resteerWait;
         end
 

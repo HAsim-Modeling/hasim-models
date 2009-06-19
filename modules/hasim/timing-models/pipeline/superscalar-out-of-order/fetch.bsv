@@ -55,7 +55,6 @@ module [HASIM_MODULE] mkFetch();
     Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, FUNCP_RSP_DO_ITRANSLATE)         iTranslate <- mkConnection_Client("funcp_doITranslate");
     Connection_Client#(FUNCP_REQ_GET_INSTRUCTION, FUNCP_RSP_GET_INSTRUCTION) getInstruction <- mkConnection_Client("funcp_getInstruction");
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
-    Connection_Client#(FUNCP_REQ_HANDLE_FAULT, FUNCP_RSP_HANDLE_FAULT)          handleFault <- mkConnection_Client("funcp_handleFault");
 
     Reg#(ISA_ADDRESS)                                                                    pc <- mkReg(`PROGRAM_START_ADDR);
     Reg#(FETCH_STATE)                                                                 state <- mkReg(FETCH_STATE_PREDICT_UPDATE);
@@ -113,11 +112,13 @@ module [HASIM_MODULE] mkFetch();
             begin
                 // Fault.  Invoke the functional fault handler.  The fault handler
                 // rewinds instructions and returns the next PC.
-                debugLog.record($format("faultReq ") + fshow(fault));
+                debugLog.record($format("faultReq ") + fshow(fault) + $format(" resteer to 0x%0x", fault.nextInstructionAddress));
                 epochRob <= fault.robIndex;
                 afterResteer <= True;
-                handleFault.makeReq(initFuncpReqHandleFault(fault.token));
-                state <= FETCH_STATE_FAULT_RESP;
+                pc <= fault.nextInstructionAddress;
+                rewindToToken.makeReq(initFuncpReqRewindToToken(fault.token));
+                state <= FETCH_STATE_REWIND_RESP;
+                
             end
             else if (resteer.mispredict)
             begin
@@ -132,14 +133,6 @@ module [HASIM_MODULE] mkFetch();
             else
                 state <= FETCH_STATE_I_TRANSLATE_REQ;
         end
-    endrule
-
-    rule faultResp(state == FETCH_STATE_FAULT_RESP);
-        let rsp = handleFault.getResp();
-        handleFault.deq();
-        debugLog.record($format("faultResp resteer to 0x%0x", rsp.nextInstructionAddress));
-        pc <= rsp.nextInstructionAddress;
-        state <= FETCH_STATE_I_TRANSLATE_REQ;
     endrule
 
     rule rewindResp(state == FETCH_STATE_REWIND_RESP);

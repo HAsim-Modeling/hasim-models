@@ -55,7 +55,6 @@ typedef union tagged
 {
     void        STAGE2_noredirect;
     ISA_ADDRESS STAGE2_redirect;
-    void        STAGE2_faultRsp;
     ISA_ADDRESS STAGE2_rewindRsp;
 }
 PCC_STAGE2_STATE deriving (Bits, Eq);
@@ -88,10 +87,10 @@ module [HASIM_MODULE] mkPCCalc
 
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
                        FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
- 
+ /*
     Connection_Client#(FUNCP_REQ_HANDLE_FAULT,
                        FUNCP_RSP_HANDLE_FAULT)       handleFault <- mkConnection_Client("funcp_handleFault");
- 
+ */
 
     // ****** Ports ******
 
@@ -100,7 +99,7 @@ module [HASIM_MODULE] mkPCCalc
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                              clearToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_clear");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)                                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS))                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindFromExe <- mkPortRecv_Multiplexed("Exe_to_Fet_rewind", 1);
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_OUTPUT) rspFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_response", 1);
@@ -171,16 +170,16 @@ module [HASIM_MODULE] mkPCCalc
         // If there is a fault or a rewind we increment the epoch, so that the
         // next stage will never try to overide redirect, because the epoch is
         // gaurenteed not to match.
-        if (m_fault matches tagged Valid { .tok })
+        if (m_fault matches tagged Valid { .tok, .addr })
         begin
-            // A fault occurred. Get the handler PC from the functional
-            // partition.
-            debugLog.record_next_cycle(cpu_iid, fshow("FAULT: ") + fshow(tok));
-            handleFault.makeReq(initFuncpReqHandleFault(tok));
+            // A fault occurred. Redirect to the given handler address.
+            // (If there's no handler this will just be the faulting instruction.
+            debugLog.record_next_cycle(cpu_iid, fshow("FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+            rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             epoch.fault = epoch.fault + 1;
 
             back_end_fault = True;
-            stage2_redirect_state = tagged STAGE2_faultRsp;
+            stage2_redirect_state = tagged STAGE2_rewindRsp addr;
 
         end
         else if (m_rewind matches tagged Valid { .tok, .fault_epoch, .addr} &&&
@@ -336,16 +335,6 @@ module [HASIM_MODULE] mkPCCalc
         else if (state matches tagged STAGE2_redirect .new_pc)
         begin
             nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, epoch));
-        end
-        else if (state matches tagged STAGE2_faultRsp)
-        begin
-        
-            // Get the fault response.
-            let rsp = handleFault.getResp();
-            handleFault.deq();
-
-            // Resteer to the handler.
-            nextPCToFetch.send(cpu_iid, tagged Valid tuple2(rsp.nextInstructionAddress, epoch));
         end
         else if (state matches tagged STAGE2_rewindRsp .new_pc)
         begin

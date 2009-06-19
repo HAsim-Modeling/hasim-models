@@ -59,12 +59,6 @@ module [HASIM_MODULE] mkPipeline
     // Program counters
     MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS)) pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
 
-    // Intra-stage queues.
-    FIFO#(Tuple2#(Bool, Bool)) decQ <- mkFIFO();
-    FIFO#(TOKEN) dtrQ <- mkFIFO();
-    FIFO#(TOKEN) dmemQ <- mkFIFO();
-    FIFO#(TOKEN) commitQ <- mkFIFO();
-
     //********* Connections *********//
 
     Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         linkModelCycle <- mkConnection_Send("model_cycle");
@@ -98,9 +92,6 @@ module [HASIM_MODULE] mkPipeline
     Connection_Client#(FUNCP_REQ_COMMIT_STORES,
                        FUNCP_RSP_COMMIT_STORES)       linkToGCO <- mkConnection_Client("funcp_commitStores");
 
-    Connection_Client#(FUNCP_REQ_HANDLE_FAULT, 
-                       FUNCP_RSP_HANDLE_FAULT)   linkToHandleFault <- mkConnection_Client("funcp_handleFault");
-
     // For killing. UNUSED
 
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, 
@@ -117,6 +108,12 @@ module [HASIM_MODULE] mkPipeline
     Vector#(0, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage6Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage7Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage8Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage10Ctrl <- mkStageController();
 
     //********* Rules *********//
 
@@ -164,13 +161,14 @@ module [HASIM_MODULE] mkPipeline
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         linkModelCycle.send(cpu_iid);
+        debugLog.nextModelCycle(cpu_iid);
 
 
         // Translate next pc.
         Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
         let ctx_id = getContextId(cpu_iid);
         linkToITR.makeReq(initFuncpReqDoITranslate(ctx_id, pc));
-        debugLog.record(cpu_iid, $format("Translating virtual address: 0x%h", pc));
+        debugLog.record_next_cycle(cpu_iid, $format("Translating virtual address: 0x%h", pc));
 
     endrule
 
@@ -211,14 +209,13 @@ module [HASIM_MODULE] mkPipeline
         linkToDEC.makeReq(initFuncpReqGetDependencies(rsp.contextId, rsp.instruction, pc));
         debugLog.record(cpu_iid, $format("Decoding instruction: 0x%h", rsp.instruction));
 
-        decQ.enq(tuple2(isaIsLoad(rsp.instruction), isaIsStore(rsp.instruction)));
+        stage4Ctrl.ready(cpu_iid, tuple2(isaIsLoad(rsp.instruction), isaIsStore(rsp.instruction)));
 
     endrule
 
     rule stage4_decRsp_exeReq (True);
 
-        match {.is_load, .is_store} = decQ.first();
-        decQ.deq();
+        match {.*, .is_load, .is_store} <- stage4Ctrl.nextReadyInstance();
 
         // Get the decode response
         let rsp = linkToDEC.getResp();
@@ -293,7 +290,10 @@ module [HASIM_MODULE] mkPipeline
 
         endcase
 
-        if (tokIsLoad(tok) || tokIsStore(tok))
+        let is_load = tokIsLoad(tok);
+        let is_store = tokIsStore(tok);
+
+        if (is_load || is_store)
         begin
 
             // Memory ops require more work.
@@ -305,122 +305,95 @@ module [HASIM_MODULE] mkPipeline
         end
 
         // Everything else is a no-op in the next stage.
-        dtrQ.enq(tok);
+        stage6Ctrl.ready(cpu_iid, tok);
 
     endrule
 
-    rule stage6_dtrRsp_memReq (tokIsLoadOrStore(dtrQ.first()));
+    rule stage6_dtrRsp_memReq (True);
     
-        // Get the response from dTranslate
-        let rsp = linkToDTR.getResp();
-        linkToDTR.deq();
+        match {.cpu_iid, .tok} <- stage6Ctrl.nextReadyInstance();
+    
+        if (tokIsLoad(tok) || tokIsStore(tok))
+        begin
+    
+            // Get the response from dTranslate
+            let rsp = linkToDTR.getResp();
+            linkToDTR.deq();
 
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
+            tok = rsp.token;
 
-        debugLog.record(cpu_iid, $format("DTR Responded for token: %0d, hasMore: %0d", tokTokenId(tok), rsp.hasMore));
+            debugLog.record(cpu_iid, $format("DTR Responded for token: %0d, hasMore: %0d", tokTokenId(tok), rsp.hasMore));
 
-        if (! rsp.hasMore)
+            if (! rsp.hasMore)
+            begin
+
+                if (tokIsLoad(tok))
+                begin
+
+                    // Request the load(s).
+                    linkToLOA.makeReq(initFuncpReqDoLoads(tok));
+                    debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
+
+                end
+                else if (tokIsStore(tok))
+                begin
+
+                    // Request the store(s)
+                    linkToSTO.makeReq(initFuncpReqDoStores(tok));
+                    debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
+
+                end
+
+            end
+        end
+        
+        stage7Ctrl.ready(cpu_iid, tok);
+
+    endrule
+
+    rule stage7_memRsp (True);
+
+        match {.cpu_iid, .tok} <- stage7Ctrl.nextReadyInstance();
+
+        if (tokIsLoad(tok))
         begin
 
-            dtrQ.deq();
-            dmemQ.enq(tok);
+            // Get the load response
+            let rsp = linkToLOA.getResp();
+            linkToLOA.deq();
 
-            if (tokIsLoad(tok))
-            begin
+            tok = rsp.token;
 
-                // Request the load(s).
-                linkToLOA.makeReq(initFuncpReqDoLoads(tok));
-                debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
-
-            end
-            else
-            begin
-
-                // Request the store(s)
-                linkToSTO.makeReq(initFuncpReqDoStores(tok));
-                debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
-
-            end
+            debugLog.record(cpu_iid, $format("Load ops responded for token: %0d", tokTokenId(tok)));
 
         end
+        else if (tokIsStore(tok))
+        begin
 
-    endrule
+            // Get the store response
+            let rsp = linkToSTO.getResp();
+            linkToSTO.deq();
 
-    rule stage6_nonMemoryOp (!tokIsLoadOrStore(dtrQ.first()));
+            tok = rsp.token;
 
-        // Just pass to the next stage.
-        dmemQ.enq(dtrQ.first());
-        dtrQ.deq();
+            debugLog.record(cpu_iid, $format(": Store ops responded for token: %0d", tokTokenId(tok)));
 
-    endrule
-
-    rule stage7_loaRsp (tokIsLoad(dmemQ.first()));
-
-        dmemQ.deq();
-
-        // Get the load response
-        let rsp = linkToLOA.getResp();
-        linkToLOA.deq();
-
-        let tok = rsp.token;
-        let cpu_iid= tokCpuInstanceId(tok);
-
-        debugLog.record(cpu_iid, $format("Load ops responded for token: %0d", tokTokenId(tok)));
-
-        commitQ.enq(tok);
-
-    endrule
-
-    (* descending_urgency = "stage7_stoRsp, stage7_loaRsp" *)
-    rule stage7_stoRsp (tokIsStore(dmemQ.first()));
-
-        dmemQ.deq();
-
-        // Get the store response
-        let rsp = linkToSTO.getResp();
-        linkToSTO.deq();
-
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
-
-        debugLog.record(cpu_iid, $format(": Store ops responded for token: %0d", tokTokenId(tok)));
-
-        commitQ.enq(tok);
-
-    endrule
-
-    rule stage7_nonMemoryOp (!tokIsLoad(dmemQ.first()) && !tokIsStore(dmemQ.first()));
-    
-        // Just pass to the next stage.
-        commitQ.enq(dmemQ.first());
-        dmemQ.deq();
-    
+        end
+        
+        stage8Ctrl.ready(cpu_iid, tok);
+        
     endrule
 
     rule stage8_lcoReq (True);
 
+        match {.*, .tok} <- stage8Ctrl.nextReadyInstance();
+
         // Get the current token from previous rule
-        let tok = commitQ.first();
         let cpu_iid = tokCpuInstanceId(tok);
-        commitQ.deq();
 
-        if (! tokIsPoisoned(tok))
-        begin
-
-            // Locally commit the token.
-            linkToLCO.makeReq(initFuncpReqCommitResults(tok));
-            debugLog.record(cpu_iid, $format("Locally committing token: %0d", tokTokenId(tok)));
-
-        end
-        else
-        begin
-
-            // Token is poisoned.  Invoke fault handler.
-            linkToHandleFault.makeReq(initFuncpReqHandleFault(tok));
-            debugLog.record(cpu_iid, $format("Handling fault for token: %0d", tokTokenId(tok)));
-
-        end
+        // Locally commit the token.
+        linkToLCO.makeReq(initFuncpReqCommitResults(tok));
+        debugLog.record(cpu_iid, $format("Locally committing token: %0d", tokTokenId(tok)));
 
     endrule
 
@@ -434,60 +407,59 @@ module [HASIM_MODULE] mkPipeline
 
         debugLog.record(cpu_iid, $format("LCO responded for token: %0d", tokTokenId(tok)));
 
-        if (tokIsStore(tok))
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+
+        if (rsp.faultRedirect matches tagged Valid .new_addr)
+        begin
+
+            debugLog.record(cpu_iid, $format("LCO responded with fault for token: %0d, new PC: 0x%h", tokTokenId(tok), new_addr));
+
+            // Next PC following fault
+            pc <= new_addr;
+
+            stage10Ctrl.ready(cpu_iid, False);
+
+        end
+        else if (rsp.storeToken matches tagged Valid .st_tok)
         begin
 
             // Request global commit of stores.
-            let st_tok = validValue(rsp.storeToken);
             linkToGCO.makeReq(initFuncpReqCommitStores(st_tok));
             debugLog.record(cpu_iid, $format("Globally committing stores for token: %0d (store token: %0d)", tokTokenId(tok), storeTokTokenId(st_tok)));
+            stage10Ctrl.ready(cpu_iid, True);
 
         end
         else
         begin
 
-            endModelCycle(cpu_iid);
+            stage10Ctrl.ready(cpu_iid, False);
 
         end
 
     endrule
-
+  
+    (* descending_urgency = "stage10_gcoRsp, stage9_lcoRsp_gcoReq" *)
     rule stage10_gcoRsp (True);
 
-        // Get the global commit response
-        let rsp = linkToGCO.getResp();
-        linkToGCO.deq();
+        match {.cpu_iid, .need_store_rsp} <- stage10Ctrl.nextReadyInstance();
 
-        let st_tok = rsp.storeToken;
-        let cpu_iid = storeTokCpuInstanceId(st_tok);
+        if (need_store_rsp)
+        begin
 
-        debugLog.record(cpu_iid, fshow(st_tok.index) + $format("GCO Responded for store token: %0d", storeTokTokenId(st_tok)));
+            // Get the global commit response
+            let rsp = linkToGCO.getResp();
+            linkToGCO.deq();
 
-        endModelCycle(cpu_iid);
+            let st_tok = rsp.storeToken;
 
-    endrule
+            debugLog.record(cpu_iid, fshow(st_tok.index) + $format("GCO Responded for store token: %0d", storeTokTokenId(st_tok)));
 
-    (* descending_urgency = "stage10_faultRsp, stage10_gcoRsp, stage9_lcoRsp_gcoReq" *)
-    (* descending_urgency = "stage10_faultRsp, stage5_exeRsp" *)
-    rule stage10_faultRsp (True);
-
-        // Fault response (started by lco_req)
-        let rsp = linkToHandleFault.getResp();
-        linkToHandleFault.deq();
-
-        let tok = rsp.token;
-        let cpu_iid = tokCpuInstanceId(tok);
+        end
         
-        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
-
-        debugLog.record(cpu_iid, $format("Handle fault responded for token: %0d, new PC: 0x%h", tokTokenId(tok), rsp.nextInstructionAddress));
-
-        // Next PC following fault
-        pc <= rsp.nextInstructionAddress;
-
         endModelCycle(cpu_iid);
 
     endrule
+
 
 endmodule
 

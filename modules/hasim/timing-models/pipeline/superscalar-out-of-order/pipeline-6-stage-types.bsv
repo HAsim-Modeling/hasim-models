@@ -316,6 +316,7 @@ endfunction
 
 typedef struct {
     TOKEN token;
+    ROB_INDEX epochRob;
     Bool isStore;
 } COMMIT_BUNDLE deriving (Bits, Eq);
 
@@ -325,8 +326,9 @@ instance FShow#(COMMIT_BUNDLE);
     endfunction
 endinstance
 
-function COMMIT_BUNDLE makeCommitBundle(DECODE_BUNDLE decode);
+function COMMIT_BUNDLE makeCommitBundle(DECODE_BUNDLE decode, ROB_INDEX epoch_rob);
     return COMMIT_BUNDLE{token: decode.token,
+                         epochRob: epoch_rob,
                          isStore: isaIsStore(decode.inst)
                         };
 endfunction
@@ -338,6 +340,7 @@ typedef struct {
     Bool fault;
     ROB_INDEX robIndex;
     TOKEN token;
+    ISA_ADDRESS nextInstructionAddress;
 } FAULT_BUNDLE deriving (Bits, Eq);
 
 instance FShow#(FAULT_BUNDLE);
@@ -346,14 +349,16 @@ instance FShow#(FAULT_BUNDLE);
     endfunction
 endinstance
 
-function FAULT_BUNDLE makeFaultBundle(TOKEN tok, Bool fault, ROB_INDEX rob_index);
+function FAULT_BUNDLE makeFaultBundle(TOKEN tok, Bool fault, ROB_INDEX rob_index, ISA_ADDRESS next_addr);
     return FAULT_BUNDLE{fault: fault,
                         robIndex: rob_index,
+                        nextInstructionAddress: next_addr,
                         token: tok};
 endfunction
 
 function FAULT_BUNDLE makeNoFaultBundle();
     return FAULT_BUNDLE{fault: False,
+                        nextInstructionAddress: ?,
                         robIndex: ?,
                         token: ?};
 endfunction

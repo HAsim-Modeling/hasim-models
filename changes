@@ -3142,3 +3142,29 @@ Directory modules/hasim/timing-models/caches/null-caches
 * Null, pseudorandom, and direct mapped caches use store tokens.
 
 Michael P.
+
+----------
+pellauer    Date: Fri Jun 19 11:19:45 EDT 2009  CSN: CSN-hasim-models-117
+                  Fri Jun 19 15:19:45 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          116 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          116 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ commit.bsv                Locally Modified          116 
+ fetch.bsv                 Locally Modified          116 
+ pipeline-6-stage-types.bsv Locally Modified          116 
+ rob.bsv                   Locally Modified          116 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          116 
+
+
+* Update timing models to the new handleFault scheme.
+* OOO model now sends fault rewinds from commit instead of ROB.
+
+Michael P.
