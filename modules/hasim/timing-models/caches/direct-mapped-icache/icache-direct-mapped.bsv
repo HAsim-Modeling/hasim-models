@@ -276,7 +276,6 @@ module [HASIM_MODULE] mkICache();
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
     
         // Get our local state from the instance ID.
-        let nextMissID = nextMissIDPool[cpu_iid];
         let outstandingMisses = outstandingMissesPool[cpu_iid];
 
         // Check for fills.

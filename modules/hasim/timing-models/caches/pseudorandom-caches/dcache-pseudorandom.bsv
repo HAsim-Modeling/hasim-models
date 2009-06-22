@@ -28,9 +28,9 @@ typedef union tagged
 }
 DCACHE_FILL deriving (Eq, Bits);
 
-function DCACHE_FILL initLoadFill(DMEM_BUNDLE bundle);
+function DCACHE_FILL initLoadFill(DMEM_BUNDLE bundle, DCACHE_LOAD_MISS_ID miss_id);
 
-    return tagged FILL_load initDCacheLoadMissRsp(bundle);
+    return tagged FILL_load initDCacheLoadMissRsp(bundle, miss_id);
 
 endfunction
 
@@ -64,6 +64,14 @@ module [HASIM_MODULE] mkDCache();
     Bit#(8) dcacheStoreRetryChance = storeRetryChanceParam;
     Bit#(8) dcacheStoreMissChance  = storeRetryChanceParam + storeMissChanceParam;
     
+    // ****** Model State *******
+    
+    // Track the next miss ID to give out.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(DCACHE_LOAD_MISS_ID_SIZE)) nextLoadMissIDPool <- mkMultiplexed(mkLCounter(0));
+
+    // A counter to track number of misses in flight. If we run out of IDs then we make the load retry.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(DCACHE_LOAD_MISS_COUNT)) outstandingLoadMissesPool <- mkMultiplexed(mkLCounter(0));
+
 
     // ****** UnModel State ******
     
@@ -164,6 +172,10 @@ module [HASIM_MODULE] mkDCache();
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
 
+        // Get our local state.
+        let nextLoadMissID = nextLoadMissIDPool[cpu_iid];
+        let outstandingLoadMisses = outstandingLoadMissesPool[cpu_iid];
+
         // First check for fills.
         let m_fill <- rspFromMemory.receive(cpu_iid);
         
@@ -178,6 +190,7 @@ module [HASIM_MODULE] mkDCache();
                     // The fill is a load response.
                     loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
                     storeRspDelToCPU.send(cpu_iid, tagged Invalid);
+                    outstandingLoadMisses.down();
                 
                 end
                 tagged FILL_store .rsp:
@@ -186,6 +199,7 @@ module [HASIM_MODULE] mkDCache();
                     // The fill is a store response.
                     loadRspDelToCPU.send(cpu_iid, tagged Invalid);
                     storeRspDelToCPU.send(cpu_iid, tagged Valid rsp);
+
                 end
             endcase
         
@@ -243,22 +257,43 @@ module [HASIM_MODULE] mkDCache();
                 end
                 else
                 begin
-
                     
                     if (rnd < dcacheLoadMissChance)
                     begin
 
-                        // Stall the load for some time.
-                        req_to_mem = tagged Valid initLoadFill(req);
-                        statLoadMisses.incr(cpu_iid);
+                        // A miss, so try to get a Miss ID.
+                        let num_outstanding = outstandingLoadMisses.value();
+                
+                        // We have a miss to allocate if the high bit is not 1.
+                        let can_allocate = num_outstanding[valueof(DCACHE_LOAD_MISS_ID_SIZE)] == 0;
+                
+                        if (can_allocate)
+                        begin
 
-                        
-                        // Tell the CPU that a response is coming.
-                        loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadMiss(req));
-                        
-                        // End of model cycle. (Path 3)
-                        localCtrl.endModelCycle(cpu_iid, 3);
+                            // Allocate the next miss ID and give it to fetch.
+                            let miss_id = nextLoadMissID.value();
+                            nextLoadMissID.up();
+                            outstandingLoadMisses.up();
+
+                            // Stall the load for some time.
+                            req_to_mem = tagged Valid initLoadFill(req, miss_id);
+                            statLoadMisses.incr(cpu_iid);
+
+                            // Tell the CPU that a response is coming.
+                            loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadMiss(req, miss_id));
+
+                            // End of model cycle. (Path 3)
+                            localCtrl.endModelCycle(cpu_iid, 3);
                     
+                        end
+                        else
+                        begin
+
+                            // Tell the load request to retry. This should be quite rare.
+                            loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadRetry(req));
+
+                        end
+                
                     end
                     else
                     begin

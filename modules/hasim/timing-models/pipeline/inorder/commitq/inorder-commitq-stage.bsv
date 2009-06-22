@@ -48,6 +48,11 @@ import FIFOF::*;
 
 // Also reports writebacks of the loads to decode.
 
+typedef 16 NUM_COMMITQ_SLOTS;
+
+typedef Bit#(TLog#(NUM_COMMITQ_SLOTS)) COMMITQ_SLOT_ID;
+
+
 module [HASIM_MODULE] mkCommitQueue
     // interface:
         ();
@@ -60,27 +65,27 @@ module [HASIM_MODULE] mkCommitQueue
     MULTIPLEXED#(NUM_CPUS, LUTRAM#(COMMITQ_SLOT_ID, Bool)) completionsPool    <- mkMultiplexed(mkLUTRAM(False));
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE))   bundlesPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE)) bundlesPool <- mkMultiplexed(mkLUTRAMU());
 
-    // How many slots are taken?
-    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID))                 nextFreeSlotPool    <- mkMultiplexed(mkReg(0));
+    // Which slot should we allocate into?
+    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID)) nextFreeSlotPool    <- mkMultiplexed(mkReg(0));
     
     // What's the oldest slot we know about? (The next one which should issue when it's ready.)
-    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID))                 oldestSlotPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID)) oldestSlotPool <- mkMultiplexed(mkReg(0));
 
-    // ****** UnModel State ******
+    // Miss Address File (MAF).
+    // Maps from DCache miss ID to commitq slot.
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(DCACHE_LOAD_MISS_ID, COMMITQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
     
-    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
-    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(DMEM_BUNDLE, COMMITQ_SLOT_ID, Bool)) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(DCACHE_LOAD_MISS_ID))) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                       deqFromCom       <- mkPortRecvDependent_Multiplexed("commitQ_deq");
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 0);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToCom    <- mkPortSend_Multiplexed("commitQ_first");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, COMMITQ_SLOT_ID) slotToDMem     <- mkPortSend_Multiplexed("commitQ_credit");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID) creditToDMem   <- mkPortSend_Multiplexed("commitQ_credit");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)     writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_miss_writeback");
 
     // ****** Local Controller ******
@@ -89,7 +94,7 @@ module [HASIM_MODULE] mkCommitQueue
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = allocateFromDMem.ctrl;
     inports[1]  = rspFromDCacheDelayed.ctrl;
-    outports[0] = slotToDMem.ctrl;
+    outports[0] = creditToDMem.ctrl;
     outports[1] = bundleToCom.ctrl;
     outports[2] = writebackToDec.ctrl;
 
@@ -122,6 +127,7 @@ module [HASIM_MODULE] mkCommitQueue
         // Get the local state for the current instance.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
         LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
+        LUTRAM#(DCACHE_LOAD_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];
 
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
         Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
@@ -150,20 +156,20 @@ module [HASIM_MODULE] mkCommitQueue
         end
         
         // Now let's check for miss responses from the DCache.
-
         let m_complete <- rspFromDCacheDelayed.receive(cpu_iid);
         
         if (m_complete matches tagged Valid .rsp)
         begin
         
-            // We've got a new response.
-            debugLog.record_next_cycle(cpu_iid, fshow("1: COMPLETE: ") + fshow(rsp.commitQSlot));
+            // A new completion came in. Get the slot from the MAF.
+            COMMITQ_SLOT_ID slot = maf.sub(rsp.missID);
+            debugLog.record_next_cycle(cpu_iid, fshow("1: COMPLETE: ") + fshow(slot));
             
             // Mark this slot as complete.
-            completions.upd(rsp.commitQSlot, True);
+            completions.upd(slot, True);
 
             // Tell Decode to writeback the destination.
-            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.token, rsp.dests));
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
 
         end
         else
@@ -224,7 +230,7 @@ module [HASIM_MODULE] mkCommitQueue
     // * allocateFromDMem
     
     // Ports written:
-    // * slotToDMem
+    // * creditToDMem
 
     (* conservative_implicit_conditions *)
     rule stage3_allocate (True);
@@ -235,33 +241,40 @@ module [HASIM_MODULE] mkCommitQueue
         // Get our local state based on the context.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
         LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
+        LUTRAM#(DCACHE_LOAD_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];
 
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
         Reg#(COMMITQ_SLOT_ID) oldestSlot   = oldestSlotPool[cpu_iid];
 
         // Check for any new allocations.
         let m_alloc <- allocateFromDMem.receive(cpu_iid);
-        
-        let new_next_free = nextFreeSlot;
 
-        if (m_alloc matches tagged Valid {.bundle, .slot, .comp})
+        if (m_alloc matches tagged Valid {.bundle, .m_miss_id})
         begin
 
             // A new allocation.
-            debugLog.record(cpu_iid, $format("3: ALLOC: ") + fshow(bundle.token) + $format(" COMPLETE: %0b", pack(comp)));
-            bundles.upd(slot, bundle);
-            completions.upd(slot, comp);
-            new_next_free = nextFreeSlot + 1;
+            debugLog.record(cpu_iid, $format("3: ALLOC: ") + fshow(bundle.token) + $format(" COMPLETE: %0b", pack(isValid(m_miss_id))));
+            bundles.upd(nextFreeSlot, bundle);
+            completions.upd(nextFreeSlot, !isValid(m_miss_id));
+            nextFreeSlot <= nextFreeSlot + 1;
+
+            if (m_miss_id matches tagged Valid .miss_id)
+            begin
+            
+                debugLog.record(cpu_iid, $format("3: MISS ID: %0d mapped to slot %0d.", miss_id, nextFreeSlot));
+                maf.upd(miss_id, nextFreeSlot);
+                
+            end
 
         end
         
         // Now check if we have a credit to send to fetch based on our (simulated) length.
-        if (new_next_free + 2 != oldestSlot) // This should really be +L+1, where L is the latency of the credit to DMem.
+        if (nextFreeSlot + 1 != oldestSlot) // This should really be +L+1, where L is the latency of the credit to DMem.
         begin
         
             // We still have room.
             debugLog.record(cpu_iid, fshow("3: SEND CREDIT"));
-            slotToDMem.send(cpu_iid, tagged Valid new_next_free);
+            creditToDMem.send(cpu_iid, tagged Valid (?));
 
         end
         else
@@ -269,12 +282,9 @@ module [HASIM_MODULE] mkCommitQueue
 
             // We're full.
             debugLog.record(cpu_iid, fshow("3: NO CREDIT"));
-            slotToDMem.send(cpu_iid, tagged Invalid);
+            creditToDMem.send(cpu_iid, tagged Invalid);
 
         end
-        
-        // Update the next free slot
-        nextFreeSlot <= new_next_free;
         
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);

@@ -27,7 +27,6 @@ function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKE
 
 endfunction
 
-typedef Bit#(4) COMMITQ_SLOT_ID;
 
 typedef struct
 {
@@ -137,7 +136,6 @@ endfunction
 typedef struct
 {
     TOKEN token;
-    COMMITQ_SLOT_ID commitQSlot;
     ISA_ADDRESS virtualAddress;
     MEM_ADDRESS physicalAddress;
     TOKEN_FAULT_EPOCH faultEpoch;
@@ -164,7 +162,7 @@ endinstance
 
 function DMEM_BUNDLE initDMemBundle(TOKEN tok, ISA_ADDRESS va, TOKEN_FAULT_EPOCH epoch, Bool isL, Bool isS, Maybe#(Bool) isT, ISA_INST_DSTS dests);
 
-    return DMEM_BUNDLE {token: tok, commitQSlot: ?, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
+    return DMEM_BUNDLE {token: tok, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
  
 endfunction
 
@@ -200,6 +198,10 @@ function DTLB_OUTPUT initDTLBMiss(DMEM_BUNDLE bundle);
 endfunction
 
 
+typedef `DCACHE_LOAD_MISS_ID_SIZE DCACHE_LOAD_MISS_ID_SIZE;
+typedef TExp#(DCACHE_LOAD_MISS_ID_SIZE) NUM_DCACHE_LOAD_MISS_IDS;
+typedef Bit#(DCACHE_LOAD_MISS_ID_SIZE) DCACHE_LOAD_MISS_ID;
+typedef TAdd#(DCACHE_LOAD_MISS_ID_SIZE, 1) DCACHE_LOAD_MISS_COUNT;
 
 typedef DMEM_BUNDLE DCACHE_LOAD_INPUT;
 
@@ -216,11 +218,11 @@ function DCACHE_LOAD_INPUT initDCacheLoad(DMEM_BUNDLE bundle);
 
 endfunction
 
-typedef enum
+typedef union tagged
 {
-    DCACHE_hit,
-    DCACHE_miss,
-    DCACHE_retry
+    void DCACHE_hit;
+    DCACHE_LOAD_MISS_ID DCACHE_miss;
+    void DCACHE_retry;
 }
 DCACHE_LOAD_RESPONSE deriving (Eq, Bits);
 
@@ -231,31 +233,38 @@ typedef struct
 } 
 DCACHE_LOAD_OUTPUT_IMMEDIATE deriving (Eq, Bits);
 
-typedef DMEM_BUNDLE DCACHE_LOAD_OUTPUT_DELAYED;
+typedef struct
+{
+    DCACHE_LOAD_MISS_ID missID;
+    DMEM_BUNDLE bundle;
+}
+DCACHE_LOAD_OUTPUT_DELAYED deriving (Eq, Bits);
+
 
 function DCACHE_LOAD_OUTPUT_IMMEDIATE initDCacheLoadHit(DMEM_BUNDLE bundle);
 
-    return DCACHE_LOAD_OUTPUT_IMMEDIATE {bundle: bundle, rspType: DCACHE_hit};
+    return DCACHE_LOAD_OUTPUT_IMMEDIATE {bundle: bundle, rspType: tagged DCACHE_hit};
 
 endfunction
 
-function DCACHE_LOAD_OUTPUT_IMMEDIATE initDCacheLoadMiss(DMEM_BUNDLE bundle);
+function DCACHE_LOAD_OUTPUT_IMMEDIATE initDCacheLoadMiss(DMEM_BUNDLE bundle, DCACHE_LOAD_MISS_ID miss_id);
 
-    return DCACHE_LOAD_OUTPUT_IMMEDIATE {bundle: bundle, rspType: DCACHE_miss};
+    return DCACHE_LOAD_OUTPUT_IMMEDIATE {bundle: bundle, rspType: tagged DCACHE_miss miss_id};
 
 endfunction
 
 function DCACHE_LOAD_OUTPUT_IMMEDIATE initDCacheLoadRetry(DMEM_BUNDLE bundle);
 
-    return DCACHE_LOAD_OUTPUT_IMMEDIATE {bundle: bundle, rspType: DCACHE_retry};
+    return DCACHE_LOAD_OUTPUT_IMMEDIATE {bundle: bundle, rspType: tagged DCACHE_retry};
 
 endfunction
 
-function DCACHE_LOAD_OUTPUT_DELAYED initDCacheLoadMissRsp(DMEM_BUNDLE bundle);
+function DCACHE_LOAD_OUTPUT_DELAYED initDCacheLoadMissRsp(DMEM_BUNDLE bundle, DCACHE_LOAD_MISS_ID miss_id);
 
-    return bundle;
+    return DCACHE_LOAD_OUTPUT_DELAYED {missID: miss_id, bundle: bundle};
 
 endfunction
+
 
 
 function DCACHE_STORE_INPUT initDCacheStore(STORE_TOKEN st_tok, MEM_ADDRESS phy_addr);

@@ -67,9 +67,9 @@ typedef union tagged
 }
 DCACHE_FILL deriving (Eq, Bits);
 
-function DCACHE_FILL initLoadFill(DMEM_BUNDLE bundle);
+function DCACHE_FILL initLoadFill(DMEM_BUNDLE bundle, DCACHE_LOAD_MISS_ID miss_id);
 
-    return tagged FILL_load initDCacheLoadMissRsp(bundle);
+    return tagged FILL_load initDCacheLoadMissRsp(bundle, miss_id);
 
 endfunction
 
@@ -88,7 +88,7 @@ typedef union tagged
 DCACHE_STORE_INFO deriving (Eq, Bits);
 
 typedef Tuple2#(Maybe#(DCACHE_LOAD_INPUT), Maybe#(DCACHE_STORE_INPUT)) DCACHE_STAGE2_STATE;
-typedef Tuple2#(Maybe#(DCACHE_LOAD_INPUT), Maybe#(DCACHE_STORE_INPUT)) DCACHE_STAGE3_STATE;
+typedef Tuple2#(Maybe#(DCACHE_FILL), Maybe#(DCACHE_STORE_INPUT)) DCACHE_STAGE3_STATE;
 
 module [HASIM_MODULE] mkDCache();
 
@@ -105,6 +105,12 @@ module [HASIM_MODULE] mkDCache();
 
     // Initialize a scratchpad memory to store our tags in.   
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, True);
+
+    // Track the next miss ID to give out.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(DCACHE_LOAD_MISS_ID_SIZE)) nextLoadMissIDPool <- mkMultiplexed(mkLCounter(0));
+
+    // A counter to track number of misses in flight. If we run out of IDs then we make the front-end retry.
+    MULTIPLEXED#(NUM_CPUS, COUNTER#(DCACHE_LOAD_MISS_COUNT)) outstandingLoadMissesPool <- mkMultiplexed(mkLCounter(0));
 
     
     // ****** Ports ******
@@ -268,8 +274,12 @@ module [HASIM_MODULE] mkDCache();
     
         match {.cpu_iid, {.m_load_info, .m_store_info}} <- stage2Ctrl.nextReadyInstance();
     
+        // Get our local state from the instance ID.
+        let nextLoadMissID = nextLoadMissIDPool[cpu_iid];
+        let outstandingLoadMisses = outstandingLoadMissesPool[cpu_iid];
+
         // Now handle loads.
-        Maybe#(DCACHE_LOAD_INPUT) load_info = tagged Invalid;
+        Maybe#(DCACHE_FILL) load_info = tagged Invalid;
     
         if (m_load_info matches tagged Invalid)
         begin
@@ -305,12 +315,34 @@ module [HASIM_MODULE] mkDCache();
             else
             begin
 
-                // A miss, so no data to give back immediately.
-                loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadMiss(req));
-                statLoadMisses.incr(cpu_iid);
+                // A miss, so try to get a Miss ID.
+                let num_outstanding = outstandingLoadMisses.value();
+                
+                // We have a miss to allocate if the high bit is not 1.
+                let can_allocate = num_outstanding[valueof(DCACHE_LOAD_MISS_ID_SIZE)] == 0;
+                
+                if (can_allocate)
+                begin
 
-                // Record that we got a miss and would like the memory port.
-                load_info = tagged Valid req;
+                    // Allocate the next miss ID and give it to dmem.
+                    let miss_id = nextLoadMissID.value();
+                    nextLoadMissID.up();
+                    outstandingLoadMisses.up();
+                    statLoadMisses.incr(cpu_iid);
+                    loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadMiss(req, miss_id));
+
+                    // Record that we got a miss and would like the memory port.
+                    load_info = tagged Valid initLoadFill(req, miss_id);
+
+                end
+                else
+                begin
+
+                    // Since we're out of misses, the CPU must retry.
+                    // This should be pretty rare.
+                    loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadRetry(req));
+                    
+                end
 
             end
         
@@ -324,6 +356,9 @@ module [HASIM_MODULE] mkDCache();
     
         match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
     
+        // Get our local state from the instance ID.
+        let outstandingLoadMisses = outstandingLoadMissesPool[cpu_iid];
+
         // Check for fills.
         let m_fill <- rspFromMemory.receive(cpu_iid);
         
@@ -339,10 +374,11 @@ module [HASIM_MODULE] mkDCache();
                     // The fill is a load response.
                     loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
                     storeRspDelToCPU.send(cpu_iid, tagged Invalid);
+                    outstandingLoadMisses.down();
                     
                     // Update the Tag Store.
-                    let idx = getDCacheIndex(rsp.physicalAddress);
-                    let tag = getDCacheTag(rsp.physicalAddress);
+                    let idx = getDCacheIndex(rsp.bundle.physicalAddress);
+                    let tag = getDCacheTag(rsp.bundle.physicalAddress);
                     dCacheTagStore.write(cpu_iid, idx, tagged Valid tag);
                 
                 end
@@ -426,7 +462,7 @@ module [HASIM_MODULE] mkDCache();
         begin
 
             // The load wants to use the port. Let's give it priority, so it gets it.
-            reqToMemory.send(cpu_iid, tagged Valid initLoadFill(req));
+            reqToMemory.send(cpu_iid, tagged Valid req);
 
             // If the store also wanted it, then the user must retry.
             if (store_info matches tagged DCACHE_storeWrite .st_tok)

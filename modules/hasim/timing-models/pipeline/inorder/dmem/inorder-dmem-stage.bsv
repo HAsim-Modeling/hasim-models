@@ -65,17 +65,17 @@ import FIFOF::*;
 
 typedef union tagged
 {
-    Tuple2#(DMEM_BUNDLE, COMMITQ_SLOT_ID) STAGE2_completed;
-    COMMITQ_SLOT_ID                       STAGE2_loadRsp;
-    void                                  STAGE2_bubble;
+    DMEM_BUNDLE STAGE2_completed;
+    void        STAGE2_loadRsp;
+    void        STAGE2_bubble;
 }
 DMEM_STAGE2_STATE deriving (Bits, Eq);
 
 typedef union tagged
 {
-    Tuple2#(DMEM_BUNDLE, COMMITQ_SLOT_ID)       STAGE3_completed;
-    Tuple3#(DMEM_BUNDLE, Bool, COMMITQ_SLOT_ID) STAGE3_loadRsp;
-    void                                        STAGE3_bubble;
+    DMEM_BUNDLE                                       STAGE3_completed;
+    Tuple2#(DMEM_BUNDLE, Maybe#(DCACHE_LOAD_MISS_ID)) STAGE3_loadRsp;
+    void                                              STAGE3_bubble;
 }
 DMEM_STAGE3_STATE deriving (Bits, Eq);
 
@@ -89,14 +89,14 @@ module [HASIM_MODULE] mkDMem ();
 
     // ****** Ports *****
     
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)       bundleFromDMemQ   <- mkPortStallRecv_Multiplexed("DMemQ");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, COMMITQ_SLOT_ID)         creditFromCommitQ <- mkPortRecv_Multiplexed("commitQ_credit", 1);
+    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) bundleFromDMemQ   <- mkPortStallRecv_Multiplexed("DMemQ");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)              creditFromCommitQ <- mkPortRecv_Multiplexed("commitQ_credit", 1);
 
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_Multiplexed("CPU_to_DCache_load");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_INPUT)                   reqToSB        <- mkPortSend_Multiplexed("DMem_to_SB_req");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_Multiplexed("DMem_to_WB_search");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(DMEM_BUNDLE, COMMITQ_SLOT_ID, Bool)) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(DCACHE_LOAD_MISS_ID))) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
 
@@ -158,48 +158,46 @@ module [HASIM_MODULE] mkDMem ();
         debugLog.nextModelCycle(cpu_iid);
     
         // Let's see if we have room in our output buffers.
-        let m_slot <- creditFromCommitQ.receive(cpu_iid);
+        let m_credit <- creditFromCommitQ.receive(cpu_iid);
         let m_bundle <- bundleFromDMemQ.receive(cpu_iid);
     
-        if (m_slot matches tagged Valid .slot &&& m_bundle matches tagged Valid .bundle)
+        if (m_bundle matches tagged Valid .bundle &&& isValid(m_credit))
         begin
 
             // The DMemQ has an instruction in it... and the CommitQ has room.
-            let new_bundle = bundle;
-            new_bundle.commitQSlot = slot;
-            let tok = new_bundle.token;
+            let tok = bundle.token;
 
             // Let's see if we should contact the store buffer and dcache.
-            if (new_bundle.isLoad && !tokIsPoisoned(tok) && !tokIsDummy(tok))
+            if (bundle.isLoad && !tokIsPoisoned(tok) && !tokIsDummy(tok))
             begin
 
                 // It's a load which did not page fault.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(new_bundle.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, fshow("1: LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                 // Check if the the load result is either in the cache or the store buffer or the write buffer.
-                reqToSB.send(cpu_iid, tagged Valid initSBSearch(new_bundle));
-                searchToWB.send(cpu_iid, tagged Valid initWBSearch(new_bundle));
-                loadToDCache.send(cpu_iid, tagged Valid initDCacheLoad(new_bundle));
+                reqToSB.send(cpu_iid, tagged Valid initSBSearch(bundle));
+                searchToWB.send(cpu_iid, tagged Valid initWBSearch(bundle));
+                loadToDCache.send(cpu_iid, tagged Valid initDCacheLoad(bundle));
                 
                 // Tell the next stage to look for the load responses from the various ports.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_loadRsp slot);
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_loadRsp);
 
             end
-            else if (new_bundle.isStore && !tokIsPoisoned(tok) && !tokIsDummy(tok))
+            else if (bundle.isStore && !tokIsPoisoned(tok) && !tokIsDummy(tok))
             begin
                 
                 // A store which did not page fault.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(new_bundle.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, fshow("1: STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                 // Tell the store buffer about this new store.
-                reqToSB.send(cpu_iid, tagged Valid initSBComplete(new_bundle));
+                reqToSB.send(cpu_iid, tagged Valid initSBComplete(bundle));
 
                 // No load to the DCache. (The write buffer will do the store after it leaves the store buffer.)
                 loadToDCache.send(cpu_iid, tagged Invalid);
                 searchToWB.send(cpu_iid, tagged Invalid);
 
                 // Tell the next stage to send the bundle on completed.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_completed tuple2(new_bundle, slot));
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_completed bundle);
 
             end
             else
@@ -213,7 +211,7 @@ module [HASIM_MODULE] mkDMem ();
                 searchToWB.send(cpu_iid, tagged Invalid);
                 loadToDCache.send(cpu_iid, tagged Invalid);
 
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_completed tuple2(new_bundle, slot));
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_completed bundle);
 
             end
 
@@ -286,7 +284,7 @@ module [HASIM_MODULE] mkDMem ();
             stage3Ctrl.ready(cpu_iid, tagged STAGE3_completed info);
         
         end
-        else if (state matches tagged STAGE2_loadRsp .slot)
+        else if (state matches tagged STAGE2_loadRsp)
         begin
         
             // Let's check the responses from the DCache/ Write buffer/ Store buffer
@@ -307,7 +305,7 @@ module [HASIM_MODULE] mkDMem ();
                 doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
 
                 // Tell the next stage it was a hit:
-                stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(rsp.bundle, True, slot));
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(rsp.bundle, tagged Invalid));
 
             end
             else if (m_wb_rsp matches tagged Valid .rsp &&& rsp.rspType matches tagged WB_hit)
@@ -325,7 +323,7 @@ module [HASIM_MODULE] mkDMem ();
                 doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
 
                 // Tell the next stage it was a hit:
-                stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(rsp.bundle, True, slot));
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(rsp.bundle, tagged Invalid));
 
             end
             else if (m_dc_rsp matches tagged Valid .rsp)
@@ -351,10 +349,10 @@ module [HASIM_MODULE] mkDMem ();
                         doLoads.makeReq(initFuncpReqDoLoads(tok));
 
                         // Tell the next stage it was a hit:
-                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(bundle, True, slot));
+                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(bundle, tagged Invalid));
                     end
 
-                    tagged DCACHE_miss:
+                    tagged DCACHE_miss .miss_id:
                     begin
 
                         // The cache missed, but is handling it. 
@@ -368,7 +366,7 @@ module [HASIM_MODULE] mkDMem ();
                         doLoads.makeReq(initFuncpReqDoLoads(tok));
 
                         // Tell the next stage it was a miss:
-                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple3(bundle, False, slot));
+                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(bundle, tagged Valid miss_id));
 
                     end
 
@@ -421,19 +419,19 @@ module [HASIM_MODULE] mkDMem ();
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
-        else if (state matches tagged STAGE3_completed {.bundle, .slot})
+        else if (state matches tagged STAGE3_completed .bundle)
         begin
         
-            // Add it to the CommitQ already completed.
+            // Add it to the CommitQ with no miss id.
             bundleFromDMemQ.doDeq(cpu_iid);
-            allocToCommitQ.send(cpu_iid, tagged Valid tuple3(bundle, slot, True));
+            allocToCommitQ.send(cpu_iid, tagged Valid tuple2(bundle, tagged Invalid));
             eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(bundle.token)));
 
             // End of model cycle. (Path 2)
             localCtrl.endModelCycle(cpu_iid, 2);
 
         end
-        else if (state matches tagged STAGE3_loadRsp {.bundle, .hit, .slot})
+        else if (state matches tagged STAGE3_loadRsp {.bundle, .m_miss_id})
         begin
         
             // Get the response from the functional partition.
@@ -446,7 +444,7 @@ module [HASIM_MODULE] mkDMem ();
 
             // Send it to the commitQ, completed if we got a hit.
             bundleFromDMemQ.doDeq(cpu_iid);
-            allocToCommitQ.send(cpu_iid, tagged Valid tuple3(new_bundle, slot, hit));
+            allocToCommitQ.send(cpu_iid, tagged Valid tuple2(new_bundle, m_miss_id));
             eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(new_bundle.token)));
 
             // End of model cycle. (Path 3)
