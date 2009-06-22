@@ -3168,3 +3168,32 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
 * OOO model now sends fault rewinds from commit instead of ROB.
 
 Michael P.
+
+----------
+mpellaue    Date: Mon Jun 22 12:09:54 EDT 2009  CSN: CSN-hasim-models-118
+                  Mon Jun 22 16:09:54 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          117 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          117 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          117 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          117 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          117 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          117 
+
+
+* The last checkin inadvertantly broke unaligned accesses. They work again.
+* Added some conservative_impliicit_conditions to the inorder front end.
+
+Michael

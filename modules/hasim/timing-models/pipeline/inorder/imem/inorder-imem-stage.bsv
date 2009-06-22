@@ -180,6 +180,7 @@ module [HASIM_MODULE] mkIMem
     // Ports written:
     // * iMemToPCCalc
     //
+    (* conservative_implicit_conditions *)
     rule stage2_iCacheRsp;
         match {.cpu_iid, .m_stage_data} <- stage2Ctrl.nextReadyInstance();
 

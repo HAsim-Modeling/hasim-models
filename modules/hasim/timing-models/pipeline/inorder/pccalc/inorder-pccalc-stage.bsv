@@ -142,6 +142,7 @@ module [HASIM_MODULE] mkPCCalc
     // * enqToInstQ
     // * clearToInstQ
 
+    (* conservative_implicit_conditions *)
     rule stage1_nextPC (True);
 
         // Begin a new model cycle.

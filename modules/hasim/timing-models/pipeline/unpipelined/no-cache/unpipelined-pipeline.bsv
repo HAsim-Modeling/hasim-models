@@ -58,6 +58,10 @@ module [HASIM_MODULE] mkPipeline
 
     // Program counters
     MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS)) pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
+    
+    //********* UnModel State *******//
+    
+    Reg#(Maybe#(INSTANCE_ID#(NUM_CPUS))) dTransStall <- mkReg(tagged Invalid);
 
     //********* Connections *********//
 
@@ -309,7 +313,7 @@ module [HASIM_MODULE] mkPipeline
 
     endrule
 
-    rule stage6_dtrRsp_memReq (True);
+    rule stage6_dtrRsp_memReq (!isValid(dTransStall));
     
         match {.cpu_iid, .tok} <- stage6Ctrl.nextReadyInstance();
     
@@ -344,11 +348,59 @@ module [HASIM_MODULE] mkPipeline
 
                 end
 
+                stage7Ctrl.ready(cpu_iid, tok);
+
             end
+            else
+            begin
+            
+                dTransStall <= tagged Valid cpu_iid;
+            
+            end
+
+        end
+        else
+        begin
+            stage7Ctrl.ready(cpu_iid, tok);
         end
         
-        stage7Ctrl.ready(cpu_iid, tok);
+    endrule
+    
+    rule stage6_dtrRsp_unaligned (dTransStall matches tagged Valid .cpu_iid);
+    
+        // Get the response from dTranslate
+        let rsp = linkToDTR.getResp();
+        linkToDTR.deq();
 
+        let tok = rsp.token;
+
+        debugLog.record(cpu_iid, $format("DTR Responded (unaligned) for token: %0d, hasMore: %0d", tokTokenId(tok), rsp.hasMore));
+
+        if (! rsp.hasMore)
+        begin
+
+            if (tokIsLoad(tok))
+            begin
+
+                // Request the load(s).
+                linkToLOA.makeReq(initFuncpReqDoLoads(tok));
+                debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
+
+            end
+            else if (tokIsStore(tok))
+            begin
+
+                // Request the store(s)
+                linkToSTO.makeReq(initFuncpReqDoStores(tok));
+                debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
+
+            end
+
+            stage7Ctrl.ready(cpu_iid, tok);
+            dTransStall <= tagged Invalid;
+
+        end
+        
     endrule
 
     rule stage7_memRsp (True);

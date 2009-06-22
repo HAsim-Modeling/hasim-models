@@ -29,6 +29,10 @@ DTLB_STAGE2_STATE deriving (Bits, Eq);
 module [HASIM_MODULE] mkDTLB();
 
 
+    // ****** UnModel State ******
+    
+    Reg#(Maybe#(Tuple2#(INSTANCE_ID#(NUM_CPUS), DMEM_BUNDLE))) dTransStall <- mkReg(tagged Invalid);
+
     // ****** Soft Connections *******
 
     Connection_Client#(FUNCP_REQ_DO_DTRANSLATE,
@@ -59,7 +63,7 @@ module [HASIM_MODULE] mkDTLB();
 
 
     (* conservative_implicit_conditions *)
-    rule stage1_instReq (True);
+    rule stage1_dTransReq (True);
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
@@ -116,7 +120,7 @@ module [HASIM_MODULE] mkDTLB();
 
     endrule
      
-    rule stage2_instRsp (True);
+    rule stage2_dTransRsp (!isValid(dTransStall));
         
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
         
@@ -124,14 +128,14 @@ module [HASIM_MODULE] mkDTLB();
         begin
 
             // Propogate the bubble.
-	    rspToOutQ.noEnq(cpu_iid);
+            rspToOutQ.noEnq(cpu_iid);
             localCtrl.endModelCycle(cpu_iid, 1);
         
         end
         else if (state matches tagged STAGE2_nonMemOp .req)
         begin
         
-	    rspToOutQ.doEnq(cpu_iid, initDTLBHit(req, ?));
+            rspToOutQ.doEnq(cpu_iid, initDTLBHit(req, ?));
             localCtrl.endModelCycle(cpu_iid, 2);
         
         end
@@ -142,18 +146,53 @@ module [HASIM_MODULE] mkDTLB();
             let rsp = doDTranslate.getResp();
             doDTranslate.deq();
 
+            if (!rsp.hasMore)
+            begin
+
+                // Update with the latest token.
+                let new_req = req;
+                new_req.token = rsp.token;
+
+                // Always hit.
+                rspToOutQ.doEnq(cpu_iid, initDTLBHit(new_req, rsp.physicalAddress));
+
+                // End of model cycle. (Path 3)
+                localCtrl.endModelCycle(cpu_iid, 3);
+            
+            end
+            else
+            begin
+            
+                dTransStall <= tagged Valid tuple2(cpu_iid, req);
+            
+            end
+        
+        end
+     
+    endrule
+    
+    rule stage2_dTransUnaligned (dTransStall matches tagged Valid {.cpu_iid, .req});
+    
+        // Get the response from the functional partition.
+        let rsp = doDTranslate.getResp();
+        doDTranslate.deq();
+
+        if (!rsp.hasMore)
+        begin
+
             // Update with the latest token.
             let new_req = req;
             new_req.token = rsp.token;
 
             // Always hit.
-	    rspToOutQ.doEnq(cpu_iid, initDTLBHit(new_req, rsp.physicalAddress));
+            rspToOutQ.doEnq(cpu_iid, initDTLBHit(new_req, rsp.physicalAddress));
 
-            // End of model cycle. (Path 3)
-            localCtrl.endModelCycle(cpu_iid, 3);
-        
+            // End of model cycle. (Path 4)
+            localCtrl.endModelCycle(cpu_iid, 4);
+            dTransStall <= tagged Invalid;
+
         end
-     
+
     endrule
 
 endmodule

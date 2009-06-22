@@ -174,6 +174,7 @@ module [HASIM_MODULE] mkFetch ();
     // * pcToITLB
     // * pcToBP
 
+    (* conservative_implicit_conditions *)
     rule stage2_fetchReq (True);
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 

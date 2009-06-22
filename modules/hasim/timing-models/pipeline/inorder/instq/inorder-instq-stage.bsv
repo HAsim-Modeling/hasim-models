@@ -199,6 +199,7 @@ module [HASIM_MODULE] mkInstructionQueue
     // * rspFromICacheDelayed
     // Ports Written
     // (none)
+    (* conservative_implicit_conditions *)
     rule stage2_complete (True);
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
@@ -243,6 +244,7 @@ module [HASIM_MODULE] mkInstructionQueue
     // * enqFromFetch
     // Ports Written
     // * creditToFetch
+    (* conservative_implicit_conditions *)
     rule stage3_deq_clear_enq_credit (True);
         // Get the info from the previous stage.
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
