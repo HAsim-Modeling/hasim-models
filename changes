@@ -3228,3 +3228,23 @@ Directory modules/hasim/timing-models/caches/direct-mapped-icache
 * Supported cache models updated to track MISS_IDs.
 
 Michael P.
+
+----------
+mpellaue    Date: Thu Jun 25 17:30:18 EDT 2009  CSN: CSN-hasim-models-120
+                  Thu Jun 25 21:30:18 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          119 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          119 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          119 
+
+
+* Increased cache delayed-response ports to latency 1, as per the latest inorder 
+  specification.
+  
+Michael P.

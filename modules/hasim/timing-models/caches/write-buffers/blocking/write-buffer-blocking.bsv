@@ -85,7 +85,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)   rspToDMem     <- mkPortSend_Multiplexed("WB_to_DMem_rsp");
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_delayed");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecv_Multiplexed("DCache_to_CPU_store_delayed", 1);
 
     // ****** Soft Connections ******
     
@@ -94,10 +94,11 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = enqFromSB.ctrl;
     inports[1]  = loadReqFromDMem.ctrl;
+    inports[2]  = delayedRspFromDCache.ctrl;
     outports[0] = creditToSB.ctrl;
     outports[1] = storeReqToDCache.ctrl;
 

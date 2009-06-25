@@ -124,7 +124,7 @@ module [HASIM_MODULE] mkInstructionQueue
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)          enqFromFetch         <- mkPortRecv_Multiplexed("Fet_to_InstQ_enq", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                   clearFromFetch       <- mkPortRecv_Multiplexed("Fet_to_InstQ_clear", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)  rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)  rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)       bundleToDec   <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT_COUNT) creditToFetch <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
