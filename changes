@@ -3248,3 +3248,161 @@ Directory modules/hasim/timing-models/caches/write-buffers/blocking
   specification.
   
 Michael P.
+
+----------
+mpellaue    Date: Mon Aug  3 17:33:13 EDT 2009  CSN: CSN-hasim-models-121
+                  Mon Aug  3 21:33:13 UTC 2009
+
+
+Directory config/pm/hasim-models/l1-caches
+ null_l1_caches.apm        Locally Modified          120 
+ l1_caches.apm             Locally Modified          120 
+ pseudorandom_l1_caches.apm Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          120 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          120 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-instruction-caches/    Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ alg/                      Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-always-hit.awb Locally Added               0 
+ l1-icache-alg-always-hit.bsv Locally Added               0 
+ l1-icache-alg-direct-mapped.dic Locally Added               0 
+ l1-icache-alg-direct-mapped.awb Locally Added               0 
+ l1-icache-alg-direct-mapped.bsv Locally Added               0 
+ l1-icache-alg-pseudorandom.awb Locally Added               0 
+ l1-icache-alg-pseudorandom.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.awb  Locally Added               0 
+ l1-instruction-cache.bsv  Locally Added               0 
+ l1-instruction-cache.dic  Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-arbiters/              Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-arbiters
+ static-priority/          Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-arbiters/static-priority
+ l1-cache-arbiter-static-priority.awb Locally Added               0 
+ l1-cache-arbiter-static-priority.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-data-caches/           Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches
+ alg/                      Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.awb Locally Added               0 
+ l1-dcache-alg-direct-mapped.bsv Locally Added               0 
+ l1-dcache-alg-pseudorandom.awb Locally Added               0 
+ l1-dcache-alg-pseudorandom.bsv Locally Added               0 
+ l1-dcache-alg-always-hit.awb Locally Added               0 
+ l1-dcache-alg-always-hit.bsv Locally Added               0 
+ l1-dcache-alg-direct-mapped.dic Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches
+ unpipelined/              Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.awb Locally Added               0 
+ l1-dcache-controller-unpipelined.bsv Locally Added               0 
+ l1-dcache-controller-unpipelined.dic Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches.awb             Locally Modified          120 
+ l1-caches.bsv             Locally Modified          120 
+ base-types/               Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches/base-types
+ l1-cache-base-types.awb   Locally Added               0 
+ l1-cache-base-types.bsv   Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          120 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          120 
+
+Directory modules/hasim/timing-models/caches
+ miss-trackers/            Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/miss-trackers
+ unified/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsh  Locally Added               0 
+ miss-tracker-unified.awb  Locally Added               0 
+ miss-tracker-unified.bsv  Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          120 
+ itlb-null.bsv             Locally Modified          120 
+
+Directory modules/hasim/timing-models/caches
+ cache-algorithms/         Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-always-hit.bsv Locally Added               0 
+ cache-algorithms.awb      Locally Added               0 
+ cache-algorithm-direct-mapped.bsv Locally Added               0 
+ cache-algorithm-pseudorandom.bsv Locally Added               0 
+ cache-algorithm-utils.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.bsv         Locally Modified          120 
+
+Directory modules/hasim/timing-models/memory
+ memory-magic.bsv          Locally Modified          120 
+ memory-magic.awb          Locally Modified          120 
+
+
+* Cache algorithms are now separated from the caches themselves. The algorithms worry about hit/miss, 
+  the caches themselves deal with issues like port arbitration.
+* Cache algorithms will be reused at other levels of the cache hierarchy beyond L1.
+* Also added a miss tracker which will also be reused across the hierarchy.
+* L1 Cache now has an arbiter to deal with contention to the port to main memory.
+* The inorder pipeline stages have been updated to work with the new types. 
+* The call to getInstruction() has been moved to the IMem stage from the ICache.
+* The "magic memory" now actually does something - it has an input FIFO of requests (per CPU) and
+  generates load responses (per CPU).
+* Therefore the "core-no-cache" instantiates dummy request FIFOs that it never reads or writes.
+
+TODO:
+* See if the OOO core can be integrated with the cache hierarchy. (Currently it uses core-no-cache.)
+* Construct an L2 cache which interacts with multiple CPUS using the existing cache algorithms.
+* Make a set-associative cache algorithm.
+* Untwine the hasim_controller from hasim_modellib and move modellib into hasim-models.
+
+Michael P.
+

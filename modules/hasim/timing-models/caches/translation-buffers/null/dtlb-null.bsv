@@ -11,7 +11,7 @@ import FIFO::*;
 `include "asim/provides/fpga_components.bsh"
 
 `include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 
 typedef union tagged
 {

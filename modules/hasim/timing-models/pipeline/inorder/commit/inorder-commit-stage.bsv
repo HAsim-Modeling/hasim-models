@@ -33,7 +33,7 @@ import Vector::*;
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/hasim_controller.bsh"
 `include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 
 // ****** Generated files ******
 

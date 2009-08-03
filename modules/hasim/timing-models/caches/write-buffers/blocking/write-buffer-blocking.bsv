@@ -38,7 +38,7 @@ import FIFO::*;
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 
 
 
@@ -249,7 +249,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
             // Request a store of the oldest write.
             match {.st_tok, .phys_addr} = validValue(buff[head]);
-            storeReqToDCache.send(cpu_iid, tagged Valid initDCacheStore(st_tok, phys_addr));
+            storeReqToDCache.send(cpu_iid, tagged Valid initDCacheStore(phys_addr));
 
         end
 
@@ -287,7 +287,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
         else if (m_imm_rsp matches tagged Valid .rsp)
         begin
         
-            case (rsp.rspType) matches
+            case (rsp) matches
 
                 tagged DCACHE_ok:
                 begin
@@ -299,7 +299,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
                     
                 end
 
-                tagged DCACHE_delay:
+                tagged DCACHE_delay .miss_id:
                 begin
                     
                     debugLog.record(cpu_iid, fshow("STORE DELAY"));

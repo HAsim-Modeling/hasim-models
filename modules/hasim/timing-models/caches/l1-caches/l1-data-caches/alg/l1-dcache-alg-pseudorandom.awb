@@ -1,0 +1,15 @@
+%name Pseudorandom L1 DCache Alg
+%desc Pseudorandom L1 DCache Alg
+%provides hasim_l1_dcache_alg
+
+%attributes hasim model caches
+
+%public  l1-dcache-alg-pseudorandom.bsv 
+
+%param --dynamic LOAD_MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+%param --dynamic STORE_MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+%param --dynamic CLEAN_EVICT_CHANCE 7 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+%param --dynamic DIRTY_EVICT_CHANCE 6 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+%param --dynamic LOAD_SEED 17 "Bit 8 seed for pseudo-random number."
+%param --dynamic STORE_SEED 27 "Bit 8 seed for pseudo-random number."
+%param --dynamic EVICT_SEED 37 "Bit 8 seed for pseudo-random number."

@@ -37,7 +37,7 @@ import Vector::*;
 
 // ****** Timing Model imports *****
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
@@ -109,7 +109,7 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // Miss Address File (MAF).
     // Maps from icache miss ID to instq slot.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(ICACHE_MISS_ID, INSTQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
     
     // Pointer to the head slot, which contains the next bundle for the decode
     // stage to look at.
@@ -124,7 +124,7 @@ module [HASIM_MODULE] mkInstructionQueue
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)          enqFromFetch         <- mkPortRecv_Multiplexed("Fet_to_InstQ_enq", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                   clearFromFetch       <- mkPortRecv_Multiplexed("Fet_to_InstQ_clear", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)  rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_delayed", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)  rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_load_delayed", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)       bundleToDec   <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT_COUNT) creditToFetch <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
@@ -207,7 +207,7 @@ module [HASIM_MODULE] mkInstructionQueue
         LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
         Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool[cpu_iid];
         MISS_DROP_MAP should_drop = shouldDrop;
-        LUTRAM#(ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
+        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
 
         // Check for icache rendezvous.
         let m_rendezvous <- rspFromICacheDelayed.receive(cpu_iid);
@@ -222,7 +222,9 @@ module [HASIM_MODULE] mkInstructionQueue
                 INSTQ_SLOT_ID slot = maf.sub(rsp.missID);
 
                 let slot_data = slots.sub(slot);
-                slot_data.bundle.inst = rsp.bundle.instruction;
+                // A real instQ would update the instruction here.
+                // However we already have the actual instruction, so we just mark
+                // it as ready to go.
                 slot_data.complete = True;
                 slots.upd(slot, slot_data);
 
@@ -253,7 +255,7 @@ module [HASIM_MODULE] mkInstructionQueue
         LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
         Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool[cpu_iid];
         MISS_DROP_MAP should_drop = shouldDrop;
-        LUTRAM#(ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
+        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
         Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
         Reg#(INSTQ_SLOT_ID) tailPtr = tailPtrPool[cpu_iid];
         INSTQ_SLOT_ID head_ptr = headPtr;

@@ -38,7 +38,7 @@ import FIFOF::*;
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 
 
 // mkCommitQueue
@@ -75,12 +75,12 @@ module [HASIM_MODULE] mkCommitQueue
 
     // Miss Address File (MAF).
     // Maps from DCache miss ID to commitq slot.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(DCACHE_LOAD_MISS_ID, COMMITQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED#(NUM_CPUS, LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
     
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(DCACHE_LOAD_MISS_ID))) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                       deqFromCom       <- mkPortRecvDependent_Multiplexed("commitQ_deq");
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 1);
 
@@ -101,6 +101,7 @@ module [HASIM_MODULE] mkCommitQueue
     LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkLocalController(inports, outports);
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
 
 
     // ****** Rules ******
@@ -118,7 +119,7 @@ module [HASIM_MODULE] mkCommitQueue
     // * writebackToDec
 
     (* conservative_implicit_conditions *)
-    rule stage1_sendAndComplete (True);
+    rule stage1_sendFirst (True);
                 
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
@@ -127,7 +128,6 @@ module [HASIM_MODULE] mkCommitQueue
         // Get the local state for the current instance.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
         LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
-        LUTRAM#(DCACHE_LOAD_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];
 
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
         Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
@@ -154,7 +154,22 @@ module [HASIM_MODULE] mkCommitQueue
             debugLog.record_next_cycle(cpu_iid, fshow("1: NO SEND"));
             bundleToCom.send(cpu_iid, tagged Invalid);
         end
+    
+        stage2Ctrl.ready(cpu_iid);
+    
+    endrule
         
+        
+    rule stage2_complete (True);
+    
+        // Get the info from the previous stage.
+        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+
+        // Get the local state for the current instance.
+        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
+        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
+        LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];        
+    
         // Now let's check for miss responses from the DCache.
         let m_complete <- rspFromDCacheDelayed.receive(cpu_iid);
         
@@ -163,13 +178,14 @@ module [HASIM_MODULE] mkCommitQueue
         
             // A new completion came in. Get the slot from the MAF.
             COMMITQ_SLOT_ID slot = maf.sub(rsp.missID);
+            DMEM_BUNDLE bundle = bundles.sub(slot);
             debugLog.record_next_cycle(cpu_iid, fshow("1: COMPLETE: ") + fshow(slot));
             
             // Mark this slot as complete.
             completions.upd(slot, True);
 
             // Tell Decode to writeback the destination.
-            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(bundle.token, bundle.dests));
 
         end
         else
@@ -181,12 +197,12 @@ module [HASIM_MODULE] mkCommitQueue
         end
         
         // Pass this context to the next stage.
-        stage2Ctrl.ready(cpu_iid);
+        stage3Ctrl.ready(cpu_iid);
 
     endrule
 
 
-    // stage2_deallocate
+    // stage3_deallocate
     // Check if commit is dequeing.
     
     // Ports read:
@@ -196,10 +212,10 @@ module [HASIM_MODULE] mkCommitQueue
     // * none
 
     (* conservative_implicit_conditions *)
-    rule stage2_deallocate (True);
+    rule stage3_deallocate (True);
 
         // Get the info from the previous stage.
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+        let cpu_iid <- stage3Ctrl.nextReadyInstance();
 
         // Get the local state for the current instance.
         Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
@@ -217,11 +233,11 @@ module [HASIM_MODULE] mkCommitQueue
         end
         
         // Send it to the next stage.
-        stage3Ctrl.ready(cpu_iid);
+        stage4Ctrl.ready(cpu_iid);
 
     endrule
 
-    // stage3_allocate
+    // stage4_allocate
     
     // Check for allocation requests. Based on allocate and deallocate
     // we can calculate a new credit to be sent to back to DMem.
@@ -233,15 +249,15 @@ module [HASIM_MODULE] mkCommitQueue
     // * creditToDMem
 
     (* conservative_implicit_conditions *)
-    rule stage3_allocate (True);
+    rule stage4_allocate (True);
 
         // Get our context from the previous stage.
-        let cpu_iid <- stage3Ctrl.nextReadyInstance();
+        let cpu_iid <- stage4Ctrl.nextReadyInstance();
         
         // Get our local state based on the context.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
         LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
-        LUTRAM#(DCACHE_LOAD_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];
+        LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];
 
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
         Reg#(COMMITQ_SLOT_ID) oldestSlot   = oldestSlotPool[cpu_iid];

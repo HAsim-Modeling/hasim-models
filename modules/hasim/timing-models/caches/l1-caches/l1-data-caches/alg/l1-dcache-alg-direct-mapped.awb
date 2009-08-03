@@ -1,0 +1,10 @@
+%name Direct-Mapped L1 DCache Alg
+%desc Direct-Mapped L1 DCache Alg
+%provides hasim_l1_dcache_alg
+
+%attributes hasim model caches
+
+%public  l1-dcache-alg-direct-mapped.bsv 
+%public  l1-dcache-alg-direct-mapped.dic 
+
+%param L1_DCACHE_ALG_INDEX_SIZE 8 "Number of bits to use as DCache index."

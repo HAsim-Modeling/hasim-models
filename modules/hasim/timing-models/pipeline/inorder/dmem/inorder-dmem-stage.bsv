@@ -34,7 +34,7 @@ import FIFO::*;
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 `include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 
 import FIFOF::*;
 `include "asim/provides/fpga_components.bsh"
@@ -73,9 +73,9 @@ DMEM_STAGE2_STATE deriving (Bits, Eq);
 
 typedef union tagged
 {
-    DMEM_BUNDLE                                       STAGE3_completed;
-    Tuple2#(DMEM_BUNDLE, Maybe#(DCACHE_LOAD_MISS_ID)) STAGE3_loadRsp;
-    void                                              STAGE3_bubble;
+    DMEM_BUNDLE                                     STAGE3_completed;
+    Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID)) STAGE3_loadRsp;
+    void                                            STAGE3_bubble;
 }
 DMEM_STAGE3_STATE deriving (Bits, Eq);
 
@@ -96,7 +96,7 @@ module [HASIM_MODULE] mkDMem ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_Multiplexed("CPU_to_DCache_load");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_INPUT)                   reqToSB        <- mkPortSend_Multiplexed("DMem_to_SB_req");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_Multiplexed("DMem_to_WB_search");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(DCACHE_LOAD_MISS_ID))) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
 

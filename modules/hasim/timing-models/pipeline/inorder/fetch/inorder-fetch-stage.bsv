@@ -40,7 +40,7 @@ import Vector::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 
 
 // ****** Generated files ******

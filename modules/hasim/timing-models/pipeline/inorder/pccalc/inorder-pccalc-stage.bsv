@@ -34,9 +34,9 @@ import Vector::*;
 // ****** Timing Model imports *****
 
 `include "asim/provides/chip_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
-`include "asim/provides/memory_base_types.bsh"
 
 
 // ****** Generated files ******
@@ -258,6 +258,7 @@ module [HASIM_MODULE] mkPCCalc
             end
             else
             begin
+                debugLog.record_next_cycle(cpu_iid, $format("NO REDIRECT"));
                 // Normal flow. Everything's happy. Enqueue the bundle.
                 enqueue = True;
             end
@@ -266,7 +267,7 @@ module [HASIM_MODULE] mkPCCalc
             // done so far, because regardless of whether or not we drop the
             // incoming bundle, we need to tell the instruction queue to expect
             // a delayed reply from icache.
-            Maybe#(ICACHE_MISS_ID) miss_id = tagged Invalid;
+            Maybe#(L1_ICACHE_MISS_ID) miss_id = tagged Invalid;
             if (imem_rsp.response matches tagged IMEM_icache_miss .id)
             begin 
                 miss_id = tagged Valid id;

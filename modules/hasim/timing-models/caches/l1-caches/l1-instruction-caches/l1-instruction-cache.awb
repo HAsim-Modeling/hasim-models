@@ -1,0 +1,22 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name L1 ICache
+# %desc L1 ICache (No victim buffer)
+# %provides hasim_l1_icache
+#
+# %requires hasim_l1_icache_alg
+#
+# %attributes hasim model caches
+#
+# %public  l1-instruction-cache.bsv 
+# %private l1-instruction-cache.dic
+#
+# %AWB_END
+# */

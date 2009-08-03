@@ -1,0 +1,10 @@
+%name Pseudorandom L1 ICache Alg
+%desc Pseudorandom L1 ICache Alg
+%provides hasim_l1_icache_alg
+
+%attributes hasim model caches
+
+%public  l1-icache-alg-pseudorandom.bsv 
+
+%param --dynamic MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+%param --dynamic SEED 17 "Bit 8 seed for pseudo-random number."

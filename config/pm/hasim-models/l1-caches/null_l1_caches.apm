@@ -12,20 +12,14 @@ Class=Asim::Model
 DefaultAttributes=hasim model caches l1
 model=Split (Instruction and Data)
 
-[Null DCache]
-File=modules/hasim/timing-models/caches/null-caches/dcache-null.awb
-Packagehint=hasim-models
-
-[Null ICache]
-File=modules/hasim/timing-models/caches/null-caches/icache-null.awb
-Packagehint=hasim-models
-
 [Split (Instruction and Data)/Requires]
-hasim_dcache=Null DCache
-hasim_icache=Null ICache
 hasim_itlb=Null ITLB
-memory_base_types=Memory Base Types
 hasim_dtlb=Null DTLB
+hasim_l1_arbiter=Static Priority L1 Cache Arbiter
+hasim_l1_dcache=Unpipelined L1 DCache
+l1_cache_base_types=L1 Cache Base Types
+hasim_l1_icache=L1 ICache
+hasim_miss_tracker=Unified Cache Miss Tracker
 
 [Split (Instruction and Data)]
 File=modules/hasim/timing-models/caches/l1-caches/l1-caches.awb
@@ -35,10 +29,40 @@ Packagehint=hasim-models
 File=modules/hasim/timing-models/caches/translation-buffers/null/itlb-null.awb
 Packagehint=hasim-models
 
-[Memory Base Types]
-File=modules/hasim/timing-models/caches/cache-types/memory-base-types.awb
-Packagehint=hasim-models
-
 [Null DTLB]
 File=modules/hasim/timing-models/caches/translation-buffers/null/dtlb-null.awb
 Packagehint=hasim-models
+
+[Unpipelined L1 DCache]
+File=modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined/l1-dcache-controller-unpipelined.awb
+Packagehint=hasim-models
+
+[L1 ICache]
+File=modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/l1-instruction-cache.awb
+Packagehint=hasim-models
+
+[Static Priority L1 Cache Arbiter]
+File=modules/hasim/timing-models/caches/l1-caches/l1-arbiters/static-priority/l1-cache-arbiter-static-priority.awb
+Packagehint=hasim-models
+
+[Unified Cache Miss Tracker]
+File=modules/hasim/timing-models/caches/miss-trackers/unified/miss-tracker-unified.awb
+Packagehint=hasim-models
+
+[L1 Cache Base Types]
+File=modules/hasim/timing-models/caches/l1-caches/base-types/l1-cache-base-types.awb
+Packagehint=hasim-models
+
+[Always Hit L1 ICache Alg]
+File=modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg/l1-icache-alg-always-hit.awb
+Packagehint=hasim-models
+
+[Unpipelined L1 DCache/Requires]
+hasim_l1_dcache_alg=Always Hit L1 DCache Alg
+
+[Always Hit L1 DCache Alg]
+File=modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg/l1-dcache-alg-always-hit.awb
+Packagehint=hasim-models
+
+[L1 ICache/Requires]
+hasim_l1_icache_alg=Always Hit L1 ICache Alg

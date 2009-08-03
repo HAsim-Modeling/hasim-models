@@ -1,0 +1,10 @@
+%name Cache Modeling Algorithms
+%desc Collection of Cache Modeling Algorithms
+%provides hasim_cache_algorithms
+
+%attributes hasim model caches
+
+%public cache-algorithm-utils.bsv
+%public cache-algorithm-always-hit.bsv
+%public cache-algorithm-pseudorandom.bsv
+%public cache-algorithm-direct-mapped.bsv

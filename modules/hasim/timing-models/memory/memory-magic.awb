@@ -1,5 +1,5 @@
-%name Null Memory
-%desc Null Memory
+%name Magic Memory
+%desc Magic Memory
 %provides hasim_memory
 
 %attributes hasim memory

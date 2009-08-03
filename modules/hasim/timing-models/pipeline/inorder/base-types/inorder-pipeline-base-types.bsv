@@ -21,7 +21,7 @@ import hasim_modellib::*;
 import hasim_isa::*;
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 
 import Vector::*;
 import FShow::*;
@@ -44,7 +44,7 @@ typedef union tagged {
 typedef union tagged {
     void IMEM_itlb_fault;
     void IMEM_icache_hit;
-    ICACHE_MISS_ID IMEM_icache_miss;
+    L1_ICACHE_MISS_ID IMEM_icache_miss;
     void IMEM_icache_retry;
     void IMEM_bad_epoch;
 } IMEM_RESPONSE deriving (Bits, Eq);
@@ -103,7 +103,7 @@ typedef Bit#(TLog#(NUM_INSTQ_SLOTS)) INSTQ_CREDIT_COUNT;
 // and if there is an icache miss, just drop the response when you get it.
 typedef struct {
     Maybe#(FETCH_BUNDLE) bundle;
-    Maybe#(ICACHE_MISS_ID) missID;
+    Maybe#(L1_ICACHE_MISS_ID) missID;
 } INSTQ_ENQUEUE deriving(Bits, Eq);
 
 typedef struct {

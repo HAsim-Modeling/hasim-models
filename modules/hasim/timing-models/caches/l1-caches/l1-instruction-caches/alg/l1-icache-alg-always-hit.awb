@@ -1,0 +1,7 @@
+%name Always Hit L1 ICache Alg
+%desc Always Hit, Never Evict L1 ICache Alg
+%provides hasim_l1_icache_alg
+
+%attributes hasim model caches
+
+%public  l1-icache-alg-always-hit.bsv 

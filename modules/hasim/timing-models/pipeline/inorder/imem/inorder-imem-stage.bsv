@@ -37,9 +37,9 @@ import Vector::*;
 // ****** Timing Model imports *****
 
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/chip_base_types.bsh"
+`include "asim/provides/l1_cache_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
-`include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/module_local_controller.bsh"
 
 
@@ -69,10 +69,16 @@ module [HASIM_MODULE] mkIMem
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                           rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 1);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                     physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_req");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                     physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_load");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, IMEM_OUTPUT)                       iMemToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_response");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_immediate");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_load_immediate");
+
+    // ****** Soft Connections *******
+
+    Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
+                       FUNCP_RSP_GET_INSTRUCTION)    getInstruction <- mkConnection_Client("funcp_getInstruction");
+
 
     // ****** Local Controller ******
         
@@ -147,6 +153,11 @@ module [HASIM_MODULE] mkIMem
                     // Send the physical address on to the ICache.
                     physAddrToICache.send(cpu_iid, tagged Valid initICacheLoad(rsp.bundle));
 
+                    // Simultaneously get the actual instruction from the 
+                    // functional partition.
+                    let req = initFuncpReqGetInstruction(cpu_iid, rsp.bundle.physicalAddress, rsp.bundle.offset);
+                    getInstruction.makeReq(req);
+
                     stage_data = tagged Valid IMEM_OUTPUT {
                         bundle: rsp.bundle,
                         response: ?
@@ -180,7 +191,7 @@ module [HASIM_MODULE] mkIMem
     // Ports written:
     // * iMemToPCCalc
     //
-    (* conservative_implicit_conditions *)
+
     rule stage2_iCacheRsp;
         match {.cpu_iid, .m_stage_data} <- stage2Ctrl.nextReadyInstance();
 
@@ -197,9 +208,15 @@ module [HASIM_MODULE] mkIMem
                     tagged ICACHE_miss .miss_id: tagged IMEM_icache_miss miss_id;
                     tagged ICACHE_retry: tagged IMEM_icache_retry;
                 endcase;
+                
+                // Fill in the instruction from the functional partition.
+                let rsp = getInstruction.getResp();
+                let new_bundle = icache_rsp.bundle;
+                new_bundle.instruction = rsp.instruction;
+                getInstruction.deq();
 
                 iMemToPCCalc.send(cpu_iid, tagged Valid IMEM_OUTPUT {
-                    bundle: icache_rsp.bundle,
+                    bundle: new_bundle,
                     response: response
                 });
             end

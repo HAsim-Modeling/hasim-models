@@ -1,0 +1,10 @@
+%name Direct-Mapped L1 ICache Alg
+%desc Direct-Mapped L1 ICache Alg
+%provides hasim_l1_icache_alg
+
+%attributes hasim model caches
+
+%public  l1-icache-alg-direct-mapped.bsv 
+%public  l1-icache-alg-direct-mapped.dic 
+
+%param L1_ICACHE_ALG_INDEX_SIZE 8 "Number of bits for ICache index."

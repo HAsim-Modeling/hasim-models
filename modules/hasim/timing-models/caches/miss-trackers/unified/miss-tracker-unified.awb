@@ -1,0 +1,21 @@
+#/********************************************************************
+# *
+# * Awb module specification
+# *
+# *******************************************************************/
+
+#/*
+# %AWB_START
+#
+# %name Unified Cache Miss Tracker
+# %desc Cache Miss Tracker with Unified Load/Store Namespace
+# %provides hasim_miss_tracker
+#
+# %attributes hasim model caches
+#
+# %public miss-tracker-unified.bsh
+# %public miss-tracker-unified.bsv
+#
+#
+# %AWB_END
+# */

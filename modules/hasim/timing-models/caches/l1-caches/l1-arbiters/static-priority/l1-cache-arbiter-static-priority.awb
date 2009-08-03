@@ -1,0 +1,9 @@
+%name Static Priority L1 Cache Arbiter
+%desc L1 Cache Arbiter - Always Favor One Stream Statically
+%provides hasim_l1_arbiter
+
+%attributes hasim model caches
+
+%public l1-cache-arbiter-static-priority.bsv
+
+%param L1_ARBITER_FAVOR_ICACHE False "L1 cache arbiter favor instruction stream."

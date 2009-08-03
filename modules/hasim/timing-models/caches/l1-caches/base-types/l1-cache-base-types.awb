@@ -1,0 +1,10 @@
+%name L1 Cache Base Types
+%desc L1 Cache Base Types
+%provides l1_cache_base_types
+
+%attributes hasim model caches
+
+%public l1-cache-base-types.bsv
+
+%param ICACHE_MISS_ID_SIZE 3 "Number of bits to identify ICache Misses. (3 = 8 outstanding misses.)"
+%param DCACHE_LOAD_MISS_ID_SIZE 3 "Number of bits to identify DCache Load Misses. (3 = 8 outstanding misses.)"

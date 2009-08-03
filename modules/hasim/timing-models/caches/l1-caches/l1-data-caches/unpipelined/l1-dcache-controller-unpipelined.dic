@@ -1,0 +1,8 @@
+def STATS.L1_DCACHE.READ_HIT    "L1 DCache Read Hits";
+def STATS.L1_DCACHE.READ_MISS   "L1 DCache Read Misses";
+def STATS.L1_DCACHE.READ_RETRY  "L1 DCache Read Retries";
+
+
+def STATS.L1_DCACHE.WRITE_HIT   "L1 DCache Write Hits";
+def STATS.L1_DCACHE.WRITE_MISS  "L1 DCache Write Misses";
+def STATS.L1_DCACHE.WRITE_RETRY "L1 DCache Write Retries";
