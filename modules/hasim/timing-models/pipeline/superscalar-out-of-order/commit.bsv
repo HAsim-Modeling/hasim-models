@@ -6,7 +6,7 @@ import FIFO::*;
 `include "hasim_isa.bsh"
 `include "soft_connections.bsh"
 `include "funcp_interface.bsh"
-`include "hasim_controller.bsh"
+`include "hasim_model_services.bsh"
 
 `include "hasim_pipeline_types.bsh"
 

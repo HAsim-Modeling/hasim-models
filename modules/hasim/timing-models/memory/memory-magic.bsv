@@ -10,7 +10,7 @@ import Vector::*;
 // ******* Timing Model Imports *******
 
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/chip_base_types.bsh"
 
 module [HASIM_MODULE] mkMemory();

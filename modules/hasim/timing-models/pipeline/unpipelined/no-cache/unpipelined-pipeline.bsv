@@ -23,9 +23,9 @@ import FShow::*;
 //HASim library imports
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
+`include "asim/provides/common_services.bsh"
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_controller.bsh"
-`include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/fpga_components.bsh"
 
 //Model-specific imports

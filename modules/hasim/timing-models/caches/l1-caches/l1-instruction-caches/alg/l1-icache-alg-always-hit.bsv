@@ -2,17 +2,18 @@
 // ******* Project Imports *******
 
 `include "asim/provides/hasim_common.bsh"
+`include "asim/provides/common_services.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/funcp_base_types.bsh"
 `include "asim/provides/funcp_memstate_base_types.bsh"
 `include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/platform_interface.bsh"
+`include "asim/provides/mem_services.bsh"
 
 
 // ******* Timing Model Imports *******
 
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/hasim_memory.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"

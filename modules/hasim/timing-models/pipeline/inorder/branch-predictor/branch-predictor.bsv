@@ -24,7 +24,7 @@ import FIFO::*;
 `include "asim/provides/fpga_components.bsh"
 `include "asim/provides/hasim_isa.bsh"
 
-`include "asim/provides/module_local_controller.bsh"
+`include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/funcp_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
