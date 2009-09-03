@@ -12,25 +12,38 @@
 // of use.
 //
 
+// Standard library imports
+
 import Vector::*;
 
-//HASim library imports
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_controller.bsh"
-`include "asim/provides/module_local_controller.bsh"
+// General application imports
 
-//Model-specific imports
+`include "asim/provides/soft_connections.bsh"
+`include "asim/provides/common_services.bsh"
+`include "asim/provides/fpga_components.bsh"
+
+// HAsim library imports
+
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/hasim_model_services.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+
 `include "asim/provides/hasim_isa.bsh"
+
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/funcp_simulated_memory.bsh"
+
+// Model-specific imports
+
+`include "asim/provides/chip_base_types.bsh"
+`include "asim/provides/hasim_l1_icache.bsh"
+`include "asim/provides/hasim_l1_dcache.bsh"
+
+// Generated file imports
 
 `include "asim/dict/EVENTS_CPU.bsh"
 `include "asim/dict/STATS_CPU.bsh"
 
-`include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/funcp_simulated_memory.bsh"
-`include "asim/provides/hasim_icache.bsh"
-`include "asim/provides/hasim_dcache.bsh"
 
 //************************* Simple Timing Partition ***********************//
 //                                                                         //
@@ -80,61 +93,41 @@ module [HASIM_MODULE] mkPipeline
   //The simulation Clock Cycle, or "tick"
   Reg#(Bit#(32)) baseTick <- mkReg(0);
   
-  //********* Connections *********//
-  
-  Connection_Send#(CONTROL_MODEL_CYCLE_MSG)
-  //...
-  link_model_cycle <- mkConnection_Send("model_cycle");
+    Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         linkModelCycle <- mkConnection_Send("model_cycle");
 
-  Connection_Send#(CONTROL_MODEL_COMMIT_MSG)
-  //...
-  link_model_commit <- mkConnection_Send("model_commits");
+    Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        linkModelCommit <- mkConnection_Send("model_commits");
 
-  Connection_Client#(Void, TOKEN)
-  //...
-  link_to_tok <- mkConnection_Client("funcp_newInFlight");
-  
-  Connection_Client#(Tuple2#(TOKEN, ISA_ADDRESS),
-                     Tuple2#(TOKEN, ISA_INSTRUCTION))
-  //...
-  link_to_fet <- mkConnection_Client("funcp_getInstruction");
-  
-  Connection_Client#(TOKEN,
-                     Tuple2#(TOKEN, ISA_DEPENDENCY_INFO))
-  //...
-  link_to_dec <- mkConnection_Client("funcp_getDependencies");
-  
-  Connection_Client#(TOKEN,
-                     //Tuple2#(TOKEN, ISA_EXECUTION_RESULT))
-		     FUNCP_GET_RESULTS_MSG)
-  //...
-  link_to_exe <- mkConnection_Client("funcp_getResults");
-  
-  Connection_Client#(TOKEN,
-                     TOKEN)
-  //...
-  link_to_load <- mkConnection_Client("funcp_doLoads");
-  
-  Connection_Client#(TOKEN,
-                     TOKEN)
-  //...
-  link_to_store <- mkConnection_Client("funcp_doSpeculativeStores");
+    Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, 
+                       FUNCP_RSP_DO_ITRANSLATE)       linkToITR <- mkConnection_Client("funcp_doITranslate");
 
-  Connection_Client#(TOKEN,
-                     TOKEN)
-  //...
-  link_to_lco <- mkConnection_Client("funcp_commitResults");
-  
-  Connection_Client#(TOKEN,
-                     TOKEN)
-  //...
-  link_to_gco <- mkConnection_Client("funcp_commitStores");
+    Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
+                       FUNCP_RSP_GET_INSTRUCTION)     linkToFET <- mkConnection_Client("funcp_getInstruction");
 
-  //For killing. UNUSED
-  
-  Connection_Client#(TOKEN, Void) 
-  //...
-        link_rewindToToken <- mkConnection_Client("funcp_rewindToToken");
+    Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES,
+                       FUNCP_RSP_GET_DEPENDENCIES)    linkToDEC <- mkConnection_Client("funcp_getDependencies");
+
+    Connection_Client#(FUNCP_REQ_GET_RESULTS,
+                       FUNCP_RSP_GET_RESULTS)         linkToEXE <- mkConnection_Client("funcp_getResults");
+
+    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE,
+                       FUNCP_RSP_DO_DTRANSLATE)       linkToDTR <- mkConnection_Client("funcp_doDTranslate");
+
+    Connection_Client#(FUNCP_REQ_DO_LOADS,
+                       FUNCP_RSP_DO_LOADS)            linkToLOA <- mkConnection_Client("funcp_doLoads");
+
+    Connection_Client#(FUNCP_REQ_DO_STORES,
+                       FUNCP_RSP_DO_STORES)           linkToSTO <- mkConnection_Client("funcp_doSpeculativeStores");
+
+    Connection_Client#(FUNCP_REQ_COMMIT_RESULTS,
+                       FUNCP_RSP_COMMIT_RESULTS)      linkToLCO <- mkConnection_Client("funcp_commitResults");
+
+    Connection_Client#(FUNCP_REQ_COMMIT_STORES,
+                       FUNCP_RSP_COMMIT_STORES)       linkToGCO <- mkConnection_Client("funcp_commitStores");
+
+    // For killing. UNUSED
+
+    Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, 
+                       FUNCP_RSP_REWIND_TO_TOKEN)     linkToRewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
  
   //Events

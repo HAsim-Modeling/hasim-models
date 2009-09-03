@@ -3,24 +3,25 @@
 import Vector::*;
 import FIFO::*;
 
+// ******* Application Imports *******
 
-// ******* Project Imports *******
-
-`include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/common_services.bsh"
-`include "asim/provides/fpga_components.bsh"
-`include "asim/provides/hasim_isa.bsh"
+
+
+// ******* HAsim Imports *******
+
+`include "asim/provides/hasim_common.bsh"
+`include "asim/provides/hasim_model_services.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+
 `include "asim/provides/funcp_base_types.bsh"
 `include "asim/provides/funcp_memstate_base_types.bsh"
 `include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/mem_services.bsh"
 
 
 // ******* Timing Model Imports *******
 
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/hasim_memory.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"

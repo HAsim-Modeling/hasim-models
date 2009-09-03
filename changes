@@ -3485,3 +3485,26 @@ Directory modules/hasim/timing-models/memory
 * Change imports to import hasim_model_services and common_services.
 
 Michael P.
+
+----------
+emer        Date: Thu Sep  3 14:39:42 EDT 2009  CSN: CSN-hasim-models-123
+                  Thu Sep  3 18:39:42 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          122 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-direct-mapped.bsv Locally Modified          122 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          122 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.bsv Locally Modified          122 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          122 
+
+Partial updates to new model organization. 
+Unpipelined model with caches does not work.
