@@ -1,0 +1,12 @@
+%AWB_START
+
+%name SMT Execute Stage
+%desc SMT Execute Stage
+%provides execute_stage
+
+%attributes hasim model pipeline inorder smt
+
+%public  smt-execute-stage.bsv
+%private execute.dic
+
+%AWB_END

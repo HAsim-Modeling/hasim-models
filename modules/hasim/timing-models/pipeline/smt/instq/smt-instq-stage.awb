@@ -1,0 +1,12 @@
+%AWB_START
+
+%name SMT Instruction Queue Stage
+%desc SMT Instruction Queue Stage
+%provides instq_stage
+
+%attributes hasim model pipeline inorder smt
+
+%public  smt-instq-stage.bsv
+%param IQ_NUM_SLOTS 4 "Number of slots in the instruction queue."
+
+%AWB_END

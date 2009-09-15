@@ -1,0 +1,96 @@
+
+[Global]
+SaveParameters=0
+Description=SMT Pipeline, 2-bit Branch Predictor
+File=smt
+Version=2.1
+Name=SMT Pipeline, 2-bit branch predictor
+Type=HAsim
+Class=Asim::Model
+
+[Model]
+DefaultAttributes=hasim model smt
+model=SMT Pipeline
+
+[SMT Pipeline]
+File=modules/hasim/timing-models/pipeline/smt/smt.awb
+Packagehint=hasim-models
+
+[SMT DMem Stage]
+File=modules/hasim/timing-models/pipeline/inorder/dmem/inorder-dmem-stage.awb
+Packagehint=hasim-models
+
+[SMT Decode/Issue Stage]
+File=modules/hasim/timing-models/pipeline/smt/decode/smt-decode-stage.awb
+Packagehint=hasim-models
+
+[SMT Execute Stage]
+File=modules/hasim/timing-models/pipeline/smt/execute/smt-execute-stage.awb
+Packagehint=hasim-models
+
+[SMT Pipeline/Requires]
+decode_stage=SMT Decode/Issue Stage
+fetch_stage=SMT Fetch Stage
+execute_stage=SMT Execute Stage
+commit_stage=SMT Commit Stage
+dmem_stage=SMT DMem Stage
+store_buffer=Multi-Entry Store Buffer
+pipeline_base_types=SMT Pipeline Base Types
+branch_predictor=Branch Predictor with Target Buffer
+pccalc_stage=SMT PCCalc Stage
+instq_stage=SMT Instruction Queue Stage
+imem_stage=SMT IMem Stage
+write_buffer=Blocking Write Buffer
+commitq_stage=SMT Commit Queue Stage
+line_predictor=No Branch Line Predictor
+
+[SMT Fetch Stage]
+File=modules/hasim/timing-models/pipeline/smt/fetch/smt-fetch-stage.awb
+Packagehint=hasim-models
+
+[SMT Commit Stage]
+File=modules/hasim/timing-models/pipeline/smt/commit/smt-commit-stage.awb
+Packagehint=hasim-models
+
+[Branch Predictor with Target Buffer]
+File=modules/hasim/timing-models/pipeline/inorder/branch-predictor/branch-predictor.awb
+Packagehint=hasim-models
+
+[SMT Pipeline Base Types]
+File=modules/hasim/timing-models/pipeline/smt/base-types/smt-pipeline-base-types.awb
+Packagehint=hasim-models
+
+[Branch Predictor with Target Buffer/Requires]
+hasim_branch_pred_alg=2 Bit
+
+[2 Bit]
+File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
+Packagehint=hasim-models
+
+[SMT Instruction Queue Stage]
+File=modules/hasim/timing-models/pipeline/smt/instq/smt-instq-stage.awb
+Packagehint=hasim-models
+
+[SMT IMem Stage]
+File=modules/hasim/timing-models/pipeline/inorder/imem/inorder-imem-stage.awb
+Packagehint=hasim-models
+
+[SMT PCCalc Stage]
+File=modules/hasim/timing-models/pipeline/smt/pccalc/smt-pccalc-stage.awb
+Packagehint=hasim-models
+
+[Multi-Entry Store Buffer]
+File=modules/hasim/timing-models/caches/store-buffers/multi-entry/store-buffer-multi-entry.awb
+Packagehint=hasim-models
+
+[Blocking Write Buffer]
+File=modules/hasim/timing-models/caches/write-buffers/blocking/write-buffer-blocking.awb
+Packagehint=hasim-models
+
+[SMT Commit Queue Stage]
+File=modules/hasim/timing-models/pipeline/inorder/commitq/inorder-commitq-stage.awb
+Packagehint=hasim-models
+
+[No Branch Line Predictor]
+File=modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch/nobranch-line-predictor.awb
+Packagehint=hasim-models

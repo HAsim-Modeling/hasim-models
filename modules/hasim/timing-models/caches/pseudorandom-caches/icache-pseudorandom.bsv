@@ -207,7 +207,7 @@ module [HASIM_MODULE] mkICache();
 
                     // Pass it to the next stage through the functional partition, 
                     // which actually retrieves the instruction.
-                    getInstruction.makeReq(initFuncpReqGetInstruction(cpu_iid, req.physicalAddress, req.offset));
+                    getInstruction.makeReq(initFuncpReqGetInstruction(req.ctx_id, req.physicalAddress, req.offset));
 
                     if (rnd < iCacheMissChance)
                     begin

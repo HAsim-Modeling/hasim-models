@@ -1,0 +1,2 @@
+def EVENTS.COMMIT.INSTRUCTION_WRITEBACK "5         COM";
+def STATS.COMMIT.INSTS_COMMITTED        "Instructions Committed";

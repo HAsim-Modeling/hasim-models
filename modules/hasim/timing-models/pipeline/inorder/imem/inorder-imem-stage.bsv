@@ -154,7 +154,7 @@ module [HASIM_MODULE] mkIMem
 
                     // Simultaneously get the actual instruction from the 
                     // functional partition.
-                    let req = initFuncpReqGetInstruction(cpu_iid, rsp.bundle.physicalAddress, rsp.bundle.offset);
+                    let req = initFuncpReqGetInstruction(rsp.bundle.ctx_id, rsp.bundle.physicalAddress, rsp.bundle.offset);
                     getInstruction.makeReq(req);
 
                     stage_data = tagged Valid IMEM_OUTPUT {

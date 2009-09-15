@@ -3508,3 +3508,112 @@ Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipeline
 
 Partial updates to new model organization. 
 Unpipelined model with caches does not work.
+
+----------
+ruhler      Date: Tue Sep 15 15:59:56 EDT 2009  CSN: CSN-hasim-models-124
+                  Tue Sep 15 19:59:56 UTC 2009
+
+
+Directory config/pm/hasim-models/pipeline
+ smt/                      Locally Added               0 
+
+Directory config/pm/hasim-models/pipeline/smt
+ smt.apm                   Locally Added               0 
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          123 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          123 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          123 
+
+Directory modules/hasim/timing-models/pipeline
+ smt/                      Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.bsv          Locally Added               - 
+ execute/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt/execute
+ execute.dic               Locally Added               - 
+ smt-execute-stage.awb     Locally Added               - 
+ smt-execute-stage.bsv     Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ decode/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt/decode
+ decode.dic                Locally Added               - 
+ smt-decode-stage.awb      Locally Added               - 
+ smt-decode-stage.bsv      Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ pccalc/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt/pccalc
+ smt-pccalc-stage.awb      Locally Added               - 
+ smt-pccalc-stage.bsv      Locally Added               - 
+ pccalc.dic                Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ commit/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.awb      Locally Added               - 
+ smt-commit-stage.bsv      Locally Added               - 
+ commit.dic                Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ fetch/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.awb       Locally Added               - 
+ smt-fetch-stage.bsv       Locally Added               - 
+ fetch.dic                 Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt.awb                   Locally Added               - 
+ base-types/               Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt/base-types
+ smt-pipeline-base-types.awb Locally Added               - 
+ smt-pipeline-base-types.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ instq/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt/instq
+ smt-instq-stage.awb       Locally Added               - 
+ smt-instq-stage.bsv       Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-pseudorandom.bsv Locally Modified          123 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-pseudorandom.bsv Locally Modified          123 
+
+Directory modules/hasim/timing-models/caches/l1-caches/base-types
+ l1-cache-base-types.bsv   Locally Modified          123 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.bsv   Locally Modified          123 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.bsv     Locally Modified          123 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          123 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ itlb-null.bsv             Locally Modified          123 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ icache-null.bsv           Locally Modified          123 
+
+Added an inorder smt model.
+Added context id to memory bundle and caches to work with both inorder and smt
+models.
+Updated pseudorandom caches' includes, which were out of date.
+

@@ -1,0 +1,12 @@
+%AWB_START
+
+%name SMT PCCalc Stage
+%desc SMT PCCalc Stage
+%provides pccalc_stage
+
+%attributes hasim model pipeline inorder smt
+
+%public  smt-pccalc-stage.bsv
+%private pccalc.dic
+
+%AWB_END

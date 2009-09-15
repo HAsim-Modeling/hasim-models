@@ -165,7 +165,7 @@ module [HASIM_MODULE] mkICache();
 
                 // Pass it to the next stage through the functional partition, 
                 // which actually retrieves the instruction.
-                getInstruction.makeReq(initFuncpReqGetInstruction(cpu_iid, req.physicalAddress, req.offset));
+                getInstruction.makeReq(initFuncpReqGetInstruction(req.ctx_id, req.physicalAddress, req.offset));
                 
                 // Continue this instance in the next stage.
                 stage2Ctrl.ready(cpu_iid, tagged STAGE2_access req);

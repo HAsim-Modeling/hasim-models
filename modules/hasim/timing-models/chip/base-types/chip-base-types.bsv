@@ -1,4 +1,6 @@
 
+import Vector::*;
+
 import hasim_common::*;
 import hasim_modellib::*;
 

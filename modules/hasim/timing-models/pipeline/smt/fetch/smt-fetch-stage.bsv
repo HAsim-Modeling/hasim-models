@@ -58,9 +58,11 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS))    pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_EPOCH))  epochPool <- mkMultiplexed(mkReg(initIMemEpoch(0, 0, 0, 0)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_CREDIT_COUNT)) creditsPool <- mkMultiplexed(mkReg(fromInteger(valueof(NUM_INSTQ_CREDITS))));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(ISA_ADDRESS)))    pcsPool <- mkMultiplexed(mkReg(multithreaded(`PROGRAM_START_ADDR)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initIMemEpoch(0, 0, 0, 0))));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_CREDIT_COUNT))) creditsPool <- mkMultiplexed(mkReg(multithreaded(fromInteger(valueof(NUM_INSTQ_CREDITS)))));
+
+    MULTIPLEXED#(NUM_CPUS, Reg#(THREAD_ID)) curThreadPool <- mkMultiplexed(mkReg(0));
 
     // ****** Soft Connections ******
 
@@ -69,8 +71,9 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT_COUNT)                     creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, MULTITHREADED#(INSTQ_CREDIT_COUNT))                creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
+
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(THREAD_ID, ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
@@ -127,36 +130,46 @@ module [HASIM_MODULE] mkFetch ();
         let cpu_iid <- localCtrl.startModelCycle();
         statCycles.incr(cpu_iid);
         debugLog.nextModelCycle(cpu_iid);
-        modelCycle.send(cpu_iid);
+        modelCycle.send(extend(cpu_iid));
         
         // Get our local state using the instance.
-        Reg#(ISA_ADDRESS)         pc = pcPool[cpu_iid];
-        Reg#(IMEM_EPOCH)       epoch = epochPool[cpu_iid];
-        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool[cpu_iid];
+        Reg#(MULTITHREADED#(ISA_ADDRESS)) pcsReg = pcsPool[cpu_iid];
+        let pcs = pcsReg;
+        Reg#(MULTITHREADED#(IMEM_EPOCH)) epochs = epochsPool[cpu_iid];
+        Reg#(MULTITHREADED#(INSTQ_CREDIT_COUNT)) credits = creditsPool[cpu_iid];
+        Reg#(THREAD_ID) cur_thread = curThreadPool[cpu_iid];
 
         // Get credits from the instruction queue and update our count of them.
         let m_creditFromInstQ <- creditFromInstQ.receive(cpu_iid);
-        credits <= credits + fromMaybe(0, m_creditFromInstQ);
+
+        if (m_creditFromInstQ matches tagged Valid .newcredits)
+        begin
+            function Bit#(n) add(Bit#(n) a, Bit#(n) b) = a + b;
+
+            credits <= zipWith(add, credits, newcredits);
+        end
 
         
-        let pc_for_line_prediction = pc;
+        let pc_for_line_prediction = pcs[cur_thread];
 
         // Get the next PC from PCCalc for redirects
         let m_pcFromPCCalc <- newPCFromPCCalc.receive(cpu_iid);
         
         // Update the PC and front end epochs.
-        if (m_pcFromPCCalc matches tagged Valid {.new_pc, .new_epoch})
+        if (m_pcFromPCCalc matches tagged Valid {.thread, .new_pc, .new_epoch})
         begin
-            debugLog.record_next_cycle(cpu_iid, $format("REDIRECT TO PC:0x%h", new_pc) + $format(" EPOCH:0x%0h", new_epoch));
+            debugLog.record_next_cycle(cpu_iid, $format("REDIRECT TO PC:0x%h", new_pc) + $format(" THREAD:0x%0h", thread) + $format(" EPOCH:0x%0h", new_epoch));
 
-            pc_for_line_prediction = new_pc;
-            pc <= new_pc;
-            epoch <= new_epoch;
+            pcs[thread] = new_pc;
+            pcsReg <= pcs;
+            epochs[thread] <= new_epoch;
+
+            pc_for_line_prediction = pcs[cur_thread];
         end
 
         // Send the pc to the line predictor
         // We always request a line prediction, even if we don't have a credit
-        // in the instruction queue. (Is this OKAY?)
+        // in the instruction queue.
         pcToLP.send(cpu_iid, tagged Valid pc_for_line_prediction);
 
         stage2Ctrl.ready(cpu_iid);
@@ -178,9 +191,10 @@ module [HASIM_MODULE] mkFetch ();
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get our local state using the instance.
-        Reg#(ISA_ADDRESS)         pc = pcPool[cpu_iid];
-        Reg#(IMEM_EPOCH)       epoch = epochPool[cpu_iid];
-        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool[cpu_iid];
+        Reg#(THREAD_ID) cur_thread = curThreadPool[cpu_iid];
+        Reg#(MULTITHREADED#(ISA_ADDRESS)) pcs = pcsPool[cpu_iid];
+        let epoch = epochsPool[cpu_iid][cur_thread];
+        Reg#(MULTITHREADED#(INSTQ_CREDIT_COUNT)) credits = creditsPool[cpu_iid];
 
         // Get the line prediction
         // assert isValid(m_line_prediction)
@@ -188,25 +202,25 @@ module [HASIM_MODULE] mkFetch ();
         let line_prediction = validValue(m_line_prediction);
         
         // See if we have any credits for the instruction queue.
-        if (credits != 0)
+        if (credits[cur_thread] != 0)
         begin
         
             // The instructionQ still has room...
             // Send the current PC to the ITLB and Branch predictor and line
             // predictor
-            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(epoch, pc, line_prediction, cpu_iid));
-            pcToBP.send(cpu_iid, tagged Valid pc);
+            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(epoch, pcs[cur_thread], line_prediction, getContextId(cpu_iid, cur_thread)));
+            pcToBP.send(cpu_iid, tagged Valid pcs[cur_thread]);
 
             // Set the pc as predicted
-            pc <= line_prediction;
+            pcs[cur_thread] <= line_prediction;
 
             // Use the credit
-            credits <= credits - 1;
+            credits[cur_thread] <= credits[cur_thread] - 1;
         
             // End of model cycle. (Path 1)
-            eventFet.recordEvent(cpu_iid, tagged Valid truncate(pc));
+            eventFet.recordEvent(cpu_iid, tagged Valid truncate(pcs[cur_thread]));
             statFet.incr(cpu_iid);
-            debugLog.record(cpu_iid, $format("FETCH ADDR:0x%h", pc));
+            debugLog.record(cpu_iid, $format("FETCH THREAD: 0x%h, ADDR:0x%h", cur_thread, pcs[cur_thread]) + $format(" EPOCH:0x%0h", epoch));
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
@@ -228,7 +242,11 @@ module [HASIM_MODULE] mkFetch ();
             localCtrl.endModelCycle(cpu_iid, 2);
 
         end
+
+        // Round robin over the threads
+        cur_thread <= cur_thread + 1;
         
     endrule
 
 endmodule
+

@@ -80,7 +80,7 @@ module [HASIM_MODULE] mkITLB();
 
                 // Pass it to the the functional partition, 
                 // which actually translates the address.
-                doITranslate.makeReq(initFuncpReqDoITranslate(cpu_iid, req.virtualAddress));
+                doITranslate.makeReq(initFuncpReqDoITranslate(req.ctx_id, req.virtualAddress));
                 
                 // Tell the next stage to get the response.
                 stage2Ctrl.ready(cpu_iid, tagged STAGE2_iTransRsp req);

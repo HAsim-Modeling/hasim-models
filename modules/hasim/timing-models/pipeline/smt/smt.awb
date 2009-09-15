@@ -1,0 +1,14 @@
+%AWB_START
+
+%name SMT Pipeline
+%desc SMT Pipeline
+%provides hasim_pipeline
+%requires fetch_stage imem_stage pccalc_stage instq_stage decode_stage execute_stage dmem_stage commitq_stage commit_stage branch_predictor store_buffer write_buffer pipeline_base_types line_predictor
+
+%attributes hasim model pipeline inorder smt
+
+%public smt-pipeline.bsv
+
+%param SYNTH_BOUNDARY mkPipeline "Name of synthesis boundary"
+
+%AWB_END

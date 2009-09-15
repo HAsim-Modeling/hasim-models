@@ -1,0 +1,12 @@
+%AWB_START
+
+%name SMT Commit Stage
+%desc SMT Commit Stage
+%provides commit_stage
+
+%attributes hasim model pipeline inorder smt
+
+%public  smt-commit-stage.bsv
+%private commit.dic
+
+%AWB_END

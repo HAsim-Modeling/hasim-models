@@ -39,12 +39,13 @@ typedef struct
     MEM_ADDRESS physicalAddress;
     ISA_INSTRUCTION instruction;
     ISA_ADDRESS linePrediction;
+    CONTEXT_ID ctx_id;
 }
 IMEM_BUNDLE deriving (Eq, Bits);
 
-function IMEM_BUNDLE initIMemBundle(IMEM_EPOCH ep, ISA_ADDRESS pc, ISA_ADDRESS lp);
+function IMEM_BUNDLE initIMemBundle(IMEM_EPOCH ep, ISA_ADDRESS pc, ISA_ADDRESS lp, CONTEXT_ID ctx_id);
 
-    return IMEM_BUNDLE {epoch: ep, virtualAddress: pc, offset: ?, physicalAddress: ?, instruction: ?, linePrediction: lp};
+    return IMEM_BUNDLE {epoch: ep, virtualAddress: pc, offset: ?, physicalAddress: ?, instruction: ?, linePrediction: lp, ctx_id: ctx_id};
 
 endfunction
 
