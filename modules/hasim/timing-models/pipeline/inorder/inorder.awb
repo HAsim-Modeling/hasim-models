@@ -8,6 +8,7 @@
 %attributes hasim model pipeline inorder
 
 %public inorder-pipeline.bsv
+%public inorder-pipeline.h
 
 %param SYNTH_BOUNDARY mkPipeline "Name of synthesis boundary"
 

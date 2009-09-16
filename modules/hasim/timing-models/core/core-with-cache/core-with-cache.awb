@@ -9,3 +9,4 @@
 %attributes hasim model core
 
 %public core-with-cache.bsv
+%public core-with-cache.h

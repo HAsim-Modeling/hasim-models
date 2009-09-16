@@ -5,4 +5,5 @@
 %attributes hasim unpipelined
 
 %public unpipelined-pipeline.bsv
+%public unpipelined-pipeline.h
 %private unpipelined-pipeline.dic

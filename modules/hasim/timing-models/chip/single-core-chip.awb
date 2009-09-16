@@ -8,3 +8,4 @@
 %attributes hasim model chip
 
 %public single-core-chip.bsv
+%public single-core-chip.h

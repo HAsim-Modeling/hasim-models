@@ -8,4 +8,5 @@
 %attributes hasim core
 
 %public core-no-cache.bsv
+%public core-no-cache.h
 

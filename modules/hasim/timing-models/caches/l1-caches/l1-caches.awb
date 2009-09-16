@@ -13,5 +13,6 @@
 %attributes hasim model caches
 
 %public l1-caches.bsv
+%public l1-caches.h
 
 %param SYNTH_BOUNDARY mkL1Cache "Name of synthesis boundary"

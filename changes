@@ -3617,3 +3617,74 @@ Added context id to memory bundle and caches to work with both inorder and smt
 models.
 Updated pseudorandom caches' includes, which were out of date.
 
+
+----------
+pellauer    Date: Wed Sep 16 11:26:16 EDT 2009  CSN: CSN-hasim-models-125
+                  Wed Sep 16 15:26:16 UTC 2009
+
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.awb      Locally Modified          124 
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          124 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.h        Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.h        Locally Added               0 
+ inorder.awb               Locally Modified          124 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt.awb                   Locally Modified          124 
+
+Directory modules/hasim/timing-models/pipeline/smt/base-types
+ smt-pipeline-base-types.awb Locally Modified          124 
+ smt-pipeline-base-types.bsv Locally Modified          124 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.h            Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ pipeline-6-stage.awb      Locally Modified          124 
+ pipeline-6-stage.h        Locally Added               0 
+ rob.bsv                   Locally Modified          124 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.h    Locally Added               0 
+ unpipelined-pipeline.awb  Locally Modified          124 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches.h               Locally Added               0 
+ l1-caches.awb             Locally Modified          124 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.h           Locally Added               0 
+ core-no-cache.awb         Locally Modified          124 
+
+Directory modules/hasim/timing-models/core/core-with-cache
+ core-with-cache.h         Locally Added               0 
+ core-with-cache.awb       Locally Modified          124 
+
+
+* Added MapContexts() method to the existing models. This means many have a
+  basic software component.
+
+* Unpipelined and inorder models supports --num-cores=N. If --num-cores is set
+  it must be less or equal than the workload contexts. So, for instance, you can
+  set up hello_004t and then ./run --num-cores=2, but not 6.
+
+* OOO model just asserts that --workload-contexts is always equal to 1. Thus if
+  you use the OOO model pair it with a _001t benchmark.
+  
+* The SMT model supports --num-cores, but still has a static mapping of threads
+  per core. Thus currently it cannot be run with an _001t benchmark. You can run
+  with _002t if you set --num-cores=1, otherwise you should use _004t for now.
+  (Note that hello and towers are currently broken due to a known bug.)
+  
+* Added a dummy --threads-per-core method to the SMT model that currently does
+  nothing.
+  
+Michael P.
+

@@ -26,7 +26,7 @@ import hasim_isa::*;
 import Vector::*;
 import FShow::*;
 
-typedef 2 NUM_THREADS_PER_CORE;
+typedef `MAX_NUM_THREADS_PER_CORE NUM_THREADS_PER_CORE;
 typedef Bit#(TLog#(NUM_THREADS_PER_CORE)) THREAD_ID;
 
 typedef Vector#(NUM_THREADS_PER_CORE, t) MULTITHREADED#(type t);

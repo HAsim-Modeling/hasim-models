@@ -286,7 +286,7 @@ module [HASIM_MODULE] mkIssue();
 
         if(terminate.sub(commitIndex))
         begin
-            debugLog.record($format("terminate"));
+            debugLog.record($format("ending run"));
             localController.instanceDone(0, passFail.sub(commitIndex));
         end
 
