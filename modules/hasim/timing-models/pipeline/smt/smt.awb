@@ -7,6 +7,8 @@
 
 %attributes hasim model pipeline inorder smt
 
+%sources -t RRR -v PUBLIC  smt-pipeline.rrr
+
 %public smt-pipeline.bsv
 %public smt-pipeline.h
 

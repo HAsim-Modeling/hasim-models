@@ -18,6 +18,8 @@
 
 `include "asim/provides/hasim_common.bsh"
 
+`include "asim/rrr/remote_server_stub_SMT_PIPELINE.bsh"
+
 `include "asim/provides/fetch_stage.bsh"
 `include "asim/provides/imem_stage.bsh"
 `include "asim/provides/pccalc_stage.bsh"
@@ -35,6 +37,8 @@
 
 module [HASIM_MODULE] mkPipeline ();
 
+    let serverStub <- mkServerStub_SMT_PIPELINE();
+
     let fetch   <- mkFetch();
     let imem    <- mkIMem();
     let pccalc  <- mkPCCalc();
@@ -49,6 +53,12 @@ module [HASIM_MODULE] mkPipeline ();
     let bp     <- mkBranchPredictor();
     let sb     <- mkStoreBuffer();
     let wb     <- mkWriteBuffer();
+
+    rule setNumThreadsPerCore (True);
+        let numthreads <- serverStub.acceptRequest_SetNumThreadsPerCore();
+        fetch.setNumThreadsPerCore(numthreads);
+        serverStub.sendResponse_SetNumThreadsPerCore(?);
+    endrule
 
 endmodule
 

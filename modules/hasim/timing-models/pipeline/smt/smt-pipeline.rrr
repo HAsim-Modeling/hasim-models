@@ -1,0 +1,8 @@
+service SMT_PIPELINE
+{
+    server hw (bsv, connection) <- sw (cpp, method)
+    {
+        // dummy output is to make this a blocking call
+        method SetNumThreadsPerCore(in UINT32[32] numThreads, out UINT32[32] dummy);
+    };
+};

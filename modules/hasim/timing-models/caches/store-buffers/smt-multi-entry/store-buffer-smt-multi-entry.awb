@@ -1,0 +1,10 @@
+%name SMT Multi-Entry Store Buffer
+%desc SMT Multi-Entry Store Buffer
+
+%provides store_buffer
+
+%attributes hasim model caches smt
+
+%public store-buffer-smt-multi-entry.bsv
+
+%param SB_NUM_ENTRIES 8 "Number of store buffer entries."

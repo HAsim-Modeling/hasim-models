@@ -49,9 +49,13 @@ import Vector::*;
 
 // ****** Modules ******
 
+interface SMTFetch;
+    method Action setNumThreadsPerCore(Bit#(32) numThreads);
+endinterface
+
 // mkFetch
 
-module [HASIM_MODULE] mkFetch ();
+module [HASIM_MODULE] mkFetch (SMTFetch);
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_fetch.out");
 
@@ -63,6 +67,7 @@ module [HASIM_MODULE] mkFetch ();
     MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_CREDIT_COUNT))) creditsPool <- mkMultiplexed(mkReg(multithreaded(fromInteger(valueof(NUM_INSTQ_CREDITS)))));
 
     MULTIPLEXED#(NUM_CPUS, Reg#(THREAD_ID)) curThreadPool <- mkMultiplexed(mkReg(0));
+    Reg#(THREAD_ID) maxThreadId <- mkReg(maxBound);
 
     // ****** Soft Connections ******
 
@@ -244,9 +249,13 @@ module [HASIM_MODULE] mkFetch ();
         end
 
         // Round robin over the threads
-        cur_thread <= cur_thread + 1;
+        cur_thread <= (cur_thread == maxThreadId ? 0 : cur_thread + 1);
         
     endrule
+
+    method Action setNumThreadsPerCore(Bit#(32) numThreads);
+        maxThreadId <= truncate(numThreads-1);
+    endmethod
 
 endmodule
 

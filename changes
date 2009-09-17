@@ -3688,3 +3688,33 @@ Directory modules/hasim/timing-models/core/core-with-cache
   
 Michael P.
 
+
+----------
+ruhler      Date: Thu Sep 17 16:46:29 EDT 2009  CSN: CSN-hasim-models-126
+                  Thu Sep 17 20:46:29 UTC 2009
+
+
+Directory config/pm/hasim-models/pipeline/smt
+ smt.apm                   Locally Modified          125 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.bsv          Locally Modified          125 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.bsv       Locally Modified          125 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.rrr          Locally Added               0 
+ smt.awb                   Locally Modified          125 
+ smt-pipeline.h            Locally Modified          125 
+
+Directory modules/hasim/timing-models/caches/store-buffers
+ smt-multi-entry/          Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/store-buffers/smt-multi-entry
+ store-buffer-smt-multi-entry.awb Locally Added               - 
+ store-buffer-smt-multi-entry.bsv Locally Added               - 
+
+Hooked up the threads-per-core switch for the smt model.
+Made a new smt specific store buffer in preparation for fixing the smt store
+buffer problem.
