@@ -3718,3 +3718,18 @@ Directory modules/hasim/timing-models/caches/store-buffers/smt-multi-entry
 Hooked up the threads-per-core switch for the smt model.
 Made a new smt specific store buffer in preparation for fixing the smt store
 buffer problem.
+
+----------
+ruhler      Date: Fri Sep 18 13:18:22 EDT 2009  CSN: CSN-hasim-models-127
+                  Fri Sep 18 17:18:22 UTC 2009
+
+
+Directory modules/hasim/timing-models/pipeline/smt/decode
+ smt-decode-stage.bsv      Locally Modified          125 
+
+Directory modules/hasim/timing-models/caches/store-buffers/smt-multi-entry
+ store-buffer-smt-multi-entry.bsv Locally Modified          126 
+
+Made the smt store buffer multithreaded. Towers and Hello benchmarks now
+complete with multiple threads per core.
+

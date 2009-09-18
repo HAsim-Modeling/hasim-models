@@ -96,7 +96,7 @@ module [HASIM_MODULE] mkDecode ();
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)              creditFromSB         <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, MULTITHREADED#(Bool))              creditFromSB         <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN_FAULT_EPOCH, THREAD_ID)) mispredictFromExe    <- mkPortRecv_Multiplexed("Exe_to_Dec_mispredict", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, THREAD_ID)              faultFromCom         <- mkPortRecv_Multiplexed("Com_to_Dec_fault", 1);
 
@@ -587,7 +587,7 @@ module [HASIM_MODULE] mkDecode ();
         
         // Get the store buffer credit in case we're dealing with a store...
         let m_credit <- creditFromSB.receive(cpu_iid);
-        let sb_has_credit = isValid(m_credit);
+        let credits = validValue(m_credit);
         
         if (state matches tagged STAGE4_bubble)
         begin
@@ -632,7 +632,7 @@ module [HASIM_MODULE] mkDecode ();
 
             // If it's a store, we need to be able to allocate a slot in the store buffer.
             let inst_is_store = isaIsStore(fetchbundle.inst);
-            let store_ready =  inst_is_store ? sb_has_credit : True;
+            let store_ready =  inst_is_store ? credits[tokThreadId(tok)] : True;
 
             // Check if we can issue.
             let data_ready <- readyToGo(tok, rsp.srcMap);

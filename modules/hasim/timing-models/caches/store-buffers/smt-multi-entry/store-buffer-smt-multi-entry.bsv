@@ -65,16 +65,19 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Model State (per Context) ******
     
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))) tokIDPool       <- mkMultiplexed(mkReg(replicate(Invalid)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)))   storeTokenPool  <- mkMultiplexed(mkRegU());
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)))) physAddressPool <- mkMultiplexed(mkReg(replicate(Invalid)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))))) tokIDPool       <- mkMultiplexed(mkReg(multithreaded(replicate(Invalid))));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN))))   storeTokenPool  <- mkMultiplexed(mkRegU());
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))))) physAddressPool <- mkMultiplexed(mkReg(multithreaded(replicate(Invalid))));
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) oldestCommittedPool   <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) numToCommitPool <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) nextFreeSlotPool      <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) oldestCommittedPool   <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) numToCommitPool <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) nextFreeSlotPool      <- mkMultiplexed(mkReg(multithreaded(0)));
 
-    function Bool empty(CPU_INSTANCE_ID cpu_iid) = nextFreeSlotPool[cpu_iid] == oldestCommittedPool[cpu_iid];
-    function Bool full(CPU_INSTANCE_ID cpu_iid)  = oldestCommittedPool[cpu_iid] == nextFreeSlotPool[cpu_iid] + 1;
+    // The thread which well look at next for storing to the writeQ.
+    MULTIPLEXED#(NUM_CPUS, Reg#(THREAD_ID)) headThreadPool <- mkMultiplexed(mkReg(0));
+
+    function Bool empty(CPU_INSTANCE_ID cpu_iid, THREAD_ID thread) = nextFreeSlotPool[cpu_iid][thread] == oldestCommittedPool[cpu_iid][thread];
+    function Bool full(CPU_INSTANCE_ID cpu_iid, THREAD_ID thread)  = oldestCommittedPool[cpu_iid][thread] == nextFreeSlotPool[cpu_iid][thread] + 1;
 
 
     // ****** UnModel Pipeline State ******
@@ -93,7 +96,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)            creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)      rspToDMem     <- mkPortSend_Multiplexed("SB_to_DMem_rsp");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, MULTITHREADED#(Bool))          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_ENTRY)       storeToWriteQ <- mkPortSend_Multiplexed("SB_to_WB_enq");
 
     // ****** Soft Connections ******
@@ -125,11 +128,11 @@ module [HASIM_MODULE] mkStoreBuffer ();
         debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) oldestCommitted = oldestCommittedPool[cpu_iid];
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))))             tokID = tokIDPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)))) physAddress = physAddressPool[cpu_iid];
 
         // Check if the decode is allocating a new slot.
         let m_alloc <- allocFromDec.receive(cpu_iid);
@@ -138,37 +141,31 @@ module [HASIM_MODULE] mkStoreBuffer ();
         
         if (m_alloc matches tagged Valid .tok)
         begin
+
+            let thread = tokThreadId(tok);
         
             // Allocate a new slot.
             // assert !full(cpu_iid)
-                        debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
-            tokID[nextFreeSlot] <= tagged Valid tok;
+            debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
+            tokID[thread][nextFreeSlot[thread]] <= tagged Valid tok;
 
             // We don't know its effective address yet.
-            physAddress[nextFreeSlot] <= tagged Invalid;
+            physAddress[thread][nextFreeSlot[thread]] <= tagged Invalid;
 
-            new_free = new_free + 1;
+            new_free[thread] = new_free[thread] + 1;
         
         end
         
-        // Calculate the credit for decode.
-        if (((new_free + 2) == oldestCommitted) || ((new_free + 1) == oldestCommitted)) // Plus 2 because we assume it takes a cycle for the credit to arrive. Should really be +L+1 where L is latency of credit.
-        begin
+        // Calculate the credits for decode.
+        function Bool hasNoCredits(SB_INDEX newfree, SB_INDEX oldest);
+            return (((newfree + 2) == oldest) || ((newfree + 1) == oldest)); // Plus 2 because we assume it takes a cycle for the credit to arrive. Should really be +L+1 where L is latency of credit.
+        endfunction
 
-            // Tell decode we're full.
-            debugLog.record_next_cycle(cpu_iid, fshow("NO CREDIT"));
-            creditToDecode.send(cpu_iid, tagged Invalid);
-
-        end
-        else
-        begin
-
-            // Tell decode still have room.
-            debugLog.record_next_cycle(cpu_iid, fshow("SEND CREDIT"));
-            creditToDecode.send(cpu_iid, tagged Valid (?));
-        
-        end
-        
+        function Bool hasCredits(SB_INDEX newfree, SB_INDEX oldest) = !hasNoCredits(newfree, oldest);
+            
+        MULTITHREADED#(Bool) credits = zipWith(hasCredits, new_free, oldestCommitted);
+        debugLog.record_next_cycle(cpu_iid, fshow("SEND CREDIT: ") + fshow(credits));
+        creditToDecode.send(cpu_iid, tagged Valid credits);
         
         // Update the tail.        
         nextFreeSlot <= new_free;
@@ -189,8 +186,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
         stage2Q.deq();
 
         // Get our local state based on the current context.
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))))             tokID = tokIDPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)))) physAddress = physAddressPool[cpu_iid];
 
         // See if the DMem is completing or searching.
         let m_req <- reqFromDMem.receive(cpu_iid);
@@ -211,6 +208,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
 
                     let target_addr = req.bundle.physicalAddress;
+                    let thread = tokThreadId(req.bundle.token);
 
                     // Luckily, since we're a simulation, we don't actually 
                     // need to retrieve the value, which makes the hardware a LOT simpler
@@ -223,12 +221,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
 
                         // It's a hit if it's a store to the same address which is older than the load.
-                        let addr_match = case (physAddress[x]) matches 
+                        let addr_match = case (physAddress[thread][x]) matches 
                                             tagged Valid .addr: return addr == target_addr;
                                             tagged Invalid: return False;
                                          endcase;
 
-                        let older_store = case (tokID[x]) matches 
+                        let older_store = case (tokID[thread][x]) matches 
                                                 tagged Valid .tok: return tokenIsOlderOrEq(tok.index.token_id, req.bundle.token.index.token_id);
                                                 tagged Invalid: return False;
                                             endcase;
@@ -264,6 +262,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     // Update with the actual physical address.
                     // (A real store buffer would also record the value.)
                     let tok_id = tokTokenId(req.bundle.token);
+                    let thread = tokThreadId(req.bundle.token);
                     
                     // We find the index for this token using a CAM Write
                     
@@ -272,12 +271,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     for (Integer x = 0; x < `SB_NUM_ENTRIES; x = x + 1)
                     begin
                     
-                        if (tokID[x] matches tagged Valid .tok &&& tokTokenId(tok) == tok_id)
+                        if (tokID[thread][x] matches tagged Valid .tok &&& tokTokenId(tok) == tok_id)
                             sb_idx = fromInteger(x);
                     
                     end
                     
-                    physAddress[sb_idx] <= tagged Valid req.bundle.physicalAddress;
+                    physAddress[thread][sb_idx] <= tagged Valid req.bundle.physicalAddress;
 
                     // Tell the functional partition to make the store locally visible.
                     doStores.makeReq(initFuncpReqDoStores(req.bundle.token));
@@ -307,12 +306,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
         stage3Q.deq();
     
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
-        Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) oldestCommitted = oldestCommittedPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) numToCommit = numToCommitPool[cpu_iid];
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))) tokID = tokIDPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN))) storeToken = storeTokenPool[cpu_iid];
 
         // See if we're getting a deallocation request.
         let m_dealloc <- deallocFromCom.receive(cpu_iid);
@@ -321,23 +320,25 @@ module [HASIM_MODULE] mkStoreBuffer ();
         begin
 
             // Invalidate the requested entry. We assume drop/dealloc requests come in allocation order.
+            let thread = tokThreadId(req.token);
             debugLog.record(cpu_iid, fshow("DROP REQ ") + fshow(req.token));
-            tokID[oldestCommitted + numToCommit] <= tagged Invalid;
+            tokID[thread][oldestCommitted[thread] + numToCommit[thread]] <= tagged Invalid;
 
             // Record that the commit path has work to do.
-            numToCommit <= numToCommit + 1;
+            numToCommit[thread] <= numToCommit[thread] + 1;
         
         end
         else if (m_dealloc matches tagged Valid .req &&& req.reqType == SB_writeback)
         begin
 
             // Update the token with the latest value.
+            let thread = tokThreadId(req.token);
             debugLog.record(cpu_iid, fshow("DEALLOC REQ ") + fshow(req.token));
-            tokID[oldestCommitted + numToCommit] <= tagged Valid req.token;
-            storeToken[oldestCommitted + numToCommit] <= req.storeToken;
+            tokID[thread][oldestCommitted[thread] + numToCommit[thread]] <= tagged Valid req.token;
+            storeToken[thread][oldestCommitted[thread] + numToCommit[thread]] <= req.storeToken;
 
             // Record that the commit path has work to do.
-            numToCommit <= numToCommit + 1;
+            numToCommit[thread] <= numToCommit[thread] + 1;
         
         end
         
@@ -354,29 +355,30 @@ module [HASIM_MODULE] mkStoreBuffer ();
         stage4Q.deq();
     
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
-        Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) nextFreeSlot = nextFreeSlotPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) oldestCommitted = oldestCommittedPool[cpu_iid];
+        Reg#(MULTITHREADED#(SB_INDEX)) numToCommit = numToCommitPool[cpu_iid];
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))))       tokID = tokIDPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)))) physAddress = physAddressPool[cpu_iid];
+        Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN))) storeToken = storeTokenPool[cpu_iid];
+        Reg#(THREAD_ID) headThread = headThreadPool[cpu_iid];
 
         // See if the Write Buffer has room.
         let m_credit <- creditFromWriteQ.receive(cpu_iid);
         let write_buff_has_credit = isValid(m_credit);
 
         // We need to dealloc if we have pending commmits.
-        if (numToCommit != 0)
+        if (numToCommit[headThread] != 0)
         begin
-            case (tokID[oldestCommitted]) matches
+            case (tokID[headThread][oldestCommitted[headThread]]) matches
                 tagged Invalid:
                 begin
                 
                     // If the oldest committed token is invalid then it was dropped. Just move over it.
                     debugLog.record(cpu_iid, fshow("JUNK DROPPED"));
-                    oldestCommitted <= oldestCommitted + 1;
-                    numToCommit <= numToCommit - 1;
+                    oldestCommitted[headThread] <= oldestCommitted[headThread] + 1;
+                    numToCommit[headThread] <= numToCommit[headThread] - 1;
                     
                     // No guys to commit.
                     storeToWriteQ.send(cpu_iid, tagged Invalid);
@@ -385,19 +387,19 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 tagged Valid .tok:
                 begin
                     // The oldest token has been committed. Let's see if we can send it to the write buffer.
-                    if (physAddress[oldestCommitted] matches tagged Valid .phys_addr &&& write_buff_has_credit)
+                    if (physAddress[headThread][oldestCommitted[headThread]] matches tagged Valid .phys_addr &&& write_buff_has_credit)
                     begin
 
                         // It's got room. Let's send the oldest store.
                         debugLog.record(cpu_iid, fshow("DEALLOC ") + fshow(tok));
 
                         // Dequeue the old entry.
-                        tokID[oldestCommitted] <= tagged Invalid;
-                        oldestCommitted <= oldestCommitted + 1;
-                        numToCommit <= numToCommit - 1;
+                        tokID[headThread][oldestCommitted[headThread]] <= tagged Invalid;
+                        oldestCommitted[headThread] <= oldestCommitted[headThread] + 1;
+                        numToCommit[headThread] <= numToCommit[headThread] - 1;
 
                         // Send it to the writeBuffer.
-                        let store_tok = storeToken[oldestCommitted];
+                        let store_tok = storeToken[headThread][oldestCommitted[headThread]];
                         storeToWriteQ.send(cpu_iid, tagged Valid tuple2(store_tok, phys_addr));
 
                     end
@@ -423,6 +425,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
             storeToWriteQ.send(cpu_iid, tagged Invalid);
         
         end
+        headThread <= headThread+1;
         
         localCtrl.endModelCycle(cpu_iid, 1);
 
