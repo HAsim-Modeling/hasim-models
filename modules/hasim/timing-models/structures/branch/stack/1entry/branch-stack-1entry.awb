@@ -7,7 +7,7 @@
 #/*
 # %AWB_START
 #
-# %name One Entry
+# %name One Entry Branch Stack
 # %desc One Entry Branch Stack
 # %provides hasim_branch_stack
 #

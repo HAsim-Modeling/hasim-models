@@ -264,6 +264,7 @@ module [HASIM_MODULE] mkCommitQueue
 
         // Check for any new allocations.
         let m_alloc <- allocateFromDMem.receive(cpu_iid);
+        let new_next_free = nextFreeSlot;
 
         if (m_alloc matches tagged Valid {.bundle, .m_miss_id})
         begin
@@ -272,7 +273,7 @@ module [HASIM_MODULE] mkCommitQueue
             debugLog.record(cpu_iid, $format("3: ALLOC: ") + fshow(bundle.token) + $format(" COMPLETE: %0b", pack(isValid(m_miss_id))));
             bundles.upd(nextFreeSlot, bundle);
             completions.upd(nextFreeSlot, !isValid(m_miss_id));
-            nextFreeSlot <= nextFreeSlot + 1;
+            new_next_free = nextFreeSlot + 1;
 
             if (m_miss_id matches tagged Valid .miss_id)
             begin
@@ -285,7 +286,7 @@ module [HASIM_MODULE] mkCommitQueue
         end
         
         // Now check if we have a credit to send to fetch based on our (simulated) length.
-        if (nextFreeSlot + 1 != oldestSlot) // This should really be +L+1, where L is the latency of the credit to DMem.
+        if (new_next_free + 1 != oldestSlot) // This should really be +L+1, where L is the latency of the credit to DMem.
         begin
         
             // We still have room.
@@ -301,6 +302,8 @@ module [HASIM_MODULE] mkCommitQueue
             creditToDMem.send(cpu_iid, tagged Invalid);
 
         end
+        
+        nextFreeSlot <= new_next_free;
         
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);

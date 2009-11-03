@@ -1,0 +1,10 @@
+%name Crossbar Interconnect
+%desc Crossbar Interconnect
+%provides hasim_interconnect
+
+%attributes hasim memory
+
+%public icn-crossbar.bsv
+
+
+%AWB_END

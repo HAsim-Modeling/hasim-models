@@ -14,7 +14,7 @@
 
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/hasim_memory.bsh"
+`include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"
 `include "asim/provides/hasim_cache_algorithms.bsh"

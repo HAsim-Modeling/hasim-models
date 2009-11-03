@@ -1,0 +1,10 @@
+%name Magic Memory Uncore
+%desc Magic Memory Uncore
+%provides hasim_uncore
+
+%attributes hasim memory
+
+%public uncore-magic-memory.bsv 
+
+
+%AWB_END

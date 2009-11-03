@@ -3733,3 +3733,149 @@ Directory modules/hasim/timing-models/caches/store-buffers/smt-multi-entry
 Made the smt store buffer multithreaded. Towers and Hello benchmarks now
 complete with multiple threads per core.
 
+
+----------
+pellauer    Date: Tue Nov  3 11:10:16 EST 2009  CSN: CSN-hasim-models-128
+                  Tue Nov  3 16:10:16 UTC 2009
+
+
+Directory modules/hasim/timing-models/chip
+ multi-core/               Locally Added               0 
+
+Directory modules/hasim/timing-models/chip/multi-core
+ multi-core-chip.h         Locally Added               0 
+ multi-core-chip.awb       Locally Added               0 
+ multi-core-chip.bsv       Locally Added               0 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.bsv      Locally Modified          127 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/one-entry
+ btb-one-entry.awb         Locally Modified          127 
+
+Directory modules/hasim/timing-models/structures/branch/stack/1entry
+ branch-stack-1entry.awb   Locally Modified          127 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          127 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-always-hit.bsv Locally Modified          127 
+ l1-icache-alg-direct-mapped.bsv Locally Modified          127 
+ l1-icache-alg-pseudorandom.bsv Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-arbiters/static-priority
+ l1-cache-arbiter-static-priority.bsv Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.bsv Locally Modified          127 
+ l1-dcache-alg-pseudorandom.bsv Locally Modified          127 
+ l1-dcache-alg-always-hit.bsv Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/l1-caches/base-types
+ l1-cache-base-types.awb   Locally Modified          127 
+ l1-cache-base-types.bsv   Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/cache-types
+ memory-base-types.awb     Locally Modified          127 
+ memory-base-types.bsv     Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-utils.bsv Locally Modified          127 
+
+Directory modules/hasim/timing-models/caches
+ last-level-caches/        Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/last-level-caches
+ null/                     Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/null
+ last-level-cache-null.awb Locally Added               0 
+ last-level-cache-null.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/replacement-algorithms/dcache
+ dcache-replacement-alg-lru.awb Locally Modified          127 
+
+Directory modules/hasim/timing-models/replacement-algorithms/icache
+ icache-replacement-alg-lru.awb Locally Modified          127 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.bsv         Locally Modified          127 
+
+Directory modules/hasim/timing-models/memory
+ dcache-memory-magic.awb   Locally Removed           127 
+ dcache-memory-magic.bsv   Locally Removed           127 
+ icache-memory-magic.awb   Locally Removed           127 
+ memory-null.awb           Locally Added               0 
+ icache-memory-magic.bsv   Locally Removed           127 
+ memory-null.bsv           Locally Added               0 
+ base-types/               Locally Added               0 
+
+Directory modules/hasim/timing-models/memory/base-types
+ memory-base-types.awb     Locally Added               0 
+ memory-base-types.bsv     Locally Added               0 
+
+Directory modules/hasim/timing-models/memory
+ memory-magic.awb          Locally Removed           127 
+
+Directory modules/hasim/timing-models
+ uncore/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.awb Locally Added               0 
+ uncore-with-interconnect.bsv Locally Added               0 
+ uncore-magic-memory.awb   Locally Added               0 
+ uncore-magic-memory.bsv   Locally Added               0 
+ memory-controller/        Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/memory-controller
+ magic/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/magic
+ memory-controller-magic.awb Locally Added               0 
+ memory-controller-magic.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore
+ interconnects/            Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects
+ ring/                     Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects/ring
+ icn-ring.bsv              Locally Added               0 
+ icn-ring.awb              Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects
+ crossbar/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects/crossbar
+ icn-crossbar.awb          Locally Added               0 
+ icn-crossbar.bsv          Locally Added               0 
+
+
+* Support for simple interconnect models: ring and crossbar.
+* The "multi-core" chip needs a core and an uncore. The uncore
+  needs an interconnect network, last-level cache (currently null)
+  and a memory controller.
+* Memory associated with cores is assumed to be cache-incoherent. 
+  (Eventually they'll support invalidates). The last-level caches will 
+  be the point of cache coherence.
+* Magic memory is now null memory for the old "single-core" chip models.
+* Magic memory is now "magic memory controller" for the interconnect models.
+* Memory types now live in "memory_base_types". Changed many `includes as a result.
+* Cache miss ids now have epochs. This resolves a race condition in the instQ/commitQ.
+* Fixed a proviso bug in which cache algorithms assumed a fixed size for tokens.
+
+Michael P.

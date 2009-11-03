@@ -22,7 +22,7 @@ import FIFO::*;
 
 // ******* Timing Model Imports *******
 
-`include "asim/provides/hasim_memory.bsh"
+`include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"
 `include "asim/provides/hasim_cache_algorithms.bsh"
@@ -42,6 +42,8 @@ import FIFO::*;
 
 typedef struct
 {
+    L1_DCACHE_MISS_TOKEN missTokToFree;
+
     Bool memQNotFull;
     Bool memQUsed;
     MEMORY_REQ memQData;
@@ -66,6 +68,7 @@ function DC_LOCAL_STATE initLocalState();
     return 
         DC_LOCAL_STATE 
         { 
+            missTokToFree: ?,
             memQNotFull: True,
             memQUsed: False,
             memQData: ?,
@@ -216,7 +219,9 @@ module [HASIM_MODULE] mkL1DCache ();
 
             // Deallocate the Miss ID.
             L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
-            outstandingMisses.free(cpu_iid, miss_tok);
+            
+            // Free the token in the next stage, in case we had to retry.
+            local_state.missTokToFree = miss_tok;
             
             // Now send the fill to the right place.
             // Start by looking up if it was a load or store based on miss ID.
@@ -224,7 +229,7 @@ module [HASIM_MODULE] mkL1DCache ();
             begin
 
                 // The fill is a load response. Return it to the CPU.
-                debugLog.record_next_cycle(cpu_iid, $format("MEM RSP LOAD: %0d", miss_tok.index));
+                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP LOAD: %0d", miss_tok.index));
                 loadRspDelToCPU.send(cpu_iid, tagged Valid initDCacheLoadMissRsp(miss_tok.index));
                 storeRspDelToCPU.send(cpu_iid, tagged Invalid);
                 
@@ -234,7 +239,7 @@ module [HASIM_MODULE] mkL1DCache ();
 
                 // The fill is a store response. Tell the CPU the entry has been loaded
                 // so it's OK to perform their store with no coherence issues.
-                debugLog.record_next_cycle(cpu_iid, $format("MEM RSP STORE: %0d", miss_tok.index));
+                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP STORE: %0d", miss_tok.index));
                 loadRspDelToCPU.send(cpu_iid, tagged Invalid);
                 storeRspDelToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelayOk(miss_tok.index));
 
@@ -250,7 +255,7 @@ module [HASIM_MODULE] mkL1DCache ();
         begin
 
             // Tell the CPU there's no delayed responses.
-            debugLog.record_next_cycle(cpu_iid, $format("NO MEM RSP"));
+            debugLog.record_next_cycle(cpu_iid, $format("1: NO MEM RSP"));
             loadRspDelToCPU.send(cpu_iid, tagged Invalid);
             storeRspDelToCPU.send(cpu_iid, tagged Invalid);
 
@@ -289,11 +294,12 @@ module [HASIM_MODULE] mkL1DCache ();
                 if (memQAvailable(local_state))
                 begin
 
-                    debugLog.record(cpu_iid, $format("DIRTY EVICTION: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.physicalAddress));
 
                     // Record that we're using the memQ.
                     local_state.memQUsed = True;
                     local_state.memQData = initMemStore(evict.physicalAddress);
+                    outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
                     fillFromMemory.doDeq(cpu_iid);
@@ -305,10 +311,11 @@ module [HASIM_MODULE] mkL1DCache ();
                     // The queue is full, so retry the fill next cycle. No dequeue.
                     fillFromMemory.noDeq(cpu_iid);
                     
-                    debugLog.record(cpu_iid, $format("DIRTY EVICTION RETRY: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.physicalAddress));
 
                     // Yield the writePort to lower-priority users.
                     // The fill update will not happen this model cycle.
+                    // Don't free the token.
                     local_state.writePortUsed = False;
                 
                 end
@@ -317,8 +324,9 @@ module [HASIM_MODULE] mkL1DCache ();
             else
             begin
 
-                // We finished the fill succesfully with no writeback, so dequeue it.
-                debugLog.record(cpu_iid, $format("CLEAN EVICTION"));
+                // We finished the fill succesfully with no writeback, so dequeue it and free the miss.
+                debugLog.record(cpu_iid, $format("2: CLEAN EVICTION"));
+                outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 fillFromMemory.doDeq(cpu_iid);
 
             end
@@ -345,11 +353,17 @@ module [HASIM_MODULE] mkL1DCache ();
             // See if the cache algorithm hit or missed.
             let line_addr = toLineAddress(req.physicalAddress);
             dCacheAlg.loadLookupReq(cpu_iid, line_addr);
-            debugLog.record(cpu_iid, $format("LOAD REQ: 0x%h", req.physicalAddress));
+            debugLog.record(cpu_iid, $format("2: LOAD REQ: 0x%h", req.physicalAddress));
 
             // Finish the request in the next stage.
             local_state.loadReq = tagged Valid req;
 
+        end
+        else
+        begin
+
+            debugLog.record(cpu_iid, $format("2: NO LOAD"));
+        
         end
         
         // Pass our information to the next stage.
@@ -387,7 +401,7 @@ module [HASIM_MODULE] mkL1DCache ();
                 // A hit, so give the data back. We won't need the memory queue.
                 loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadHit(req));
                 statReadHit.incr(cpu_iid);
-                debugLog.record(cpu_iid, $format("LOAD HIT"));
+                debugLog.record(cpu_iid, $format("2: LOAD HIT"));
 
             end
             else
@@ -413,7 +427,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     // Tell the CPU their load missed, but we're handling it.
                     loadRspImmToCPU.send(cpu_iid, tagged Valid initDCacheLoadMiss(req, miss_tok.index));
                     statReadMiss.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("LOAD MISS: %0d", miss_tok.index));
+                    debugLog.record(cpu_iid, $format("3: LOAD MISS: %0d", miss_tok.index));
 
                 end
                 else
@@ -424,7 +438,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     
                     // Record the retry.
                     statReadRetry.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("LOAD RETRY"));
+                    debugLog.record(cpu_iid, $format("3: LOAD RETRY. MEMQ: %0d, MISS TOK: %0d", pack(memQAvailable(local_state)), pack(outstandingMisses.canAllocateLoad(cpu_iid))));
 
                 end
 
@@ -447,10 +461,16 @@ module [HASIM_MODULE] mkL1DCache ();
             // See if the cache algorithm hit or missed.
             let line_addr = toLineAddress(req.physicalAddress);
             dCacheAlg.storeLookupReq(cpu_iid, line_addr);
-            debugLog.record(cpu_iid, $format("STORE REQ: 0x%h", req.physicalAddress));
+            debugLog.record(cpu_iid, $format("3: STORE REQ: 0x%h", req.physicalAddress));
             
             // Finish handling the request in the next stage.
             local_state.storeReq = tagged Valid req;
+
+        end
+        else
+        begin
+        
+            debugLog.record(cpu_iid, $format("3: NO STORE"));
 
         end
         
@@ -498,7 +518,7 @@ module [HASIM_MODULE] mkL1DCache ();
 
                     // Record the conflict.
                     statWriteRetry.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("STORE HIT RETRY (WRITE PORT USED)"));
+                    debugLog.record(cpu_iid, $format("4: STORE HIT RETRY (WRITE PORT USED)"));
 
                 end
                 else
@@ -527,7 +547,7 @@ module [HASIM_MODULE] mkL1DCache ();
                             // Tell the CPU that the store succeeded.
                             storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk());
                             statWriteHit.incr(cpu_iid);
-                            debugLog.record(cpu_iid, $format("STORE HIT"));
+                            debugLog.record(cpu_iid, $format("4: STORE HIT"));
 
                         end
                         else
@@ -538,7 +558,7 @@ module [HASIM_MODULE] mkL1DCache ();
                             
                             // Record the conflict.
                             statWriteRetry.incr(cpu_iid);
-                            debugLog.record(cpu_iid, $format("STORE HIT RETRY (MEMQ UNAVAILABLE FOR WRITE THROUGH)"));
+                            debugLog.record(cpu_iid, $format("4: STORE HIT RETRY (MEMQ UNAVAILABLE FOR WRITE THROUGH)"));
 
                         end
 
@@ -561,7 +581,7 @@ module [HASIM_MODULE] mkL1DCache ();
                         // Tell the CPU the store succeeded.
                         storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreOk());
                         statWriteHit.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("STORE HIT"));
+                        debugLog.record(cpu_iid, $format("4: STORE HIT"));
 
 
                     end // writeback
@@ -597,7 +617,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     // Tell the CPU to delay until the store returns.
                     storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelay(miss_tok.index));
                     statWriteMiss.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("STORE MISS: %0d", miss_tok.index));
+                    debugLog.record(cpu_iid, $format("4: STORE MISS: %0d", miss_tok.index));
 
                 end
                 else
@@ -606,7 +626,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     // The CPU will have to retry this store.
                     storeRspImmToCPU.send(cpu_iid, tagged Valid initDCacheStoreRetry());
                     statWriteRetry.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("STORE RETRY"));
+                    debugLog.record(cpu_iid, $format("4: STORE RETRY. MEMQ: %0d, MISS TOK: %0d", pack(memQAvailable(local_state)), pack(outstandingMisses.canAllocateStore(cpu_iid))));
 
                 end
 

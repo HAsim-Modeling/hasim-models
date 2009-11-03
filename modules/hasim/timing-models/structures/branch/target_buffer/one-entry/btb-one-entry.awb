@@ -7,7 +7,7 @@
 #/*
 # %AWB_START
 #
-# %name One Entry
+# %name One Entry Target Buffer
 # %desc One Entry Target Buffer
 # %provides hasim_branch_target_buffer
 #

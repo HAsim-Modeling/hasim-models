@@ -4,8 +4,8 @@
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/funcp_base_types.bsh"
 `include "asim/provides/funcp_memstate_base_types.bsh"
+`include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_memory.bsh"
 
 
 interface CACHE_ALG#(parameter numeric type t_NUM_INSTANCES,

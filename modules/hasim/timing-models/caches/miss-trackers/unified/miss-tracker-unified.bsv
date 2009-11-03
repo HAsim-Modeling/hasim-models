@@ -117,13 +117,16 @@ endinterface
 
 module [HASIM_MODULE] mkCacheMissTracker 
     // interface:
-        (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ));
+        (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ))
+    provisos
+        // Perhaps the dumbest proviso ever.
+        (Add#(TSub#(t_MISS_ID_SZ, 1), t_TMP, t_MISS_ID_SZ));
 
     // ******* Model State *******
 
     // A LUTRAM to store the free miss IDs. 
     // Initially each entry is initialized to be equal to its index.
-    MULTIPLEXED#(t_NUM_INSTANCES, LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ))) freelist <- mkMultiplexedLUTRAMInitializedWith(id);
+    MULTIPLEXED#(t_NUM_INSTANCES, LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ))) freelist <- mkMultiplexedLUTRAMInitializedWith2(id);
     
     // Track the state of the freelist. Initially the freelist is full and
     // every ID is on the list.
@@ -137,13 +140,19 @@ module [HASIM_MODULE] mkCacheMissTracker
     // empty()
     
     // Return true if the freelist for this instance is out of IDs.
+    // Note that we only allocate half of the IDs at a time for a given instance.
+    // This acts as an epoch which stops collisions of "deallocate ID, reallocate the same ID"
+    // We accomplish this by ignoring the high bit in the equality.
     
     function Bool empty(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool[iid];
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool[iid];
+        
+        Bit#(TSub#(t_MISS_ID_SZ,1)) hp = truncate(headPtr);
+        Bit#(TSub#(t_MISS_ID_SZ,1)) tp = truncate(tailPtr);
 
-        return headPtr == tailPtr;
+        return hp == tp;
     
     endfunction
     
@@ -211,4 +220,31 @@ module [HASIM_MODULE] mkCacheMissTracker
     
     endmethod
 
+endmodule
+
+
+
+// mkMultiplexedLUTRAM --
+//     Special case: merged LUTRAM where the LUTRAM's initial value is a function
+//     of its index. We do this by transforming the initialization function.
+//
+
+module mkMultiplexedLUTRAMInitializedWith2#(function t_DATA getInitVal(t_INDEX i))
+    // Interface:
+    (MULTIPLEXED#(ni, LUTRAM#(t_INDEX, t_DATA)))
+    provisos (Bits#(t_DATA, t_DATA_SZ),
+              Bits#(t_INDEX, t_INDEX_SZ),
+              Bounded#(t_INDEX),
+              Alias#(Tuple2#(INSTANCE_ID#(ni), t_INDEX), t_MERGED_IDX),
+              Bounded#(t_MERGED_IDX),
+              Bits#(t_MERGED_IDX, t_MERGED_IDX_SZ));
+
+    // This tops at 5 ports.
+
+    let ram <- (valueof(ni) > 5) ? 
+        mkMultiplexed(mkLUTRAMWith(getInitVal)) :
+        mkMultiplexedLUTRAMInitializedWith(getInitVal);
+    
+    return ram;
+   
 endmodule

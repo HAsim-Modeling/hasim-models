@@ -1,6 +1,6 @@
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_memory.bsh"
+`include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/hasim_pipeline.bsh"
 

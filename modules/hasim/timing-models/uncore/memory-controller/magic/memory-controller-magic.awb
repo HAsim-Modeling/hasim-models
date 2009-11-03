@@ -1,0 +1,10 @@
+%name Magic Memory Controller
+%desc Magic Memory
+%provides hasim_memory_controller
+
+%attributes hasim uncore memory
+
+%public memory-controller-magic.bsv 
+
+
+%AWB_END

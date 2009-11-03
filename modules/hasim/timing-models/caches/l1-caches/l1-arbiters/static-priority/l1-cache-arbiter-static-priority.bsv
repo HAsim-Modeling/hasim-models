@@ -10,11 +10,13 @@ import Vector::*;
 
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/hasim_memory.bsh"
+`include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"
 
 module [HASIM_MODULE] mkL1CacheArbiter ();
+
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_arbiter.out");
 
     // Eventually this could be a dynamic parameter.
     Bool favorICache = `L1_ARBITER_FAVOR_ICACHE;
@@ -77,6 +79,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
     
         // Get the next instance to simulate.
         let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
     
         // Route responses to the right place.
         let memory_out <- rspFromMemory.receive(cpu_iid);
@@ -94,6 +97,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
                 if (icache_has_room)
                 begin
                 
+                    debugLog.record_next_cycle(cpu_iid, $format("RSP TO ICACHE"));
                     rspToICache.doEnq(cpu_iid, memory_rsp);
                     rspToDCache.noEnq(cpu_iid);
                     rspFromMemory.doDeq(cpu_iid);
@@ -102,6 +106,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
                 else
                 begin
                 
+                    debugLog.record_next_cycle(cpu_iid, $format("RSP TO ICACHE RETRY"));
                     // No room, so just leave it.
                     rspToICache.noEnq(cpu_iid);
                     rspToDCache.noEnq(cpu_iid);
@@ -117,6 +122,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
                 if (dcache_has_room)
                 begin
                 
+                    debugLog.record_next_cycle(cpu_iid, $format("RSP TO DCACHE"));
                     rspToDCache.doEnq(cpu_iid, memory_rsp);
                     rspToICache.noEnq(cpu_iid);
                     rspFromMemory.doDeq(cpu_iid);
@@ -125,6 +131,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
                 else
                 begin
                 
+                    debugLog.record_next_cycle(cpu_iid, $format("RSP TO DCACHE RETRY"));
                     // No room, so just leave it.
                     rspToDCache.noEnq(cpu_iid);
                     rspToICache.noEnq(cpu_iid);
@@ -138,6 +145,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
         else
         begin
         
+            debugLog.record_next_cycle(cpu_iid, $format("NO RSP"));
             // No response to route.
             rspToDCache.noEnq(cpu_iid);
             rspToICache.noEnq(cpu_iid);
@@ -159,8 +167,10 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
         begin
 
             // Stall
+            debugLog.record_next_cycle(cpu_iid, $format("REQ STALL"));
             reqFromDCache.noDeq(cpu_iid);
             reqFromICache.noDeq(cpu_iid);
+            reqToMemory.noEnq(cpu_iid);
 
         end
         else
@@ -177,6 +187,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
                     if (favorICache())
                     begin
 
+                        debugLog.record_next_cycle(cpu_iid, $format("REQ FROM ICACHE & DCACHE: ICACHE GRANT"));
                         let final_value = icache_value;
                         final_value.opaque = setRspForIStream(final_value.opaque);
 
@@ -187,6 +198,8 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
                     end
                     else
                     begin
+
+                        debugLog.record_next_cycle(cpu_iid, $format("REQ FROM ICACHE & DCACHE: DCACHE GRANT"));
 
                         let final_value = dcache_value;
                         final_value.opaque = setRspForDStream(final_value.opaque);
@@ -201,6 +214,8 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
                 else
                 begin
                 
+                    debugLog.record_next_cycle(cpu_iid, $format("REQ FROM ICACHE"));
+
                     // Only the ICache wants it, so they get it.
                     let final_value = icache_value;
                     final_value.opaque = setRspForIStream(final_value.opaque);
@@ -215,6 +230,8 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
             else if (dcache_out matches tagged Valid .dcache_value)
             begin
             
+                debugLog.record_next_cycle(cpu_iid, $format("REQ FROM DCACHE"));
+
                 // Only the DCache wants it, so they get it.
                 let final_value = dcache_value;
                 final_value.opaque = setRspForDStream(final_value.opaque);
@@ -227,6 +244,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
             else
             begin
             
+                debugLog.record_next_cycle(cpu_iid, $format("NO REQ"));
                 // Neither want it.
                 reqToMemory.noEnq(cpu_iid);
                 reqFromDCache.noDeq(cpu_iid);

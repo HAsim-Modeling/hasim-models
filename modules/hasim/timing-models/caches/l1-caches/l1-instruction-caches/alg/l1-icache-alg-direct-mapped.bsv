@@ -18,7 +18,7 @@
 
 // ******* Timing Model Imports *******
 
-`include "asim/provides/hasim_memory.bsh"
+`include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"
 `include "asim/provides/hasim_cache_algorithms.bsh"
@@ -45,11 +45,10 @@ module [HASIM_MODULE] mkL1ICacheAlg
          Add#(t_OPAQUE_SZ, t_TMP, 8),
          Add#(IDX_SIZE, t_TMP2, LINE_ADDRESS_SIZE),
          // The following is brought to you courtesy of proviso hell:
-         Add#(t_TMP3, TAdd#(TSub#(TAdd#(1, IDX_SIZE), TLog#(TDiv#(64,
+         Add#(t_TMP3, TAdd#(TSub#(TAdd#(TLog#(NUM_CPUS), IDX_SIZE), TLog#(TDiv#(64,
          TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2)))))))),
          TLog#(TDiv#(TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2))))),
          64))), 32));
-
     CACHE_ALG_INDEXED#(NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_ICACHE_ALG_SCRATCHPAD);
 
     return toCacheAlg(alg);

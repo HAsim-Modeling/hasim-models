@@ -7,7 +7,7 @@
 #/*
 # %AWB_START
 #
-# %name LRU
+# %name LRU ICache
 # %desc Least-Recently Used ICache Replacement Algorithm
 # %provides hasim_icache_replacement_algorithm
 #

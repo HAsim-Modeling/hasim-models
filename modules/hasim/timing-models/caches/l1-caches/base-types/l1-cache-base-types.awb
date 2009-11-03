@@ -6,5 +6,5 @@
 
 %public l1-cache-base-types.bsv
 
-%param ICACHE_MISS_ID_SIZE 3 "Number of bits to identify ICache Misses. (3 = 8 outstanding misses.)"
-%param DCACHE_LOAD_MISS_ID_SIZE 3 "Number of bits to identify DCache Load Misses. (3 = 8 outstanding misses.)"
+%param ICACHE_MISS_ID_SIZE 4 "Number of bits to identify ICache Misses. (4 = 8 outstanding misses, 1 bit epoch.)"
+%param DCACHE_LOAD_MISS_ID_SIZE 4 "Number of bits to identify DCache Load Misses. (4 = 8 outstanding misses, 1 bit epoch..)"

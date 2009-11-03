@@ -1,0 +1,12 @@
+%name Null Memory
+%desc Null Memory
+%provides hasim_memory
+
+%requires memory_base_types
+
+%attributes hasim memory
+
+%public memory-null.bsv 
+
+
+%AWB_END

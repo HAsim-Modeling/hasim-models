@@ -20,7 +20,7 @@ import FIFO::*;
 
 // ******* Timing Model Imports *******
 
-`include "asim/provides/hasim_memory.bsh"
+`include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"
 `include "asim/provides/hasim_cache_algorithms.bsh"
@@ -166,7 +166,7 @@ module [HASIM_MODULE] mkL1ICache ();
             
 
             // Return it to the CPU.
-            debugLog.record_next_cycle(cpu_iid, $format("MEM RSP: %0d", miss_tok.index));
+            debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d", miss_tok.index));
             let rsp = initICacheMissRsp(miss_tok.index);
             loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
 
@@ -178,7 +178,7 @@ module [HASIM_MODULE] mkL1ICache ();
         begin
 
             // Tell the CPU there's no delayed response.
-            debugLog.record_next_cycle(cpu_iid, $format("NO RSP"));
+            debugLog.record_next_cycle(cpu_iid, $format("1: NO RSP"));
             loadRspDelToCPU.send(cpu_iid, tagged Invalid);
             
             // No dequeue.
@@ -196,10 +196,16 @@ module [HASIM_MODULE] mkL1ICache ();
             // See if the cache algorithm hit or missed.
             let line_addr = toLineAddress(req.physicalAddress);
             iCacheAlg.loadLookupReq(cpu_iid, line_addr);
-            debugLog.record_next_cycle(cpu_iid, $format("LOAD REQ: 0x%h", line_addr));
+            debugLog.record_next_cycle(cpu_iid, $format("1: LOAD REQ: 0x%h", line_addr));
 
             // Finish the request in the next stage.
             local_state.loadReq = tagged Valid req;
+
+        end
+        else
+        begin
+        
+            debugLog.record_next_cycle(cpu_iid, $format("1: NO LOAD"));
 
         end
         
@@ -242,7 +248,7 @@ module [HASIM_MODULE] mkL1ICache ();
                 loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheHit(req));
                 reqToMemQ.noEnq(cpu_iid);
                 statHits.incr(cpu_iid);
-                debugLog.record(cpu_iid, $format("LOAD HIT"));
+                debugLog.record(cpu_iid, $format("2: LOAD HIT"));
 
             end
             else
@@ -265,7 +271,7 @@ module [HASIM_MODULE] mkL1ICache ();
                     // Tell the CPU their load missed, but we're handling it.
                     loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheMiss(req, miss_tok.index));
                     statMisses.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("LOAD MISS: %0d", miss_tok.index));
+                    debugLog.record(cpu_iid, $format("2: LOAD MISS: %0d", miss_tok.index));
 
                 end
                 else
@@ -273,7 +279,7 @@ module [HASIM_MODULE] mkL1ICache ();
 
                     // The CPU must retry.
                     loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheRetry(req));
-                    debugLog.record(cpu_iid, $format("LOAD MISS RETRY"));
+                    debugLog.record(cpu_iid, $format("2: LOAD MISS RETRY"));
                     
                     // No request to memory.
                     reqToMemQ.noEnq(cpu_iid);

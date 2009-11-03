@@ -1,0 +1,10 @@
+%name Memory Base Types
+%desc Memory Base Types
+%provides memory_base_types
+
+%attributes hasim memory
+
+%public memory-base-types.bsv 
+
+
+%AWB_END

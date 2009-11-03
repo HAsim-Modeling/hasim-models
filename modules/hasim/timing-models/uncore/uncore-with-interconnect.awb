@@ -1,0 +1,14 @@
+%name Uncore with Interconnect
+%desc Uncore with Interconnect
+%provides hasim_uncore
+
+%requires hasim_interconnect
+%requires hasim_last_level_cache
+%requires hasim_memory_controller
+
+%attributes hasim memory
+
+%public uncore-with-interconnect.bsv 
+
+
+%AWB_END

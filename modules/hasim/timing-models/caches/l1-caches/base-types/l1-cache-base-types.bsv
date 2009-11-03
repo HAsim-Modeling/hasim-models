@@ -5,7 +5,7 @@ import FShow::*;
 `include "asim/provides/funcp_base_types.bsh"
 `include "asim/provides/funcp_memstate_base_types.bsh"
 `include "asim/provides/hasim_miss_tracker.bsh"
-`include "asim/provides/hasim_memory.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
 
 `define IMEM_ITLB_EPOCH_BITS 2

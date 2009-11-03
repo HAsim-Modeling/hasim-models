@@ -1,98 +1,93 @@
 //
-// INTEL CONFIDENTIAL
-// Copyright (c) 2008 Intel Corp.  Recipient is granted a non-sublicensable 
-// copyright license under Intel copyrights to copy and distribute this code 
-// internally only. This code is provided "AS IS" with no support and with no 
-// warranties of any kind, including warranties of MERCHANTABILITY,
-// FITNESS FOR ANY PARTICULAR PURPOSE or INTELLECTUAL PROPERTY INFRINGEMENT. 
-// By making any use of this code, Recipient agrees that no other licenses 
-// to any Intel patents, trade secrets, copyrights or other intellectual 
-// property rights are granted herein, and no other licenses shall arise by 
-// estoppel, implication or by operation of law. Recipient accepts all risks 
-// of use.
+// Copyright (C) 2008 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
-// Standard library imports
-
 import Vector::*;
+import FIFO::*;
+import FShow::*;
 
-// General application imports
-
+//HASim library imports
+`include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/common_services.bsh"
+`include "asim/provides/hasim_modellib.bsh"
+`include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/fpga_components.bsh"
 
-// HAsim library imports
-
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/hasim_modellib.bsh"
-
+//Model-specific imports
 `include "asim/provides/hasim_isa.bsh"
-
-`include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/funcp_simulated_memory.bsh"
-
-// Model-specific imports
-
 `include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/hasim_l1_icache.bsh"
-`include "asim/provides/hasim_l1_dcache.bsh"
-
-// Generated file imports
 
 `include "asim/dict/EVENTS_CPU.bsh"
 `include "asim/dict/STATS_CPU.bsh"
 
-
-//************************* Simple Timing Partition ***********************//
-//                                                                         //
-// This is about the simplest timing partition you can conceive of. It     //
-// simply fetches one instruction at a time, executes it, then moves to    //
-// the next instruction. This can serve as a good mechanism to verify      //
-// the functional partition and can serve as a "golden model" for more     //
-// complex timing partitions.                                              //
-//                                                                         //
-//*************************************************************************//
+`include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/funcp_simulated_memory.bsh"
 
 
+/***************** Unpipelined Core With Caches  *****************/
+/*                                                               */
+/* Like the original unpipelined model, but connects to a        */
+/* cache hierarchy. The model blocks on a cache miss and resumes */
+/* when the miss returns, so therefore there will never be more  */
+/* than one outstanding request in the memory subsystem.         */
+/*                                                               */
+/*****************************************************************/
 
-typedef enum 
-{ 
- TOK, FET, ICACHE, ICACHE_STALL, DEC, EXE, LOA, STO, DCACHE, DCACHE_STALL, LCO, GCO 
- } 
-Stage deriving (Eq, Bits);
+// CORE_STATE
+
+// The state of the core - either running, waiting for a cache miss,
+// performing the second half of an unaligned data access,
+// or retrying a dcache request.
+
+typedef union tagged
+{
+
+    void CORE_NORMAL;
+    ISA_INSTRUCTION CORE_WAIT_FOR_ICACHE;
+    TOKEN SECOND_UNALIGNED_DADDR;
+    TOKEN CORE_WAIT_FOR_DCACHE;
+    TOKEN CORE_RETRY_DCACHE;
+
+}
+CORE_STATE deriving (Eq, Bits);
+
+
 
 module [HASIM_MODULE] mkPipeline
-   //interface:
-   ();
-   
-   Reg#(File) debug_log <- mkReg(InvalidFile);
-   
-   //********* State Elements *********//
-   
-   //Have we made a req to FP and are waiting for a response?
-   Reg#(Bool) madeReq <- mkReg(False);
-  
-  //The current stage
-   Reg#(Stage) stage <- mkReg(TOK);
-   Reg#(Stage) req_stage <- mkRegU();
-  
-  //Current TOKEN (response from TOK stage)
-  Reg#(TOKEN) cur_tok <- mkRegU();
-  
-  //Current instruction (response from FET stage)
-  Reg#(ISA_INSTRUCTION)  cur_inst <- mkRegU();
-  
-  //The Program Counter
-  Reg#(ISA_ADDRESS) pc <- mkReg(`PROGRAM_START_ADDR);
-  
-  //The actual Clock Cycle, for debugging messages
-  Reg#(Bit#(32)) hostCC <- mkReg(0);
-  
-  //The simulation Clock Cycle, or "tick"
-  Reg#(Bit#(32)) baseTick <- mkReg(0);
-  
+    //interface:
+        ();
+
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_cpu.out");
+
+    //********* State Elements *********//
+
+    // Program counters
+    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS)) pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
+
+    // Processor state
+    MULTIPLEXED#(NUM_CPUS, Reg#(PROC_STATE)) statePool <- mkMultiplexed(mkReg(tagged CORE_NORMAL));
+    
+    //********* UnModel State *******//
+    
+    Reg#(Maybe#(INSTANCE_ID#(NUM_CPUS))) dTransStall <- mkReg(tagged Invalid);
+
+    //********* Connections *********//
+
     Connection_Send#(CONTROL_MODEL_CYCLE_MSG)         linkModelCycle <- mkConnection_Send("model_cycle");
 
     Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        linkModelCommit <- mkConnection_Send("model_commits");
@@ -129,627 +124,636 @@ module [HASIM_MODULE] mkPipeline
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, 
                        FUNCP_RSP_REWIND_TO_TOKEN)     linkToRewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
- 
-  //Events
-  EventRecorder event_com <- mkEventRecorder(`EVENTS_CPU_INSTRUCTION_COMMIT);
-  
-  //Stats
-  Stat stat_com <- mkStatCounter(`STATS_CPU_INSTRUCTION_COMMIT);
-   
-   
-   // Create ICache
-   let inst_cache <- mkICache();
-   
-   // Ports communicating with ICache
-   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_icache <- mkPort_Send("cpu_to_icache"); // port to the instruction cache
-  
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_icache_imm <- mkPort_Receive("icache_to_cpu_immediate", 0); // port from icache
-   
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_icache_del <- mkPort_Receive("icache_to_cpu_delayed", 0); // port from icache with miss response
-  
-   
-   // Create DCache
-   let data_cache <- mkDCache();
-   
-   // Ports communicating with DCache
-   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_dcache_spec <- mkPort_Send("cpu_to_dcache_speculative");  // speculative port to the data cache
-   
-   Port_Send#(Tuple2#(TOKEN, CacheInput)) port_to_dcache_comm <- mkPort_Send("cpu_to_dcache_committed"); // committed port to the data cache
-   
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_dcache_imm_spec <- mkPort_Receive("dcache_to_cpu_immediate_speculative", 0);  // immediate speculative response
-   
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_dcache_del_spec <- mkPort_Receive("dcache_to_cpu_delayed_speculative", 0); // delayed speculative response
-   
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputImmediate)) port_from_dcache_imm_comm <- mkPort_Receive("dcache_to_cpu_immediate_committed", 0); // immediate committed response
-   
-   Port_Receive#(Tuple2#(TOKEN, CacheOutputDelayed)) port_from_dcache_del_comm <- mkPort_Receive("dcache_to_cpu_delayed_committed", 0); // delayed committed response
-   
-   
-   // state for communication with ICache
-   Reg#(Bool) waitForICache <- mkReg(True);
-   Reg#(TOKEN) icache_tok <- mkRegU();
-   
-   // state for communication with DCache
-   Reg#(Bool) waitForDCache <- mkReg(True);
-   Reg#(TOKEN) dcache_tok <- mkRegU();
-   
-   // register to control port states
-   Reg#(Bool) stall <- mkReg(False);
-   
-   
-   /********* Communication with local controller for icache ports ******/
-   Vector#(6, Port_Control) inports  = newVector();
-   Vector#(3, Port_Control) outports = newVector();
-   inports[0]  = port_from_icache_imm.ctrl;
-   inports[1]  = port_from_icache_del.ctrl;
-   inports[2] = port_from_dcache_imm_spec.ctrl;
-   inports[3] = port_from_dcache_del_spec.ctrl;
-   inports[4] = port_from_dcache_imm_comm.ctrl;
-   inports[5] = port_from_dcache_del_comm.ctrl;
-   outports[0] = port_to_icache.ctrl;
-   outports[1] = port_to_dcache_spec.ctrl;
-   outports[2] = port_to_dcache_comm.ctrl;
-   LocalController local_ctrl <- mkLocalController(inports, outports);     
-  
-  //********* Rules *********//
-
-  //count
-  rule count (True);
+    // Ports
     
-    if (hostCC == 0)
-    begin
-      local_ctrl.startModelCC();
-
-      let fd <- $fopen("hasim_cpu.out");
-      if (fd == InvalidFile)
-      begin
-        $display("Error opening logfile!");
-	$finish(1);
-      end
-      debug_log <= fd;
-    end
+    // To/From ICache
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_load_immediate");
     
-    hostCC <= hostCC + 1;
-  
-  endrule
-  
-  //process
-  
-  rule process (local_ctrl.running());
-     debug_rule("process");
+    // To/From DCache
+
+    // Events
+    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_CPU_INSTRUCTION_COMMIT);
+
+    // Stats
+    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statCom <- mkStatCounter_Multiplexed(`STATS_CPU_INSTRUCTION_COMMIT);
+
+    Vector#(0, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(0, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage6Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage7Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage8Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage10Ctrl <- mkStageController();
+
+    //********* Rules *********//
+
+    // Mapping from cpu id to context ids and back.
+    function CPU_INSTANCE_ID getCpuInstanceId(CONTEXT_ID ctx_id) = ctx_id;
+    function CPU_INSTANCE_ID tokCpuInstanceId(TOKEN tok) = tokContextId(tok);
+    function CPU_INSTANCE_ID storeTokCpuInstanceId(STORE_TOKEN st_tok) = storeTokContextId(st_tok);
+    function CONTEXT_ID getContextId(CPU_INSTANCE_ID cpu_iid) = cpu_iid;
+
+
+    //
+    // endModelCycle --
+    //     Invoked by any rule that is completely done with a token.
+    //
+    function Action endModelCycle(CPU_INSTANCE_ID cpu_iid);
+    action
+
+        debugLog.record(cpu_iid, $format("Model cycle complete."));
+
+        // Sample event & statistic (commit)
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+        eventCom.recordEvent(cpu_iid, tagged Valid truncate(pc));
+        statCom.incr(cpu_iid);
+
+        // Commit counter for heartbeat
+        linkModelCommit.send(tuple2(cpu_iid, 1));
         
-     Bool iCacheRead = False;
- 
-    case (stage)
-      TOK:
-       begin
-	    
-        debug_case("stage", "TOK");
-	
-        if (!madeReq)
-	  begin
-	    debug_then("!madeReq");
-	    
-	    //Request a TOKEN
-	    debug(2, $fdisplay(debug_log, "[%d] Requesting a new TOKEN on model cycle %0d.", hostCC, baseTick));
-	    link_to_tok.makeReq(?);
-            link_model_cycle.send(0);
-	    
-	    madeReq <= True;
-	    
-	  end
-	else
-	  begin
-	    debug_else("!madeReq");
-	    
-	    //Get the response
-	    let tok = link_to_tok.getResp();
-	    link_to_tok.deq();
-	    
-            tok.timep_info = TOKEN_TIMEP_INFO{epoch: 0, scratchpad: 0};
+        // End the model cycle.
+        localCtrl.endModelCycle(cpu_iid, 1);
 
-	    debug(2, $fdisplay(debug_log, "[%d] TOK Responded with TOKEN %0d.", hostCC, tok.index));
-	    
-	    cur_tok <= tok;
-	    
-	    stage <= FET;
-	    madeReq <= False;
-	  end
-      end
-      FET:
-       begin
-	   
-        debug_case("stage", "FET");
-	
-        if (!madeReq)
-	   begin	            
-	    debug_then("!madeReq");
-	    
-	    //Fetch next instruction
-	    debug(2, $fdisplay(debug_log, "[%d] Fetching TOKEN %0d at address 0x%h.", hostCC, cur_tok.index, pc));
-             link_to_fet.makeReq(tuple2(cur_tok, pc));
-	         	     
-	      madeReq <= True;
-	      
-	  end
-	else
-	  begin
-	    debug_else("!madeReq");
-	    
-	    //Get the response
-            match {.tok, .inst} = link_to_fet.getResp();
-	    link_to_fet.deq();
+    endaction
+    endfunction
 
-	    debug(2, $fdisplay(debug_log, "[%d] FET Responded with TOKEN %0d.", hostCC, tok.index));
-	    
-            cur_inst <= inst;
-	    if (tok.index != cur_tok.index) $display ("FET ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-	    
-	     stage <= ICACHE;
-	     madeReq <= False;
-	     
-	     // Make a request to the instruction cache
-	     // Standard memory reference for now (no prefetches etc.)
-	     port_to_icache.send(tagged Valid tuple2(cur_tok, tagged Inst_mem_ref pc));
-	     iCacheRead = True;
-//	     waitForICache <= True;	   
-	     
-	  end
-       end
-       
-       ICACHE:
-       begin
-	  debug_case("stage", "ICACHE");
-	  
-	  // capture icache messages
-	  let icache_ret_imm <- port_from_icache_imm.receive();
-	  let icache_ret_del <- port_from_icache_del.receive();
-	  
-	  case (icache_ret_del) matches
-	     // if there is no delayed response 
-	     tagged Invalid:
-		begin
-		   case (icache_ret_imm) matches
-		      // if there is message from icache
-		      tagged Invalid:
-			 begin
-			    port_to_dcache_spec.send(tagged Invalid);
-			    port_to_dcache_comm.send(tagged Invalid);
-			    
-			    stage <= ICACHE_STALL;
-			 end
-		      // if there is an immediate message from icache
-		      tagged  Valid {.icachetok, .icachemsg}:
-			 begin
-			    case (icachemsg) matches
-			       tagged Hit .icacheaddr:
-				  begin 
-			             stage <= DEC;
-				  end
-			       tagged Miss_servicing .icacheaddr:
-				  begin
-				     port_to_dcache_spec.send(tagged Invalid);
-				     port_to_dcache_comm.send(tagged Invalid);				     
-				     
-				     stage <= ICACHE_STALL;
-				  end
-			       tagged Miss_retry .icacheaddr:
-				  begin
-				     port_to_dcache_spec.send(tagged Invalid);
-				     port_to_dcache_comm.send(tagged Invalid);
-				     
-				     stage <= ICACHE_STALL;
-				  end
-			    endcase
-			 end
-		   endcase
-		end
-	     tagged Valid .icachedelresp:
-		begin
-		   stage <= DEC;		
-		end
-	  endcase
-       end 
 
-       ICACHE_STALL:
-       begin
-	  let msg_from_dcache_imm_spec <- port_from_dcache_imm_spec.receive();
-	  let msg_from_dcache_del_spec <- port_from_dcache_del_spec.receive();
-	  let msg_from_dcache_imm_comm <- port_from_dcache_imm_comm.receive();
-	  let msg_from_dcache_del_comm <- port_from_dcache_del_comm.receive();
-	  
-	  port_to_icache.send(tagged Invalid);
-	  iCacheRead = True;
-	  baseTick <= baseTick + 1;
-	  link_model_cycle.send(0);
-	  stage <= ICACHE;
-       end
-       
-       
-       DEC:
-       begin
-          debug_case("stage", "DEC");
-	  
-          if (!madeReq)
-	     begin
-		debug_then("!madeReq");
-		
-		//Decode current inst
-		debug(2, $fdisplay(debug_log, "[%d] Decoding TOKEN %0d.", hostCC, cur_tok.index));
-		link_to_dec.makeReq(cur_tok);
-		
-		madeReq <= True;
-	     end
-	  else
-	     begin
-		debug_else("!madeReq");
-		
- 		//Get the response
-		match {.tok, .deps} = link_to_dec.getResp();
-		link_to_dec.deq();
-		
-		debug(2, $fdisplay(debug_log, "[%d] DEC Responded with TOKEN %0d.", hostCC, tok.index));
-		
-		if (tok.index != cur_tok.index) $display ("DEC ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-		
-		stage <= EXE;
-		madeReq <= False;
-	     end
-       end 
-       
-       EXE:
-       begin
-	  
-	  ISA_ADDRESS effMemAddr = 0;
-	   
-        debug_case("stage", "EXE");
-        if (!madeReq)
-	  begin
-	    debug_then("!madeReq");
-	    //Execute instruction
-	    debug(2, $fdisplay(debug_log, "[%d] Executing TOKEN %0d", hostCC, cur_tok.index));
-            link_to_exe.makeReq(cur_tok);
-	    madeReq <= True;
-	  end
-	else
-	  begin
-	    debug_else("!madeReq");
-	    
- 	    //Get the response
-            //match {.tok, .res} = link_to_exe.getResp();
-	     let exe_resp = link_to_exe.getResp();
-	     link_to_exe.deq();
-	     
-	     let tok = exe_resp.token;
-	     let res = exe_resp.result;
+    //
+    // Whether an instruction is a load or store is stored in token scratchpad
+    // memory.  These are accessor functions...
+    //
+    function Bool tokIsLoad(TOKEN tok) = unpack(tok.timep_info.scratchpad[0]);
+    function Bool tokIsStore(TOKEN tok) = unpack(tok.timep_info.scratchpad[1]);
+    function Bool tokIsLoadOrStore(TOKEN tok) = tokIsLoad(tok) || tokIsStore(tok);
 
-	    debug(2, $fdisplay(debug_log, "[%d] EXE Responded with TOKEN %0d.", hostCC, tok.index));
-	    
-	    if (tok.index != cur_tok.index) $display ("EXE ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-	   	
-	    case (res) matches
-	      tagged RBranchTaken .addr:
-	      begin
-	        debug(2, $fdisplay(debug_log, "Branch taken to address %h", addr));
-	   	pc <= addr;
-	      end
-              tagged RBranchNotTaken .addr:
-	      begin
-	        debug(2, $fdisplay(debug_log, "Branch not taken"));
-	   	pc <= pc + 4;
-	      end
-              tagged RTerminate .pf:
-	      begin
-	        debug(2, $fdisplay(debug_log, "Terminating Execution"));
-                local_ctrl.endProgram(pf);
-	      end
-	       tagged REffectiveAddr .ea:
-		  begin
-		     debug(2, $fdisplay(debug_log, "Load/Store"));
-		     effMemAddr = ea;
-		     $display ("ea is %x", ea);
-		  end
-              default:
-	      begin
-	   	pc <= pc + 4;
-	      end
-	    endcase
-	    
-             if (isaIsLoad(cur_inst))
-		begin
-  		   //stage <= LOA;
-		   
-		   stage <= DCACHE;
-		   req_stage <= LOA;
-		   // make read request to data cache
-		   port_to_dcache_spec.send(tagged Valid tuple2(tok, tagged Data_read_mem_ref tuple2(pc, pc)));
-		   port_to_dcache_comm.send(tagged Invalid);
-		   waitForDCache <= True;
-		   //$display("Model PC: %x, Load Instruction", baseTick, pc);
-		    
-		end
-             else if (isaIsStore(cur_inst))
-		begin
-		  // stage <= STO;
-		   
-		   stage <= DCACHE;
-		   req_stage <= STO;
-		   // make write request to data cache
-		   port_to_dcache_spec.send(tagged Invalid);
-		   port_to_dcache_comm.send(tagged Valid tuple2(tok, tagged Data_write_mem_ref tuple2(pc, effMemAddr)));
-		  // $display("Model cycle: %d, Store Instruction", baseTick);
-		   waitForDCache <= True;
-		    
-		end
-            else
-              stage <= LCO;
+    (* conservative_implicit_conditions *)
+    rule stage1_itrReq (True);
 
-	    madeReq <= False;
-	  end
-       end
-       
-       DCACHE:
-       begin
-	  // read output ports from data cache
-	  let dcache_ret_imm_spec <- port_from_dcache_imm_spec.receive();
-	  let dcache_ret_del_spec <- port_from_dcache_del_spec.receive();
-	  let dcache_ret_imm_comm <- port_from_dcache_imm_comm.receive();
-	  let dcache_ret_del_comm <- port_from_dcache_del_comm.receive();
-	  
-	  if (req_stage == LOA) 
-	     begin
-		case (dcache_ret_del_spec) matches
-		   tagged Invalid:
-		      begin
-			 case (dcache_ret_imm_spec) matches
-			    tagged Invalid:
-			       begin
-				  if (!iCacheRead) 
-				     port_to_icache.send(tagged Invalid);
-				  stage <= DCACHE_STALL;
-				  //$display ("Model cycle %d, stall", baseTick);
-			       end
-			    tagged Valid {.dcachetok, .dcachemsg}:
-			       begin
-				  case (dcachemsg) matches
-				     tagged Hit .ref_addr:
-					begin
-					   stage <= req_stage;
-					   //$display ("Model cycle %d, hit address %x", baseTick, ref_addr);
-					end
-				     tagged Miss_servicing .ref_addr:
-					begin
-					   if (!iCacheRead)
-					      port_to_icache.send(tagged Invalid);
-					   stage <= DCACHE_STALL;
-					   //$display ("Model cycle %d, miss address %x", baseTick, ref_addr);
-					end
-				     tagged Hit_servicing .ref_addr:
-					begin
-					   if (!iCacheRead)
-					      port_to_icache.send(tagged Invalid);
-					   stage <= DCACHE_STALL;
-					   //$display ("Model cycle %d, hit service address %x", baseTick, ref_addr);
-					end
-				     tagged Miss_retry .ref_addr:
-					begin
-					   // currently not implemented
-					end
-				  endcase
-			       end
-			 endcase      
-		      end
-		   tagged Valid .dcachemsg:
-		      begin
-			 stage <= LOA;
-		      end
-		endcase
-	     end
-	  else
-	     begin
-		case (dcache_ret_del_comm) matches
-		   tagged Invalid:
-		      begin
-			 case (dcache_ret_imm_comm) matches
-			    tagged Invalid:
-			       begin
-				  if (!iCacheRead) 
-				     port_to_icache.send(tagged Invalid);
-				  stage <= DCACHE_STALL;
-				  //$display ("Model cycle %d, stall", baseTick);
-			       end
-			    tagged Valid {.dcachetok, .dcachemsg}:
-			       begin
-				  case (dcachemsg) matches
-				     tagged Hit .ref_addr:
-					begin
-					   stage <= req_stage;
-					   //$display ("Model cycle %d, hit address %x", baseTick, ref_addr);
-					end
-				     tagged Miss_servicing .ref_addr:
-					begin
-					   if (!iCacheRead)
-					      port_to_icache.send(tagged Invalid);
-					   stage <= DCACHE_STALL;
-					   //$display ("Model cycle %d, miss address %x", baseTick, ref_addr);
-					end
-				     tagged Hit_servicing .ref_addr:
-					begin
-					   if (!iCacheRead)
-					      port_to_icache.send(tagged Invalid);
-					   stage <= DCACHE_STALL;
-					   //$display ("Model cycle %d, hit service address %x", baseTick, ref_addr);
-					end
-				     tagged Miss_retry .ref_addr:
-					begin
-					   // currently not implemented
-					end
-				  endcase
-			       end
-			 endcase      
-		      end
-		   tagged Valid .dcachemsg:
-		      begin
-			 stage <= STO;
-		      end
-		endcase
-	     end
-       end
-		
-       
-       DCACHE_STALL:
-       begin
-	  let msg_icache_imm <- port_from_icache_imm.receive();
-	  let msg_icache_del <- port_from_icache_del.receive();
-	  port_to_dcache_spec.send(tagged Invalid);
-	  port_to_dcache_comm.send(tagged Invalid);
-	  iCacheRead = False;
-	  baseTick <= baseTick + 1;
-	  link_model_cycle.send(0);
-	  stage <= DCACHE;
-       end
-    
-	      
-      LOA:
-       begin
+        // Begin a new model cycle.
+        let cpu_iid <- localCtrl.startModelCycle();
+        linkModelCycle.send(cpu_iid);
+        debugLog.nextModelCycle(cpu_iid);
+        
+        // Check for delayed responses from the caches.
+        // We assume that these are mutually exclusive.
+        
+        let m_irsp <- delRspFromICache.receive(cpu_iid);
+        let m_drsp <- delRspFromDCache.receive(cpu_iid);
+        
+        if (m_irsp matches tagged Valid .rsp)
+        begin
+        
+            // assert state == WAIT_FOR_ICACHE
+        
+            // Unstall.
+            state <= tagged CORE_ICACHE_RESPONSE;
+            debugLog.record_next_cycle(cpu_iid, $format("ICache responded with address 0x%0h", rsp.address);
+            
+            // No ITranslate request.
+            stage2Ctrl.ready(CPU_IID, tagged STAGE2_BUBBLE);
+        
+        end
+        else if (m_drsp matches tagged Valid .rsp)
+        begin
+        
+            // assert state == WAIT_FOR_DCACHE
 
-	  debug_case("stage", "LOA");
-	  if (!madeReq)
-	     begin
-		debug_then("!madeReq");
-		
-		//Request load
-		debug(2, $fdisplay(debug_log, "[%d] Load for TOKEN %0d", hostCC, cur_tok.index));
-		link_to_load.makeReq(cur_tok);
-		madeReq <= True;
-		
-	     end
-	  else
-	     begin
-		debug_else("!madeReq");
-		
- 		//Get the response
-		let tok = link_to_load.getResp();
-		link_to_load.deq();
-		
-		debug(2, $fdisplay(debug_log, "[%d] Load ops responded with TOKEN %0d.", hostCC, tok.index));
-		
-		if (tok.index != cur_tok.index) $display ("LOA ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-		
-		stage <= LCO;
-		madeReq <= False;
-	     end
-       end
-       
-       STO:
-       begin
-	  debug_case("stage", "STO");
-	  if (!madeReq)
-	     begin
-		debug_then("!madeReq");
-		
-		//Request store
-		debug(2, $fdisplay(debug_log, "[%d] Store for TOKEN %0d", hostCC, cur_tok.index));
-		link_to_store.makeReq(cur_tok);
-		madeReq <= True;
-		
-	     end
-	  else
-	     begin
-		debug_else("!madeReq");
-		
- 		//Get the response
-		let tok = link_to_store.getResp();
-		link_to_store.deq();
-		
-		debug(2, $fdisplay(debug_log, "[%d] Store ops responded with TOKEN %0d.", hostCC, tok.index));
-		
-		if (tok.index != cur_tok.index) $display ("STO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-		
-		stage <= LCO;
-		madeReq <= False;
-	     end
-       end
-       
-      LCO:
-       begin
+            // Unstall.
+            state <= tagged CORE_DCACHE_RESPONSE;
+            debugLog.record_next_cycle(cpu_iid, $format("DCache responded with address 0x%0h", rsp.address);
+            
+            // No ITranslate request.
+            stage2Ctrl.ready(cpu_iid, tagged STAGE2_BUBBLE);
+        
+        end
+        else
+        begin
+        
+            // No cache response. Are we stalled?
+            
+            if (state == CORE_NORMAL)
+            begin
+            
+                // Translate next pc.
+                Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+                let ctx_id = getContextId(cpu_iid);
+                linkToITR.makeReq(initFuncpReqDoITranslate(ctx_id, pc));
+                debugLog.record_next_cycle(cpu_iid, $format("Translating virtual address: 0x%h", pc));
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_TRANSLATE);
 
-	  
-        debug_case("stage", "LCO");
-        if (!madeReq)
-	  begin
-	    debug_then("!madeReq");
-	    
-	    //Request memory ops
-	    debug(2, $fdisplay(debug_log, "[%d] Locally committing TOKEN %0d.", hostCC, cur_tok.index));
-            link_to_lco.makeReq(cur_tok);
-	    
-	    madeReq <= True;
-	  end
-	else
-	  begin
-	    debug_else("!madeReq");
-	    
- 	    //Get the response
-  
-            let tok = link_to_lco.getResp();
-	    link_to_lco.deq();
-
-	    debug(2, $fdisplay(debug_log, "[%d] LCO Responded with TOKEN %0d.", hostCC, tok.index));
-	    
-	    if (tok.index != cur_tok.index) $display ("LCO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-	    if (isaIsStore(cur_inst))
-	      stage <= GCO;
+            end
             else
             begin
-              stage <= TOK;
-              baseTick <= baseTick + 1;
-	      debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, baseTick));
-	      event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
-              link_model_commit.send(tuple2(0, 1));
-              stat_com.incr();
+                
+                // Stalled, so just bubble.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_BUBBLE);
+                
             end
-	    madeReq <= False;
-	  end
-      end
-      GCO:
-       begin
-	    
-        debug_case("stage", "GCO");
-        if (!madeReq)
-	  begin
-	    debug_then("!madeReq");
-	    
-	    //Request memory ops
-	    debug(2, $fdisplay(debug_log, "[%d] Globally committing TOKEN %0d", hostCC, cur_tok.index));
-            link_to_gco.makeReq(cur_tok);
-	    
-	    madeReq <= True;
-	  end
-	else
-	  begin
-	    debug_else("!madeReq");
-	    
- 	    //Get the response
-            let tok = link_to_gco.getResp();
-	    link_to_gco.deq();
+        
+        end
 
-	    debug(2, $fdisplay(debug_log, "[%d] GCO Responded with TOKEN %0d.", hostCC, tok.index));
-	    
-	    if (tok.index != cur_tok.index) $display ("GCO ERROR: TOKEN Mismatch. Expected: %0d Received: %0d", cur_tok.index, tok.index);
-	    
-	    debug(1, $fdisplay(debug_log, "Committed TOKEN %0d on model cycle %0d.", cur_tok.index, baseTick));
-	    event_com.recordEvent(tagged Valid zeroExtend(cur_tok.index));
-            link_model_commit.send(tuple2(0, 1));
-            stat_com.incr();
-	    
-	    stage <= TOK;
-	    madeReq <= False;
-	    baseTick <= baseTick + 1;
-	  end
-      end
-    endcase    
-  endrule
+
+    endrule
+
+    rule stage2_itrRsp_fetReq (True);
+
+        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+        
+        if (state matches tagged STAGE2_TRANSLATE)
+        begin
+        
+            // Get the ITrans response started by stage1_itrReq
+            let rsp = linkToITR.getResp();
+            linkToITR.deq();
+
+            let cpu_iid = getCpuInstanceId(rsp.contextId);
+            Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+
+            debugLog.record(cpu_iid, $format("ITR Responded, hasMore: %0d", rsp.hasMore));
+
+            // This model assumes the instruction is aligned.
+            
+            // Read the iCache to see if it hits
+            portToICache.send(XXX);
+
+            // Fetch the next instruction
+            linkToFET.makeReq(initFuncpReqGetInstruction(rsp.contextId, rsp.physicalAddress, rsp.offset));
+            debugLog.record(cpu_iid, $format("Fetching physical address: 0x%h, offset: 0x%h", rsp.physicalAddress, rsp.offset));
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_FETCH);
+
+        end
+        else
+        begin
+        
+            // Propogate the bubble.
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_BUBBLE);
+        
+        end
+
+    endrule
+
+    rule stage3_fetRsp_decReq (True);
+    
+        match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
+        
+        if (state matches tagged STAGE3_FETCH)
+        begin
+
+            // Get the instruction response
+            let rsp = linkToFET.getResp();
+            linkToFET.deq();
+            debugLog.record(cpu_iid, $format("FET Responded"));
+
+            // See if the icache hit.
+            let m_rsp <- immRspFromICache.receive(cpu_iid);
+
+            if (m_rsp matches tagged Valid .ic_rsp)
+            begin
+
+                case (ic_rsp.rspType) matches 
+                    tagged .ICACHE_hit:
+                    begin
+
+                        // Get the PC for decoding the instruction.
+                        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+
+                        // Tell the functional partition to decode the current instruction and place it in flight.
+                        linkToDEC.makeReq(initFuncpReqGetDependencies(rsp.contextId, rsp.instruction, pc));
+                        debugLog.record(cpu_iid, $format("Decoding instruction: 0x%h", rsp.instruction));
+
+                        // Continue processing the next stage.
+                        stage4Ctrl.ready(cpu_iid, tagged STAGE4_DECODE tuple2(isaIsLoad(rsp.instruction), isaIsStore(rsp.instruction)));
+
+                    end
+                    tagged .ICACHE_miss:
+                    begin
+
+                        // Bubble out, and start waiting for the response.
+                        state <= tagged CORE_WAIT_FOR_ICACHE;
+                        stalledInstruction <= rsp.instruction;
+                        debugLog.record(cpu_iid, $format("Stalling on ICache miss: 0x%h"));
+                        stage4Ctrl.ready(cpu_iid, tagged STAGE4_BUBBLE);
+
+                    end
+                    default:
+                    begin
+
+                        // A retry.
+                        // Send a bubble on down, we'll try again next cycle.
+                        debugLog.record(cpu_iid, $format("ICache retry"));
+                        stage4Ctrl.ready(cpu_iid, tagged STAGE4_BUBBLE);
+
+                    end
+                endcase
+
+            end
+            else
+            begin
+
+                // Propogate the bubble.
+                stage4Ctrl.ready(cpu_iid, tagged STAGE4_BUBBLE);
+
+            end
+        end
+        begin
+
+            // See if we're recovering from an earlier bubble.
+            if (state == CORE_ICACHE_RESPONSE)
+            begin
+            
+                 // Get the PC for decoding the instruction.
+                 Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+
+                 // Tell the functional partition to decode the current instruction and place it in flight.
+                 linkToDEC.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), stalledInstruction, pc));
+                 debugLog.record(cpu_iid, $format("Decoding instruction: 0x%h", rsp.instruction));
+
+                 // Continue processing the next stage.
+                 stage4Ctrl.ready(cpu_iid, tagged STAGE4_DECODE tuple2(isaIsLoad(rsp.instruction), isaIsStore(rsp.instruction)));
+
+            end
+            else
+            begin
+
+                // Propogate the bubble.
+                stage4Ctrl.ready(cpu_iid, tagged STAGE4_BUBBLE);
+
+            end
+
+        end
+
+    endrule
+
+    rule stage4_decRsp_exeReq (True);
+
+        match {.cpu_iid, .state} <- stage4Ctrl.nextReadyInstance();
+
+        if (state matches tagged STAGE4_DECODE {.is_load, .is_store})
+        begin
+
+            // Get the decode response
+            let rsp = linkToDEC.getResp();
+            linkToDEC.deq();
+
+            // Get the token the functional partition assigned to this instruction.
+            let tok = rsp.token;
+            debugLog.record(cpu_iid, $format("DEC Responded with token: %0d", tokTokenId(tok)));
+
+            // Record load and store properties for the instruction in the token
+            tok.timep_info.scratchpad[0] = pack(is_load);
+            tok.timep_info.scratchpad[1] = pack(is_store);
+
+            // In a more complex processor we would use the dependencies 
+            // to determine if we can issue the instruction.
+
+            // Execute the instruction
+            linkToEXE.makeReq(initFuncpReqGetResults(tok));
+            debugLog.record(cpu_iid, $format("Executing token: %0d", tokTokenId(tok)));
+
+            stage5Ctrl.ready(cpu_iid, tagged STAGE5_EXECUTE);
+
+        end
+        else
+        begin
+        
+            // Propogate the bubble
+            stage5Ctrl.ready(cpu_iid, tagged STAGE5_BUBBLE);
+        
+        end
+
+    endrule
+
+    rule stage5_exeRsp (True);
+
+        match {.cpu_iid, .state} <- stage5Ctrl.nextReadyInstance();
+
+        if (state matches tagged STAGE6_EXECUTE)
+        begin
+
+            // Get the execution result
+            let exe_resp = linkToEXE.getResp();
+            linkToEXE.deq();
+
+            let tok = exe_resp.token;
+            let res = exe_resp.result;
+
+            let cpu_iid = tokCpuInstanceId(tok);
+            Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+
+            debugLog.record(cpu_iid, $format("EXE Responded with token: %0d", tokTokenId(tok)));
+
+            // If it was a branch we must update the PC.
+            case (res) matches
+
+                tagged RBranchTaken .addr:
+                begin
+
+                    debugLog.record(cpu_iid, $format("Branch taken to address: 0x%h", addr));
+                    pc <= addr;
+
+                end
+                tagged RBranchNotTaken .addr:
+                begin
+
+                    debugLog.record(cpu_iid, $format("Branch not taken"));
+                    pc <= pc + 4;
+
+                end
+                tagged RTerminate .pf:
+                begin
+
+                    debugLog.record(cpu_iid, $format("Terminating Execution. PassFail: %0b", pf));
+                    localCtrl.instanceDone(cpu_iid, pf);
+
+                end
+                default:
+                begin
+
+                    pc <= pc + 4;
+
+                end
+
+            endcase
+
+            let is_load = tokIsLoad(tok);
+            let is_store = tokIsStore(tok);
+
+            if (is_load || is_store)
+            begin
+
+                // Memory ops require more work.
+                debugLog.record(cpu_iid, $format("DTranslate request for token: %0d", tokTokenId(tok)));
+
+                // Get the physical address(es) of the memory access.
+                linkToDTR.makeReq(initFuncpReqDoDTranslate(tok));
+                stage6Ctrl.ready(cpu_iid, tagged STAGE6_TRANSLATE tok);
+
+            end
+            else
+            begin
+            
+                // Everything else is a no-op in the next stage.
+                stage6Ctrl.ready(cpu_iid, tagged STAGE6_NOMEM tok);
+            
+            end
+
+        end
+        else
+        begin
+        
+            // Propogate the bubble.
+            stage6Ctrl.ready(cpu_iid, tagged STAGE6_BUBBLE);
+        
+        end
+
+    endrule
+
+    rule stage6_dtrRsp_memReq (!isValid(dTransStall));
+    
+        match {.cpu_iid, .state} <- stage6Ctrl.nextReadyInstance();
+
+        if (state matches tagged STAGE6_TRANSLATE .tok)
+        begin
+
+            // Get the response from dTranslate
+            let rsp = linkToDTR.getResp();
+            linkToDTR.deq();
+
+            tok = rsp.token;
+
+            debugLog.record(cpu_iid, $format("DTR Responded for token: %0d, hasMore: %0d", tokTokenId(tok), rsp.hasMore));
+
+            if (! rsp.hasMore)
+            begin
+
+                if (tokIsLoad(tok))
+                begin
+
+                    // Request the load(s).
+                    linkToLOA.makeReq(initFuncpReqDoLoads(tok));
+                    debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
+
+                end
+                else if (tokIsStore(tok))
+                begin
+
+                    // Request the store(s)
+                    linkToSTO.makeReq(initFuncpReqDoStores(tok));
+                    debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
+
+                end
+
+                stage7Ctrl.ready(cpu_iid, tagged STAGE7_TRANSLATE tok);
+
+            end
+            else
+            begin
+
+                // Get the rest of the unaligned address.
+                dTransStall <= tagged Valid cpu_iid;
+            end
+
+        end
+        else
+        begin
+            stage7Ctrl.ready(cpu_iid, tagged STAGE7_NOMEM tok);
+        end
+
+    endrule
+    
+    rule stage6_dtrRsp_unaligned (dTransStall matches tagged Valid .cpu_iid);
+    
+        match {.cpu_iid, .state} <- stage6Ctrl.nextReadyInstance();
+       
+        
+        // Get the response from dTranslate
+        let rsp = linkToDTR.getResp();
+        linkToDTR.deq();
+
+        let tok = rsp.token;
+
+        debugLog.record(cpu_iid, $format("DTR Responded (unaligned) for token: %0d, hasMore: %0d", tokTokenId(tok), rsp.hasMore));
+
+        if (! rsp.hasMore)
+        begin
+
+            if (tokIsLoad(tok))
+            begin
+
+                // Request the load(s).
+                linkToLOA.makeReq(initFuncpReqDoLoads(tok));
+                debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
+
+            end
+            else if (tokIsStore(tok))
+            begin
+
+                // Request the store(s)
+                linkToSTO.makeReq(initFuncpReqDoStores(tok));
+                debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
+
+            end
+
+            stage7Ctrl.ready(cpu_iid, tok);
+            dTransStall <= tagged Invalid;
+
+        end
+        
+    endrule
+
+    rule stage7_memRsp (True);
+
+        match {.cpu_iid, .state} <- stage7Ctrl.nextReadyInstance();
+        
+        // Get the DCache response.
+        let m_rsp <- immRspFromDCache.receive(cpu_iid);
+                
+        case (state) matches
+            tagged STAGE7_BUBBLE:
+            begin
+            
+            end
+            tagged STAGE7_NOMEM .tok:
+            begin
+            
+            end
+            tagged STAGE7_TRANSLATE .is_load:
+            begin
+            
+                if (is_load)
+                begin
+
+                    // Get the load response
+                    let rsp = linkToLOA.getResp();
+                    linkToLOA.deq();
+
+                    tok = rsp.token;
+                    debugLog.record(cpu_iid, $format("Load ops responded for token: %0d", tokTokenId(tok)));
+
+                end
+                else
+                begin
+                
+                    // Get the store response
+                    let rsp = linkToSTO.getResp();
+                    linkToSTO.deq();
+
+                    tok = rsp.token;
+                    debugLog.record(cpu_iid, $format(": Store ops responded for token: %0d", tokTokenId(tok)));
+
+                end
+
+                // See if the DCache hit.
+                if (m_rsp matches tagged .rsp)
+                begin
+                
+                    case (rsp) matches
+                    tagged DCACHE_hit:
+                    begin
+                    
+                    end
+                    tagged DCACHE_miss:
+                    begin
+                    
+                    end
+                    tagged DCACHE_retry:
+                    begin
+                        
+                        state <= tagged CORE_RETRY_DCACHE tok;
+                        
+                    end
+                
+                end
+
+
+                stage8Ctrl.ready(cpu_iid, tok);
+
+
+            end
+        endcase
+        
+        
+    endrule
+
+    rule stage8_lcoReq (True);
+
+        match {.*, .tok} <- stage8Ctrl.nextReadyInstance();
+
+        // Get the current token from previous rule
+        let cpu_iid = tokCpuInstanceId(tok);
+
+        // Locally commit the token.
+        linkToLCO.makeReq(initFuncpReqCommitResults(tok));
+        debugLog.record(cpu_iid, $format("Locally committing token: %0d", tokTokenId(tok)));
+
+    endrule
+
+    rule stage9_lcoRsp_gcoReq (True);
+
+        let rsp = linkToLCO.getResp();
+        linkToLCO.deq();
+
+        let tok = rsp.token;
+        let cpu_iid = tokCpuInstanceId(tok);
+
+        debugLog.record(cpu_iid, $format("LCO responded for token: %0d", tokTokenId(tok)));
+
+        Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
+
+        if (rsp.faultRedirect matches tagged Valid .new_addr)
+        begin
+
+            debugLog.record(cpu_iid, $format("LCO responded with fault for token: %0d, new PC: 0x%h", tokTokenId(tok), new_addr));
+
+            // Next PC following fault
+            pc <= new_addr;
+
+            stage10Ctrl.ready(cpu_iid, False);
+
+        end
+        else if (rsp.storeToken matches tagged Valid .st_tok)
+        begin
+
+            // Request global commit of stores.
+            linkToGCO.makeReq(initFuncpReqCommitStores(st_tok));
+            debugLog.record(cpu_iid, $format("Globally committing stores for token: %0d (store token: %0d)", tokTokenId(tok), storeTokTokenId(st_tok)));
+            stage10Ctrl.ready(cpu_iid, True);
+
+        end
+        else
+        begin
+
+            stage10Ctrl.ready(cpu_iid, False);
+
+        end
+
+    endrule
   
+    (* descending_urgency = "stage10_gcoRsp, stage9_lcoRsp_gcoReq" *)
+    rule stage10_gcoRsp (True);
+
+        match {.cpu_iid, .need_store_rsp} <- stage10Ctrl.nextReadyInstance();
+
+        if (need_store_rsp)
+        begin
+
+            // Get the global commit response
+            let rsp = linkToGCO.getResp();
+            linkToGCO.deq();
+
+            let st_tok = rsp.storeToken;
+
+            debugLog.record(cpu_iid, fshow(st_tok.index) + $format("GCO Responded for store token: %0d", storeTokTokenId(st_tok)));
+
+        end
+        
+        endModelCycle(cpu_iid);
+
+    endrule
+
+
 endmodule
-`undef MODULE_NAME
+

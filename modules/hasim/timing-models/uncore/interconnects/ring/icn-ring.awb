@@ -1,0 +1,7 @@
+%name Ring Interconnect
+%desc Ring Interconnect
+%provides hasim_interconnect
+
+%attributes hasim uncore
+ 
+%public icn-ring.bsv
