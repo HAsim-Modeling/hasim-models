@@ -1,3 +1,26 @@
+//
+// Copyright (C) 2009 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+`include "asim/provides/librl_bsv_base.bsh"
+`include "asim/provides/librl_bsv_storage.bsh"
+`include "asim/provides/soft_connections.bsh"
+`include "asim/provides/mem_services.bsh"
+`include "asim/provides/common_services.bsh"
 
 `define PORT_LOAD 0
 `define PORT_STORE 1
@@ -23,7 +46,7 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name)
     FIFO#(Bit#(t_IDX_SIZE)) evictionQ <- mkFIFO();
 
     // Initialize a opaque memory to store our tags in.   
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES, 3, Bit#(t_IDX_SIZE), Maybe#(t_INTERNAL_ENTRY)) tagStore <- mkMultiReadScratchpad_Multiplexed(opaque_name, True);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES, 3, Bit#(t_IDX_SIZE), Maybe#(t_INTERNAL_ENTRY)) tagStore <- mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED);
 
     function Maybe#(CACHE_ENTRY#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr, Maybe#(t_INTERNAL_ENTRY) m_entry);
     

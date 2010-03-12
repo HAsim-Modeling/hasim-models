@@ -3879,3 +3879,16 @@ Directory modules/hasim/timing-models/uncore/interconnects/crossbar
 * Fixed a proviso bug in which cache algorithms assumed a fixed size for tokens.
 
 Michael P.
+
+----------
+mcadler     Date: Thu Mar 11 20:24:37 EST 2010  CSN: CSN-hasim-models-129
+                  Fri Mar 12 01:24:37 UTC 2010
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          128 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-direct-mapped.bsv Locally Modified          128 
+
+New scratchpad arguments.

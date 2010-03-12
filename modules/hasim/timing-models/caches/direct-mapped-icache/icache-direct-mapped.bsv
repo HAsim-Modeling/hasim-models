@@ -115,7 +115,7 @@ module [HASIM_MODULE] mkICache();
     // let cachememory <- mkICacheMemory();
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, True);
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, SCRATCHPAD_CACHED);
 
     // Track the next miss ID to give out.
     MULTIPLEXED#(NUM_CPUS, COUNTER#(ICACHE_MISS_ID_SIZE)) nextMissIDPool <- mkMultiplexed(mkLCounter(0));
