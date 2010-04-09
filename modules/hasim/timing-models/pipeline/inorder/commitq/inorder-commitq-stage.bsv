@@ -62,20 +62,20 @@ module [HASIM_MODULE] mkCommitQueue
     // ****** Model State (per Context) ******
 
     // Which tokens are complete? (Ready to issue)
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(COMMITQ_SLOT_ID, Bool)) completionsPool    <- mkMultiplexed(mkLUTRAM(False));
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, COMMITQ_SLOT_ID, Bool) completionsPool    <- mkMultiplexedLUTRAMMultiWrite(False);
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE)) bundlesPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED_LUTRAM#(NUM_CPUS, COMMITQ_SLOT_ID, DMEM_BUNDLE) bundlesPool <- mkMultiplexedLUTRAM(?);
 
     // Which slot should we allocate into?
-    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID)) nextFreeSlotPool    <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG#(NUM_CPUS, COMMITQ_SLOT_ID) nextFreeSlotPool    <- mkMultiplexedReg(0);
     
     // What's the oldest slot we know about? (The next one which should issue when it's ready.)
-    MULTIPLEXED#(NUM_CPUS, Reg#(COMMITQ_SLOT_ID)) oldestSlotPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG#(NUM_CPUS, COMMITQ_SLOT_ID) oldestSlotPool <- mkMultiplexedReg(0);
 
     // Miss Address File (MAF).
     // Maps from DCache miss ID to commitq slot.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED_LUTRAM#(NUM_CPUS, L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) mafPool <- mkMultiplexedLUTRAM(?);
     
 
     // ****** Ports ******
@@ -91,14 +91,17 @@ module [HASIM_MODULE] mkCommitQueue
     // ****** Local Controller ******
 
     Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports  = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = allocateFromDMem.ctrl;
     inports[1]  = rspFromDCacheDelayed.ctrl;
+    depports[0] = deqFromCom.ctrl;
     outports[0] = creditToDMem.ctrl;
     outports[1] = bundleToCom.ctrl;
     outports[2] = writebackToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkLocalControllerWithUncontrolled(inports, depports, outports);
+
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
@@ -126,11 +129,11 @@ module [HASIM_MODULE] mkCommitQueue
         debugLog.nextModelCycle(cpu_iid);
 
         // Get the local state for the current instance.
-        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
-        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
+        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 0);
+        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool.getRAM(cpu_iid);
 
-        Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
+        Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool.getReg(cpu_iid);
+        Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool.getReg(cpu_iid);
     
         // Let's see if the oldest slot has been completed.
         // If so, send it to the decode.
@@ -166,9 +169,9 @@ module [HASIM_MODULE] mkCommitQueue
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get the local state for the current instance.
-        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
-        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
-        LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];        
+        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 0);
+        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool.getRAM(cpu_iid);
+        LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
     
         // Now let's check for miss responses from the DCache.
         let m_complete <- rspFromDCacheDelayed.receive(cpu_iid);
@@ -218,7 +221,7 @@ module [HASIM_MODULE] mkCommitQueue
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
 
         // Get the local state for the current instance.
-        Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool[cpu_iid];
+        Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool.getReg(cpu_iid);
         
         // Check for any dequeues/clears.
         let m_deq <- deqFromCom.receive(cpu_iid);
@@ -255,12 +258,12 @@ module [HASIM_MODULE] mkCommitQueue
         let cpu_iid <- stage4Ctrl.nextReadyInstance();
         
         // Get our local state based on the context.
-        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool[cpu_iid];
-        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool[cpu_iid];
-        LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool[cpu_iid];
+        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 1);
+        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool.getRAM(cpu_iid);
+        LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
 
-        Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(COMMITQ_SLOT_ID) oldestSlot   = oldestSlotPool[cpu_iid];
+        Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool.getReg(cpu_iid);
+        Reg#(COMMITQ_SLOT_ID) oldestSlot   = oldestSlotPool.getReg(cpu_iid);
 
         // Check for any new allocations.
         let m_alloc <- allocateFromDMem.receive(cpu_iid);

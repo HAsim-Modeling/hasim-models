@@ -81,7 +81,7 @@ module [HASIM_MODULE] mkPCCalc
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_EPOCH))  epochPool <- mkMultiplexed(mkReg(initIMemEpoch(0, 0, 0, 0)));
+    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)  epochPool <- mkMultiplexedReg(initIMemEpoch(0, 0, 0, 0));
 
     // ****** Soft Connections ******
 
@@ -150,7 +150,7 @@ module [HASIM_MODULE] mkPCCalc
         debugLog.nextModelCycle(cpu_iid);
 
         // Get our state from the instance.
-        Reg#(IMEM_EPOCH) epochReg = epochPool[cpu_iid];
+        Reg#(IMEM_EPOCH) epochReg = epochPool.getReg(cpu_iid);
         IMEM_EPOCH epoch = epochReg;
 
         // Receive potential new PCs from our incoming ports.
@@ -175,7 +175,7 @@ module [HASIM_MODULE] mkPCCalc
         begin
             // A fault occurred. Redirect to the given handler address.
             // (If there's no handler this will just be the faulting instruction.
-            debugLog.record_next_cycle(cpu_iid, fshow("FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+            debugLog.record_next_cycle(cpu_iid, fshow("1: FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             epoch.fault = epoch.fault + 1;
 
@@ -189,12 +189,18 @@ module [HASIM_MODULE] mkPCCalc
 
             // A branch misprediction occured.
             // Epoch check ensures we haven't already redirected from a fault.
-            debugLog.record_next_cycle(cpu_iid, fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+            debugLog.record_next_cycle(cpu_iid, fshow("1: REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             epoch.branch = epoch.branch + 1;
 
             back_end_fault = True;
             stage2_redirect_state = tagged STAGE2_rewindRsp addr;
+        end
+        else
+        begin
+
+            debugLog.record_next_cycle(cpu_iid, fshow("1: NO FAULT/REWIND"));
+        
         end
 
         // If we need to redirect, we put the pc to redirect to in here.
@@ -216,14 +222,14 @@ module [HASIM_MODULE] mkPCCalc
             begin
                 // Epoch is wrong. No need to redirect.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("WRONG EPOCH"));
+                debugLog.record_next_cycle(cpu_iid, $format("1: WRONG EPOCH"));
             end
             else if (imem_rsp.response matches tagged IMEM_itlb_fault)
             begin
                 // An ITLB fault occured. Increment the itlb epoch, redirect
                 // pc to the handler address.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("ITLB FAULT"));
+                debugLog.record_next_cycle(cpu_iid, $format("1: ITLB FAULT"));
         
                 // For now we just go to whatever address we were trying to
                 // execute. This will likely have to change in the future.
@@ -236,7 +242,7 @@ module [HASIM_MODULE] mkPCCalc
                 // ICACHE Retry. We need to increment the iCache epoch,
                 // redirect the PC.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("ICACHE RETRY"));
+                debugLog.record_next_cycle(cpu_iid, $format("1: ICACHE RETRY"));
 
                 redirect = tagged Valid imem_rsp.bundle.virtualAddress;
                 epoch.iCache = epoch.iCache + 1;
@@ -251,14 +257,14 @@ module [HASIM_MODULE] mkPCCalc
                 // INSTQ.
                 enqueue = True;
                 statLpBpMismatches.incr(cpu_iid);
-                debugLog.record_next_cycle(cpu_iid, $format("LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
+                debugLog.record_next_cycle(cpu_iid, $format("1: LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
 
                 redirect = tagged Valid pred_pc;
                 epoch.iCache = epoch.iCache+1;
             end
             else
             begin
-                debugLog.record_next_cycle(cpu_iid, $format("NO REDIRECT"));
+                debugLog.record_next_cycle(cpu_iid, $format("1: NO REDIRECT"));
                 // Normal flow. Everything's happy. Enqueue the bundle.
                 enqueue = True;
             end
@@ -296,6 +302,7 @@ module [HASIM_MODULE] mkPCCalc
         else
         begin
             // There's a bubble from the front end.
+            debugLog.record_next_cycle(cpu_iid, $format("1: BUBBLE"));
             enqToInstQ.send(cpu_iid, Invalid);
         end
 
@@ -326,22 +333,25 @@ module [HASIM_MODULE] mkPCCalc
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
 
         // Get our state based on the current cpu instance.
-        let epoch = epochPool[cpu_iid];
+        let epoch = epochPool.getReg(cpu_iid);
 
             
         // Redirect as appropriate.
         if (state matches tagged STAGE2_noredirect) 
         begin
+            debugLog.record(cpu_iid, $format("2: NO REDIRECT"));
             nextPCToFetch.send(cpu_iid, tagged Invalid);
         end
         else if (state matches tagged STAGE2_redirect .new_pc)
         begin
+            debugLog.record(cpu_iid, $format("2: REDIRECT FINISH (NO REWIND)"));
             nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, epoch));
         end
         else if (state matches tagged STAGE2_rewindRsp .new_pc)
         begin
             let rsp = rewindToToken.getResp();
             rewindToToken.deq();
+            debugLog.record(cpu_iid, $format("2: REWIND RSP + REDIRECT FINISH"));
             nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, epoch));
 
         end

@@ -75,7 +75,7 @@ module [HASIM_MODULE] mkExecute ();
 
     // ****** Model State (per Context) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_EPOCH)) epochPool <- mkMultiplexed(mkReg(initEpoch(0, 0)));
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, TOKEN_EPOCH) epochPool <- mkMultiplexedRegMultiWrite(initEpoch(0, 0));
 
 
     // ****** Ports ******
@@ -127,10 +127,9 @@ module [HASIM_MODULE] mkExecute ();
     
     // Is a token in the correct epoch?
 
-    function Bool goodEpoch(BUNDLE bundle);
+    function Bool goodEpoch(BUNDLE bundle, TOKEN_EPOCH epoch);
         
         let cpu_iid = tokCpuInstanceId(bundle.token);
-        let epoch = epochPool[cpu_iid];
         return (bundle.branchEpoch == epoch.branch) && (bundle.faultEpoch == epoch.fault);
 
     endfunction
@@ -150,7 +149,7 @@ module [HASIM_MODULE] mkExecute ();
         
         // Get our local state from the context.
         let cpu_iid = tokCpuInstanceId(tok);
-        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
+        Reg#(TOKEN_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 1);
         
         // Calculate the next PC.
         let tgt = rsp.instructionAddress + zeroExtend(rsp.instructionSize);
@@ -211,7 +210,7 @@ module [HASIM_MODULE] mkExecute ();
         // Get our local state from the context.
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
-        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
+        Reg#(TOKEN_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 0);
 
         // Do we have an instruction to execute, and a place to put it?
         
@@ -224,7 +223,7 @@ module [HASIM_MODULE] mkExecute ();
             // Yes... but is it something we should be executing?
             let tok = bundle.token;
         
-            if (goodEpoch(bundle))
+            if (goodEpoch(bundle, epoch))
             begin
                 
                 // It's on the good path.            
@@ -357,7 +356,7 @@ module [HASIM_MODULE] mkExecute ();
             // Get our local state from the context.
             let tok = rsp.token;
             let res = rsp.result;
-            Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
+            Reg#(TOKEN_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 1);
 
             // Dequeue the IssueQ.
             bundleFromIssueQ.doDeq(cpu_iid);

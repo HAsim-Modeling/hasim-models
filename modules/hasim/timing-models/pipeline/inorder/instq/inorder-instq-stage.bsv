@@ -101,23 +101,23 @@ module [HASIM_MODULE] mkInstructionQueue
     // ****** Model State (per instance) ******
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA)) slotsPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slotsPool <- mkMultiplexedLUTRAMMultiWrite(?);
 
     // Record of which expected icache miss delayed updates we should ignore.
-    MULTIPLEXED#(NUM_CPUS, Reg#(MISS_DROP_MAP)) shouldDropPool <- mkMultiplexed(mkRegU());
+    MULTIPLEXED_REG#(NUM_CPUS, MISS_DROP_MAP) shouldDropPool <- mkMultiplexedReg(replicate(False));
 
     // Miss Address File (MAF).
     // Maps from icache miss ID to instq slot.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID)) mafPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED_LUTRAM#(NUM_CPUS, L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) mafPool <- mkMultiplexedLUTRAM(?);
     
     // Pointer to the head slot, which contains the next bundle for the decode
     // stage to look at.
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) headPtrPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG#(NUM_CPUS, INSTQ_SLOT_ID) headPtrPool <- mkMultiplexedReg(0);
     
     // Pointer to the tail slot, which is the next slot we'll use when
     // enqueuing a new bundle.
     // Note: Queue is EMPTY when headPtr == allocPtr 
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_SLOT_ID)) tailPtrPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG#(NUM_CPUS, INSTQ_SLOT_ID) tailPtrPool <- mkMultiplexedReg(0);
 
     // ****** Ports ******
 
@@ -133,15 +133,17 @@ module [HASIM_MODULE] mkInstructionQueue
     // ****** Local Controller ******
 
     Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) unctrl_ctrls = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
 
     inctrls[0]  = enqFromFetch.ctrl;
     inctrls[1]  = clearFromFetch.ctrl;
     inctrls[2]  = rspFromICacheDelayed.ctrl;
+    unctrl_ctrls[0] = deqFromDec.ctrl;
     outctrls[0] = creditToFetch.ctrl;
     outctrls[1] = bundleToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inctrls, unctrl_ctrls, outctrls);
 
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
@@ -165,9 +167,9 @@ module [HASIM_MODULE] mkInstructionQueue
         debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
-        INSTQ_SLOT_ID head_ptr = headPtrPool[cpu_iid];
-        INSTQ_SLOT_ID tail_ptr = tailPtrPool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool.getRAMWithWritePort(cpu_iid, 0);
+        Reg#(INSTQ_SLOT_ID) head_ptr = headPtrPool.getReg(cpu_iid);
+        Reg#(INSTQ_SLOT_ID) tail_ptr = tailPtrPool.getReg(cpu_iid);
 
         // Send the head bundle to decode if ready.
         let empty = (head_ptr == tail_ptr);
@@ -203,10 +205,10 @@ module [HASIM_MODULE] mkInstructionQueue
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
-        Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool.getRAMWithWritePort(cpu_iid, 0);
+        Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool.getReg(cpu_iid);
         MISS_DROP_MAP should_drop = shouldDrop;
-        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
+        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
 
         // Check for icache rendezvous.
         let m_rendezvous <- rspFromICacheDelayed.receive(cpu_iid);
@@ -251,12 +253,12 @@ module [HASIM_MODULE] mkInstructionQueue
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool[cpu_iid];
-        Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool[cpu_iid];
+        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool.getRAMWithWritePort(cpu_iid, 1);
+        Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool.getReg(cpu_iid);
         MISS_DROP_MAP should_drop = shouldDrop;
-        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool[cpu_iid];
-        Reg#(INSTQ_SLOT_ID) tailPtr = tailPtrPool[cpu_iid];
+        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
+        Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool.getReg(cpu_iid);
+        Reg#(INSTQ_SLOT_ID) tailPtr = tailPtrPool.getReg(cpu_iid);
         INSTQ_SLOT_ID head_ptr = headPtr;
     
         INSTQ_CREDIT_COUNT credits = 0;

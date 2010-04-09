@@ -3892,3 +3892,56 @@ Directory modules/hasim/timing-models/caches/cache-algorithms
  cache-algorithm-direct-mapped.bsv Locally Modified          128 
 
 New scratchpad arguments.
+
+----------
+pellauer    Date: Fri Apr  9 17:20:06 EDT 2010  CSN: CSN-hasim-models-130
+                  Fri Apr  9 21:20:06 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-prf-scoreboard.bsv Locally Added               0 
+ inorder-decode-stage.awb  Locally Modified          129 
+ inorder-decode-stage.bsv  Locally Modified          129 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          129 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          129 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          129 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          129 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          129 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          129 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          129 
+
+Directory modules/hasim/timing-models/uncore/interconnects/ring
+ icn-ring.bsv              Locally Modified          129 
+
+
+
+* Update inorder model to use MULTIPLEXED_REG and friends.
+
+* Update decode stage to use new DEPENDENCE_CONTROLLER when accessing the
+  prfValid bits. The insight is that each context always allocates/deallocs
+  independent regions, so therefore we can do different updates in parallel.
+  
+* Abstract the prfValid bits into a submodule called PRF_SCOREBOARD. Currently
+  there are two implementations of this. One is a vector of registers with
+  multiple write ports. This can lead to good cycle-to-cycle performance, but
+  it's hard to scale. The other uses a single LUTRAM and stalls when multiple
+  simultaneous writes occur. This version is currently the default and should
+  help us scale to 16 cores.
+
+* Update ring model permutation port with cleaner implementation.
+
+Michael P.

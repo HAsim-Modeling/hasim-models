@@ -58,15 +58,15 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     // ****** Model State (per instance) ******
     
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))))    buffPool   <- mkMultiplexed(mkReg(replicate(Invalid)));
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY)))    buffPool   <- mkMultiplexedRegMultiWrite(replicate(Invalid));
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(WB_INDEX)) headPool <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(WB_INDEX)) tailPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG#(NUM_CPUS, WB_INDEX) headPool <- mkMultiplexedReg(0);
+    MULTIPLEXED_REG#(NUM_CPUS, WB_INDEX) tailPool <- mkMultiplexedReg(0);
 
-    function Bool empty(CPU_INSTANCE_ID cpu_iid) = headPool[cpu_iid] == tailPool[cpu_iid];
-    function Bool full(CPU_INSTANCE_ID cpu_iid)  = headPool[cpu_iid] == tailPool[cpu_iid] + 1;
+    function Bool empty(CPU_INSTANCE_ID cpu_iid) = headPool.getReg(cpu_iid)._read() == tailPool.getReg(cpu_iid)._read();
+    function Bool full(CPU_INSTANCE_ID cpu_iid)  = headPool.getReg(cpu_iid)._read() == tailPool.getReg(cpu_iid)._read() + 1;
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(Bool)) stalledPool <- mkMultiplexed(mkReg(False));
+    MULTIPLEXED_REG#(NUM_CPUS, Bool) stalledPool <- mkMultiplexedReg(False);
     
     
     // ****** UnModel Pipeline State ******
@@ -74,7 +74,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
     FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
     FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
     
-    Reg#(Vector#(NUM_CONTEXTS, Bool)) stallForStoreRsp <- mkReg(replicate(False));
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CONTEXTS, 2, Bool) stallForStoreRspPool <- mkMultiplexedRegMultiWrite(False);
 
     // ****** Ports ******
 
@@ -95,14 +95,16 @@ module [HASIM_MODULE] mkWriteBuffer ();
     // ****** Local Controller ******
 
     Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = enqFromSB.ctrl;
     inports[1]  = loadReqFromDMem.ctrl;
     inports[2]  = delayedRspFromDCache.ctrl;
+    depports[0] = immediateRspFromDCache.ctrl;
     outports[0] = creditToSB.ctrl;
     outports[1] = storeReqToDCache.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
 
     // ****** Rules ******
@@ -117,7 +119,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
 
-        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool[cpu_iid];
+        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool.getRegWithWritePort(cpu_iid, 0);
 
         // See if the DMem is searching.
         let m_req <- loadReqFromDMem.receive(cpu_iid);
@@ -187,10 +189,11 @@ module [HASIM_MODULE] mkWriteBuffer ();
         stage2Q.deq();
 
         // Get our local state based on the current context.
-        Reg#(WB_INDEX) tail = tailPool[cpu_iid];
-        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool[cpu_iid];
-        Reg#(WB_INDEX) head = headPool[cpu_iid];
-        Reg#(Bool) stalled = stalledPool[cpu_iid];
+        Reg#(WB_INDEX) tail = tailPool.getReg(cpu_iid);
+        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool.getRegWithWritePort(cpu_iid, 0);
+        Reg#(WB_INDEX) head = headPool.getReg(cpu_iid);
+        Reg#(Bool) stalled = stalledPool.getReg(cpu_iid);
+        Reg#(Bool) stallForStoreRsp = stallForStoreRspPool.getRegWithWritePort(cpu_iid, 0);
 
         // Check if the store buffer is enq'ing a new write.
         let m_enq <- enqFromSB.receive(cpu_iid);
@@ -209,7 +212,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
             
             // Tell the functional partition to commit the store.
             commitStores.makeReq(initFuncpReqCommitStores(st_tok));
-            stallForStoreRsp[cpu_iid] <= True;
+            stallForStoreRsp <= True;
         
         end
         
@@ -260,16 +263,16 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     
     (* conservative_implicit_conditions *)
-    rule stage3_storeRsp (!stallForStoreRsp[stage3Q.first()]);
+    rule stage3_storeRsp (stallForStoreRspPool.getRegWithWritePort(stage3Q.first(), 0)._read() == False);
     
         // Get our context from the previous stage.
         let cpu_iid = stage3Q.first();
         stage3Q.deq();
     
         // Get our local state based on the current context.
-        Reg#(WB_INDEX) head = headPool[cpu_iid];
-        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool[cpu_iid];
-        Reg#(Bool) stalled = stalledPool[cpu_iid];
+        Reg#(WB_INDEX) head = headPool.getReg(cpu_iid);
+        Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool.getRegWithWritePort(cpu_iid, 1);
+        Reg#(Bool) stalled = stalledPool.getReg(cpu_iid);
 
 
         // Get the responses from the DCache.
@@ -335,7 +338,9 @@ module [HASIM_MODULE] mkWriteBuffer ();
         let st_tok = rsp.storeToken;
         
         let cpu_iid = storeTokCpuInstanceId(st_tok);
-        stallForStoreRsp[cpu_iid] <= False;
+
+        Reg#(Bool) stallForStoreRsp = stallForStoreRspPool.getRegWithWritePort(cpu_iid, 1);
+        stallForStoreRsp <= False;
     
     endrule
 

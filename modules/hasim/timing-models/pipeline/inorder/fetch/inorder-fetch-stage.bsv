@@ -49,6 +49,7 @@ import Vector::*;
 
 // ****** Modules ******
 
+
 // mkFetch
 
 module [HASIM_MODULE] mkFetch ();
@@ -58,9 +59,9 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS))    pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_EPOCH))  epochPool <- mkMultiplexed(mkReg(initIMemEpoch(0, 0, 0, 0)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(INSTQ_CREDIT_COUNT)) creditsPool <- mkMultiplexed(mkReg(fromInteger(valueof(NUM_INSTQ_CREDITS))));
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, ISA_ADDRESS)              pcPool <- mkMultiplexedRegMultiWrite(`PROGRAM_START_ADDR);
+    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)                           epochPool <- mkMultiplexedReg(initIMemEpoch(0, 0, 0, 0));
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_CREDIT_COUNT)  creditsPool <- mkMultiplexedRegMultiWrite(fromInteger(valueof(NUM_INSTQ_CREDITS)));
 
     // ****** Soft Connections ******
 
@@ -82,14 +83,16 @@ module [HASIM_MODULE] mkFetch ();
     // ****** Local Controller ******
         
     Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports  = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = creditFromInstQ.ctrl;
     inports[1]  = newPCFromPCCalc.ctrl;
+    depports[0] = newPCFromLP.ctrl;
     outports[0] = pcToITLB.ctrl;
     outports[1] = pcToBP.ctrl;
     outports[2] = pcToLP.ctrl;
     
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
 
@@ -130,9 +133,9 @@ module [HASIM_MODULE] mkFetch ();
         modelCycle.send(cpu_iid);
         
         // Get our local state using the instance.
-        Reg#(ISA_ADDRESS)         pc = pcPool[cpu_iid];
-        Reg#(IMEM_EPOCH)       epoch = epochPool[cpu_iid];
-        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool[cpu_iid];
+        Reg#(ISA_ADDRESS)             pc = pcPool.getRegWithWritePort(cpu_iid, 0);
+        Reg#(IMEM_EPOCH)           epoch = epochPool.getReg(cpu_iid);
+        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool.getRegWithWritePort(cpu_iid, 0);
 
         // Get credits from the instruction queue and update our count of them.
         let m_creditFromInstQ <- creditFromInstQ.receive(cpu_iid);
@@ -178,9 +181,9 @@ module [HASIM_MODULE] mkFetch ();
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get our local state using the instance.
-        Reg#(ISA_ADDRESS)         pc = pcPool[cpu_iid];
-        Reg#(IMEM_EPOCH)       epoch = epochPool[cpu_iid];
-        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool[cpu_iid];
+        Reg#(ISA_ADDRESS)             pc = pcPool.getRegWithWritePort(cpu_iid, 1);
+        Reg#(IMEM_EPOCH)           epoch = epochPool.getReg(cpu_iid);
+        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool.getRegWithWritePort(cpu_iid, 1);
 
         // Get the line prediction
         // assert isValid(m_line_prediction)

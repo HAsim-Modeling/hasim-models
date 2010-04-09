@@ -126,12 +126,12 @@ module [HASIM_MODULE] mkCacheMissTracker
 
     // A LUTRAM to store the free miss IDs. 
     // Initially each entry is initialized to be equal to its index.
-    MULTIPLEXED#(t_NUM_INSTANCES, LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ))) freelist <- mkMultiplexedLUTRAMInitializedWith2(id);
+    MULTIPLEXED_LUTRAM#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) freelist <- mkMultiplexedLUTRAMInitializedWith(id);
     
     // Track the state of the freelist. Initially the freelist is full and
     // every ID is on the list.
-    MULTIPLEXED#(t_NUM_INSTANCES, Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) headPtrPool <- mkMultiplexed(mkReg(minBound));
-    MULTIPLEXED#(t_NUM_INSTANCES, Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) tailPtrPool <- mkMultiplexed(mkReg(maxBound));
+    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtrPool <- mkMultiplexedRegMultiWrite(minBound);
+    MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtrPool <- mkMultiplexedReg(maxBound);
     
 
     // ******* Local Functions *******
@@ -146,8 +146,8 @@ module [HASIM_MODULE] mkCacheMissTracker
     
     function Bool empty(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool[iid];
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool[iid];
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
         
         Bit#(TSub#(t_MISS_ID_SZ,1)) hp = truncate(headPtr);
         Bit#(TSub#(t_MISS_ID_SZ,1)) tp = truncate(tailPtr);
@@ -182,9 +182,9 @@ module [HASIM_MODULE] mkCacheMissTracker
         
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool[iid];
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
 
-        let idx = freelist[iid].sub(headPtr);
+        let idx = freelist.getRAM(iid).sub(headPtr);
 
         headPtr <= headPtr + 1;
 
@@ -194,9 +194,9 @@ module [HASIM_MODULE] mkCacheMissTracker
 
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool[iid];
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 1);
 
-        let idx = freelist[iid].sub(headPtr);
+        let idx = freelist.getRAM(iid).sub(headPtr);
 
         headPtr <= headPtr + 1;
 
@@ -212,9 +212,9 @@ module [HASIM_MODULE] mkCacheMissTracker
 
     method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid, CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok);
     
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool[iid];
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
 
-        freelist[iid].upd(tailPtr, missTokIndex(miss_tok));
+        freelist.getRAM(iid).upd(tailPtr, missTokIndex(miss_tok));
 
         tailPtr <= tailPtr + 1;
     
@@ -222,29 +222,3 @@ module [HASIM_MODULE] mkCacheMissTracker
 
 endmodule
 
-
-
-// mkMultiplexedLUTRAM --
-//     Special case: merged LUTRAM where the LUTRAM's initial value is a function
-//     of its index. We do this by transforming the initialization function.
-//
-
-module mkMultiplexedLUTRAMInitializedWith2#(function t_DATA getInitVal(t_INDEX i))
-    // Interface:
-    (MULTIPLEXED#(ni, LUTRAM#(t_INDEX, t_DATA)))
-    provisos (Bits#(t_DATA, t_DATA_SZ),
-              Bits#(t_INDEX, t_INDEX_SZ),
-              Bounded#(t_INDEX),
-              Alias#(Tuple2#(INSTANCE_ID#(ni), t_INDEX), t_MERGED_IDX),
-              Bounded#(t_MERGED_IDX),
-              Bits#(t_MERGED_IDX, t_MERGED_IDX_SZ));
-
-    // This tops at 5 ports.
-
-    let ram <- (valueof(ni) > 5) ? 
-        mkMultiplexed(mkLUTRAMWith(getInitVal)) :
-        mkMultiplexedLUTRAMInitializedWith(getInitVal);
-    
-    return ram;
-   
-endmodule

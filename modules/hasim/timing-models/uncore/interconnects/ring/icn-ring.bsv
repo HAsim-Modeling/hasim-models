@@ -17,7 +17,7 @@ import Vector::*;
 
 typedef enum
 {
-
+    INITIALIZE,
     MEM_CTRL,
     CORES
 }
@@ -52,6 +52,7 @@ module [HASIM_MODULE] mkInterconnect
     // This is the main technique which makes this module work.
     // The token reordering keeps things in the correct order.
     // Note: We need an extra instance here for the memory controller's ring stop.
+    // Note: We have to control these ourselves since they have more instances than normal.
     PORT_SEND_MULTIPLEXED#(TAdd#(NUM_CPUS, 1), RING_PACKET) toNextRingStop   <- mkPortSend_Multiplexed("ring_interconnect");
     PORT_RECV_MULTIPLEXED#(TAdd#(NUM_CPUS, 1), RING_PACKET) fromPrevRingStop <- mkPortRecv_Multiplexed_ReorderFirstToLast("ring_interconnect", 1);
     
@@ -64,10 +65,9 @@ module [HASIM_MODULE] mkInterconnect
     // follow standard port-simulation scheduling. 
     // Instead this module uses a multiplex controller to read/write the virtual CPU instances in sequence.
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
     inports[0] = reqFromCores.ctrl.in;
     inports[1] = rspToCores.ctrl.in;
-    // inports[2] = fromPrevRingStop.ctrl;
 
     MULTIPLEX_CONTROLLER#(NUM_CPUS) multiplexCtrl <- mkMultiplexController(inports);
     
@@ -75,7 +75,7 @@ module [HASIM_MODULE] mkInterconnect
     // and reading/writing the (non-multiplexed) memory controller port once.
 
     // A bit where we are in the simulation flow.
-    Reg#(RINGSTOP_STATE) state <- mkReg(MEM_CTRL);
+    Reg#(RINGSTOP_STATE) state <- mkReg(INITIALIZE);
 
     function RING_PACKET reqToPacket(CORE_IC_REQ req, CPU_INSTANCE_ID iid);
     
@@ -123,6 +123,17 @@ module [HASIM_MODULE] mkInterconnect
     
 
     // ******* Rules *******
+    
+    
+    // This takes care of the fact that the port has one more instance than NUM_CPUS.
+    rule initialize (state == INITIALIZE && multiplexCtrl.running());
+    
+        let num_active_cpus = multiplexCtrl.getActiveInstances();
+        INSTANCE_ID#(TAdd#(NUM_CPUS, 1)) num_active_ring_stops = zeroExtend(num_active_cpus) + 1;
+        fromPrevRingStop.ctrl.setMaxRunningInstance(num_active_ring_stops);
+        state <= MEM_CTRL;
+    
+    endrule
 
 
     rule stage1_MemCtrl (state == MEM_CTRL && multiplexCtrl.running());
@@ -285,7 +296,7 @@ module [HASIM_MODULE] mkPortRecv_Multiplexed_ReorderFirstToLast#(String portname
 
     Connection_Receive#(Tuple2#(INSTANCE_ID#(t_NUM_INSTANCES), Maybe#(t_MSG))) con <- mkConnection_Receive(portname);
     
-    let maxInstance = fromInteger(valueof(t_NUM_INSTANCES) - 1); // activeInstances - 1; // XXX this needs to know about dynamically active instances somehow.
+    Reg#(INSTANCE_ID#(t_NUM_INSTANCES))maxInstance <- mkReg(fromInteger(valueof(t_NUM_INSTANCES) - 1));
 
     Integer rMax = (latency * valueof(t_NUM_INSTANCES)) + 1;
 
@@ -297,18 +308,25 @@ module [HASIM_MODULE] mkPortRecv_Multiplexed_ReorderFirstToLast#(String portname
     endfunction
 
     LUTRAM#(Bit#(6), Maybe#(t_MSG)) rs <- mkLUTRAMWith(initfunc);
-    Reg#(Maybe#(t_MSG)) sideBuffer <- mkReg(tagged Invalid);
+    LUTRAM#(Bit#(6), Maybe#(t_MSG)) sideBuffer <- mkLUTRAMWith(initfunc);
 
     COUNTER#(6) head <- mkLCounter(0);
     COUNTER#(6) tail <- mkLCounter((fromInteger(latency * (valueof(t_NUM_INSTANCES) - 1))));
+    COUNTER#(6) sideHead <- mkLCounter(0);
+    COUNTER#(6) sideTail <- mkLCounter((fromInteger(latency)));
     Reg#(INSTANCE_ID#(t_NUM_INSTANCES)) curEnq <- mkReg(0);
     Reg#(INSTANCE_ID#(t_NUM_INSTANCES)) curDeq <- mkReg(0);
 
     Bool fullQ  = tail.value() + 1 == head.value();
     Bool emptyQ = head.value() == tail.value();
+    Bool sideFull  = sideTail.value() + 1 == sideHead.value();
+    Bool sideEmpty = sideHead.value() == sideTail.value();
+    Bool canDeq = curDeq == maxInstance ? !sideEmpty : !emptyQ;
+    Bool canEnq = curEnq == 0 ? !sideFull : !fullQ;
 
+    Reg#(Bool) initialized <- mkReg(False);
 
-    rule shift (!fullQ && con.notEmpty());
+    rule shift (initialized && canEnq && con.notEmpty());
 
         match {.iid, .msg} = con.receive();
         con.deq();
@@ -316,7 +334,8 @@ module [HASIM_MODULE] mkPortRecv_Multiplexed_ReorderFirstToLast#(String portname
         if (curEnq == 0)
         begin
             
-            sideBuffer <= msg;
+            sideBuffer.upd(sideTail.value(), msg);
+            sideTail.up();
         
         end
         else
@@ -345,38 +364,39 @@ module [HASIM_MODULE] mkPortRecv_Multiplexed_ReorderFirstToLast#(String portname
     interface INSTANCE_CONTROL_IN ctrl;
 
 
-        method Bool empty() = emptyQ && curDeq != maxInstance;
+        method Bool empty() = !canDeq;
         method Bool balanced() = True;
         method Bool light() = False;
         
         method Maybe#(INSTANCE_ID#(t_NUM_INSTANCES)) nextReadyInstance();
         
-            return (emptyQ && curDeq != maxInstance) ? tagged Invalid : tagged Valid curDeq;
+            return canDeq ? tagged Valid curDeq : tagged Invalid;
         
         endmethod
         
-        method Action drop();
+        method Action setMaxRunningInstance(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         
-            // Take the side buffer into account.
-            if (head.value() != fromInteger(valueOf(t_NUM_INSTANCES) - 2))
-            begin
-            
-                head.up();
-
-            end
-
+            Bit#(6) l = fromInteger(latency);
+            Bit#(6) k = zeroExtendNP(iid);
+            tail.setC(k * l);
+            sideTail.setC(l);
+            maxInstance <= iid;
+            initialized <= True;
+        
         endmethod
-
+        
     endinterface
 
-    method ActionValue#(Maybe#(t_MSG)) receive(INSTANCE_ID#(t_NUM_INSTANCES) dummy) if (!emptyQ || curDeq == maxInstance);
+    method ActionValue#(Maybe#(t_MSG)) receive(INSTANCE_ID#(t_NUM_INSTANCES) dummy) if (canDeq);
 
         if (curDeq == maxInstance)
         begin
         
             // Return the side buffer.
             curDeq <= 0;
-            return sideBuffer;
+            let res = sideBuffer.sub(sideHead.value());
+            sideHead.up();
+            return res;
         
         end
         else

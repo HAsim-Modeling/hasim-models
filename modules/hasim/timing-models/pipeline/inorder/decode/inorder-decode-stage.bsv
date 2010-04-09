@@ -28,6 +28,7 @@ import FIFO::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
+`include "asim/provides/fpga_components.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_isa.bsh"
 `include "asim/provides/chip_base_types.bsh"
@@ -92,14 +93,14 @@ module [HASIM_MODULE] mkDecode ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN)                    allocToSB <- mkPortSend_Multiplexed("Dec_to_SB_alloc");
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)      bundleFromInstQ      <- mkPortRecv_Multiplexed("InstQ_to_Dec_first", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)              creditFromSB         <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN_FAULT_EPOCH) mispredictFromExe    <- mkPortRecv_Multiplexed("Exe_to_Dec_mispredict", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)              faultFromCom         <- mkPortRecv_Multiplexed("Com_to_Dec_fault", 1);
 
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
 
     // ****** Soft Connections ******
 
@@ -109,24 +110,24 @@ module [HASIM_MODULE] mkDecode ();
  
     // ****** Local Controller ******
 
-    Vector#(9, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
-    inports[0]  = writebackFromExe.ctrl;
-    inports[1]  = writebackFromMemHit.ctrl;
-    inports[2]  = writebackFromMemMiss.ctrl;
-    inports[3]  = writebackFromCom.ctrl;
-    inports[4]  = bundleToIssueQ.ctrl.in;
-    inports[5]  = creditFromSB.ctrl;
-    inports[6]  = mispredictFromExe.ctrl;
-    inports[7]  = faultFromCom.ctrl;
-    inports[8]  = bundleFromInstQ.ctrl;
+    inports[0]  = bundleToIssueQ.ctrl.in;
+    inports[1]  = creditFromSB.ctrl;
+    inports[2]  = mispredictFromExe.ctrl;
+    inports[3]  = faultFromCom.ctrl;
+    inports[4]  = bundleFromInstQ.ctrl;
+    inports[5]  = writebackFromCom.ctrl;
+    depports[0] = writebackFromExe.ctrl;
+    depports[1] = writebackFromMemHit.ctrl;
+    depports[2] = writebackFromMemMiss.ctrl;
     outports[0] = bundleToIssueQ.ctrl.out;
     outports[1] = deqToInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS)              stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE3_STATE) stage3Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE4_STATE) stage4Ctrl <- mkStageController();
 
@@ -135,25 +136,22 @@ module [HASIM_MODULE] mkDecode ();
 
     // ****** Model State (per Instance) ******
 
-    Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
-    Integer numFuncpPhyRegisters = valueof(FUNCP_NUM_PHYSICAL_REGS);
-
-    Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prfValidInit = newVector();
-
-    let maxInitReg = numIsaArchRegisters * valueOf(NUM_CONTEXTS);
-
-    for (Integer i = 0; i < maxInitReg; i = i + 1)
-        prfValidInit[i] = True;
-
-    for (Integer i = maxInitReg; i < numFuncpPhyRegisters; i = i + 1)
-        prfValidInit[i] = False;
-    
     MULTIPLEXED#(NUM_CPUS, COUNTER#(TOKEN_INDEX_SIZE))              numInstrsInFlightPool <- mkMultiplexed(mkLCounter(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Bool))                                  drainingAfterPool <- mkMultiplexed(mkReg(False));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES))) memoDependenciesPool <- mkMultiplexed(mkReg(Invalid));
-    Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool))      prfValid <- mkReg(prfValidInit);
+    MULTIPLEXED_REG#(NUM_CPUS, Bool)                                  drainingAfterPool <- mkMultiplexedReg(False);
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 3, Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependenciesPool <- mkMultiplexedRegMultiWrite(Invalid);
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_EPOCH)) epochPool <- mkMultiplexed(mkReg(initEpoch(0, 0)));
+    // PRF valid bits.
+
+    DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardLUTRAM();
+    // DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardMultiWrite(); // Can be switched for expensive version.
+
+
+    MULTIPLEXED_REG#(NUM_CPUS, TOKEN_EPOCH) epochPool <- mkMultiplexedReg(initEpoch(0, 0));
+
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbExeCtrl  <- mkDependenceController();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbHitCtrl  <- mkDependenceController();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
+
 
     // ***** Helper Functions ******
 
@@ -173,9 +171,10 @@ module [HASIM_MODULE] mkDecode ();
         begin
             if (srcmap[i] matches tagged Valid { .ar, .pr })
             begin
-                rdy = rdy && prfValid[pr];
+                let is_rdy = prfScoreboard.isReady(pr);
+                rdy = rdy && is_rdy;
 
-                if (! prfValid[pr])
+                if (!is_rdy)
                 begin
                     debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) not ready", pr, ar));
                 end
@@ -211,7 +210,7 @@ module [HASIM_MODULE] mkDecode ();
     
     function Bool readyDrainAfter(CPU_INSTANCE_ID cpu_iid);
     
-        Reg#(Bool)                     drainingAfter = drainingAfterPool[cpu_iid];
+        Reg#(Bool)                     drainingAfter = drainingAfterPool.getReg(cpu_iid);
         COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
     
         if (drainingAfter)
@@ -221,33 +220,6 @@ module [HASIM_MODULE] mkDecode ();
     
     endfunction
 
-    // markPRFInvalid
-
-    // When we issue an instruction we mark its destinations as unready.
-
-    function Action markPRFInvalid(TOKEN tok, ISA_DST_MAPPING dstmap);
-    action
-        
-        // Extract local state from the context.
-        let cpu_iid = tokCpuInstanceId(tok);
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
-
-        // Update the scoreboard.
-        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
-
-        for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
-        begin
-            if (dstmap[i] matches tagged Valid { .ar, .pr })
-            begin
-                prf_valid[pr] = False;
-                debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
-            end
-        end
-        prfValid <= prf_valid;
-        numInstrsInFlight.up();
-
-    endaction
-    endfunction
 
     // makeBundle
     
@@ -275,7 +247,7 @@ module [HASIM_MODULE] mkDecode ();
     endfunction
 
     // ****** Rules ******
-    
+   
     // stage1_writebacks
     
     // Begin simulating a new context.
@@ -291,91 +263,87 @@ module [HASIM_MODULE] mkDecode ();
     // * None
 
     (* conservative_implicit_conditions *)
-    rule stage1_writebacks (True);
-
-        // Begin model cycle.
-        let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
-        
-        // Extract our local state from the context.
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
-
-        // Record how many registers have been written or instructions killed.
-        Integer instrs_removed = 0;
-        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
-
-
+    rule stage1_writebackExe (writebackFromExe.ctrl.nextReadyInstance() matches tagged Valid .iid 
+                                &&& wbExeCtrl.producerCanStart());
+    
         // Process writes from EXE
-        let bus_exe <- writebackFromExe.receive(cpu_iid);
+        let bus_exe <- writebackFromExe.receive(iid);
+        wbExeCtrl.producerStart();
+        wbExeCtrl.producerDone();
+
         if (bus_exe matches tagged Valid .msg)
         begin
-            for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
+        
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
             begin
-
-                if (msg.destRegs[i] matches tagged Valid .pr)
+            
+                if (msg.destRegs[0] matches tagged Valid .pr)
                 begin
-
-                    prf_valid[pr] = True;
-                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
-
-                end
-            end
-        end
-
-        // Process writes from MEM hits
-        let bus_memh <- writebackFromMemHit.receive(cpu_iid);
-        if (bus_memh matches tagged Valid .msg)
-        begin
-            for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
-            begin
-
-                if (msg.destRegs[i] matches tagged Valid .pr)
-                begin
-
-                    prf_valid[pr] = True;
-                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
-
+                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
+                    prfScoreboard.wbExe[x].ready(pr);
                 end
 
             end
-        end
-
-        // Process writes from MEM misses.
-        let bus_memm <- writebackFromMemMiss.receive(cpu_iid);
-        if (bus_memm matches tagged Valid .msg)
-        begin
-            for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
-            begin
-
-                if (msg.destRegs[i] matches tagged Valid .pr)
-                begin
-
-                    prf_valid[pr] = True;
-                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
-
-                end
-
-            end
-        end
-    
-        // Process writes from Com. These can't have been retired.
-        let commit <- writebackFromCom.receive(cpu_iid);
-        if (commit matches tagged Valid .commit_tok)
-        begin
-
-            debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
-            numInstrsInFlight.down();
-
+        
         end
         
-        // Update the scoreboard.
-        prfValid <= prf_valid;
+    endrule
+    
+    (* conservative_implicit_conditions *)
+    rule stage1_writebackMemHit (writebackFromMemHit.ctrl.nextReadyInstance() matches tagged Valid .iid
+                                &&& wbHitCtrl.producerCanStart());
+    
+        // Process writes from MEM Hit
+        let bus_hit <- writebackFromMemHit.receive(iid);
+        wbHitCtrl.producerStart();
+        wbHitCtrl.producerDone();
 
-        // Pass to the next stage.
-        stage2Ctrl.ready(cpu_iid);
+        if (bus_hit matches tagged Valid .msg)
+        begin
+        
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+            begin
+            
+                if (msg.destRegs[0] matches tagged Valid .pr)
+                begin
+                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
+                    prfScoreboard.wbHit[x].ready(pr);
+                end
+
+            end
+        
+        end
         
     endrule
 
+    (* conservative_implicit_conditions *)
+    rule stage1_writebackMemMiss (writebackFromMemMiss.ctrl.nextReadyInstance() matches tagged Valid .iid
+                                &&& wbMissCtrl.producerCanStart());
+    
+        // Process writes from MEM Miss
+        let bus_miss <- writebackFromMemMiss.receive(iid);
+        wbMissCtrl.producerStart();
+        wbMissCtrl.producerDone();
+
+        if (bus_miss matches tagged Valid .msg)
+        begin
+        
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+            begin
+            
+                if (msg.destRegs[0] matches tagged Valid .pr)
+                begin
+                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
+                    prfScoreboard.wbMiss[x].ready(pr);
+                end
+
+            end
+        
+        end
+        
+    endrule
+
+        
     // stage2_dependencies
     
     // Check if there's an instruction waiting to be issued. 
@@ -394,17 +362,29 @@ module [HASIM_MODULE] mkDecode ();
     (* conservative_implicit_conditions *)
     rule stage2_dependencies (True);
 
-        // Get the cpu instance from the previous stage.
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+        // Begin model cycle.
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
         
         // Extract local state from the cpu instance.
-        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
-        Reg#(TOKEN_EPOCH) epoch = epochPool[cpu_iid];
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool.getRegWithWritePort(cpu_iid, 0);
+        Reg#(TOKEN_EPOCH) epoch = epochPool.getReg(cpu_iid);
+        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
         
         let m_mispred <- mispredictFromExe.receive(cpu_iid);
         let m_fault   <- faultFromCom.receive(cpu_iid);
         let m_bundle  <- bundleFromInstQ.receive(cpu_iid);
         let can_enq <- bundleToIssueQ.canEnq(cpu_iid);
+    
+        // Process retired instructions from Com.
+        let commit <- writebackFromCom.receive(cpu_iid);
+        if (commit matches tagged Valid .commit_tok)
+        begin
+
+            debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
+            numInstrsInFlight.down();
+
+        end
 
         if (isValid(m_fault))
         begin
@@ -548,7 +528,7 @@ module [HASIM_MODULE] mkDecode ();
             getDependencies.deq();
 
             // Extract local state from the context.
-            Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
+            Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool.getRegWithWritePort(cpu_iid, 1);
 
             // Update dependencies.
             memoDependencies <= tagged Valid rsp;
@@ -572,16 +552,30 @@ module [HASIM_MODULE] mkDecode ();
     // * deqToInstQ
     // * allocToSB
 
-    (* conservative_implicit_conditions *)
-    rule stage4_attemptIssue (True);
+    let writebacksFinished = wbExeCtrl.consumerCanStart() && wbHitCtrl.consumerCanStart() && wbMissCtrl.consumerCanStart();
+
+    // Specify a rule urgency so that if the Scoreboard has less parallelism there are no
+    // compiler warnings.
+
+    (* conservative_implicit_conditions, descending_urgency = "stage1_writebackMemMiss, stage1_writebackMemHit, stage1_writebackExe, stage4_attemptIssue" *)
+    rule stage4_attemptIssue (writebacksFinished);
     
         // Extract the next active instance.
         match {.cpu_iid, .state} <- stage4Ctrl.nextReadyInstance();
 
         // Get the state for this instance.
-        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
-        Reg#(Bool)                                  drainingAfter = drainingAfterPool[cpu_iid];
+        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool.getRegWithWritePort(cpu_iid, 2);
+        Reg#(Bool)                                  drainingAfter = drainingAfterPool.getReg(cpu_iid);
+        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
+
         
+        wbExeCtrl.consumerStart();
+        wbExeCtrl.consumerDone();
+        wbHitCtrl.consumerStart();
+        wbHitCtrl.consumerDone();
+        wbMissCtrl.consumerStart();
+        wbMissCtrl.consumerDone();
+
         // Get the store buffer credit in case we're dealing with a store...
         let m_credit <- creditFromSB.receive(cpu_iid);
         let sb_has_credit = isValid(m_credit);
@@ -654,7 +648,21 @@ module [HASIM_MODULE] mkDecode ();
 
                 // Update the scoreboard to reflect this instruction issuing.
                 // Mark its destination registers as unready until it commits.
-                markPRFInvalid(tok, rsp.dstMap);
+
+                for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+                begin
+                
+                    if (rsp.dstMap[0] matches tagged Valid { .ar, .pr })
+                    begin
+                        prfScoreboard.issue[x].unready(pr);
+                        debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
+                    end
+                
+                end
+
+                // Update the number of instructions in flight.
+                numInstrsInFlight.up();
+
                 memoDependencies <= Invalid;
                 drainingAfter <= isaDrainAfter(fetchbundle.inst);
 
@@ -688,5 +696,5 @@ module [HASIM_MODULE] mkDecode ();
         end
 
     endrule
-
+        
 endmodule
