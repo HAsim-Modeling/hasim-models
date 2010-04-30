@@ -60,7 +60,7 @@ module [HASIM_MODULE] mkFetch ();
     // ****** Model State (per instance) ******
 
     MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, ISA_ADDRESS)              pcPool <- mkMultiplexedRegMultiWrite(`PROGRAM_START_ADDR);
-    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)                           epochPool <- mkMultiplexedReg(initIMemEpoch(0, 0, 0, 0));
+    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)                           epochPool <- mkMultiplexedReg(initialIMemEpoch);
     MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_CREDIT_COUNT)  creditsPool <- mkMultiplexedRegMultiWrite(fromInteger(valueof(NUM_INSTQ_CREDITS)));
 
     // ****** Soft Connections ******

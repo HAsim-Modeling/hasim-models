@@ -99,6 +99,9 @@ interface CACHE_MISS_TRACKER#(parameter type t_NUM_INSTANCES, parameter type t_M
     method Bool canAllocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool canAllocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     
+    method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
@@ -155,7 +158,16 @@ module [HASIM_MODULE] mkCacheMissTracker
         return hp == tp;
     
     endfunction
+        
+    function Bool full(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
+
+        return (tailPtr + 1) == headPtr;
+    
+    endfunction
+
     // ******* Methods *******
     
 
@@ -172,6 +184,19 @@ module [HASIM_MODULE] mkCacheMissTracker
     method Bool canAllocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
         return !empty(iid);
+
+    endmethod
+    
+
+    method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    
+        return full(iid);
+
+    endmethod
+    
+    method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+
+        return full(iid);
 
     endmethod
     

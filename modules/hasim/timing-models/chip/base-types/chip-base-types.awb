@@ -9,5 +9,7 @@
 %public chip-base-types.bsv
 
 %param NUM_CPUS 2 "Maximum number of CPUs on the core"
+%param NUM_LANES 2 "Number of lanes in in the on-chip network."
+%param VCS_PER_LANE 1 "Number of virtual channels per lane in the on-chip network."
 
 %AWB_END

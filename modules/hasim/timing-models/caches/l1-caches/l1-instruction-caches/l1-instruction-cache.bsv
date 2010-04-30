@@ -125,7 +125,6 @@ module [HASIM_MODULE] mkL1ICache ();
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMisses  <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_MISS);
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statRetries <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_RETRY);
 
-
     // ****** Rules ******
 
     // stage1_fill
@@ -166,7 +165,7 @@ module [HASIM_MODULE] mkL1ICache ();
             
 
             // Return it to the CPU.
-            debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d", miss_tok.index));
+            debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d LINE: 0x%h", miss_tok.index, fill.physicalAddress));
             let rsp = initICacheMissRsp(miss_tok.index);
             loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
 
@@ -196,7 +195,7 @@ module [HASIM_MODULE] mkL1ICache ();
             // See if the cache algorithm hit or missed.
             let line_addr = toLineAddress(req.physicalAddress);
             iCacheAlg.loadLookupReq(cpu_iid, line_addr);
-            debugLog.record_next_cycle(cpu_iid, $format("1: LOAD REQ: 0x%h", line_addr));
+            debugLog.record_next_cycle(cpu_iid, $format("1: LOAD REQ: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
 
             // Finish the request in the next stage.
             local_state.loadReq = tagged Valid req;
@@ -256,6 +255,7 @@ module [HASIM_MODULE] mkL1ICache ();
 
                 // A miss. But do we have a free missID to track the fill with?
                 // And is the memQ not full?
+                // And is it to a different address than
                 if (outstandingMisses.canAllocateLoad(cpu_iid) && memQ_not_full)
                 begin
 
@@ -288,7 +288,7 @@ module [HASIM_MODULE] mkL1ICache ();
                     statRetries.incr(cpu_iid);
 
                 end
-
+                
             end // cache load miss
         end
         else

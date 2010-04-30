@@ -59,7 +59,7 @@ typedef union tagged
     FETCH_BUNDLE STAGE4_depsCheck;
 }
 DEC_STAGE4_STATE deriving (Bits, Eq);
-
+ 
 
 // mkDecode
 
@@ -277,7 +277,7 @@ module [HASIM_MODULE] mkDecode ();
             for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
             begin
             
-                if (msg.destRegs[0] matches tagged Valid .pr)
+                if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
                     debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
                     prfScoreboard.wbExe[x].ready(pr);
@@ -304,7 +304,7 @@ module [HASIM_MODULE] mkDecode ();
             for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
             begin
             
-                if (msg.destRegs[0] matches tagged Valid .pr)
+                if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
                     debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
                     prfScoreboard.wbHit[x].ready(pr);
@@ -331,7 +331,7 @@ module [HASIM_MODULE] mkDecode ();
             for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
             begin
             
-                if (msg.destRegs[0] matches tagged Valid .pr)
+                if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
                     debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
                     prfScoreboard.wbMiss[x].ready(pr);
@@ -652,7 +652,7 @@ module [HASIM_MODULE] mkDecode ();
                 for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
                 begin
                 
-                    if (rsp.dstMap[0] matches tagged Valid { .ar, .pr })
+                    if (rsp.dstMap[x] matches tagged Valid { .ar, .pr })
                     begin
                         prfScoreboard.issue[x].unready(pr);
                         debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));

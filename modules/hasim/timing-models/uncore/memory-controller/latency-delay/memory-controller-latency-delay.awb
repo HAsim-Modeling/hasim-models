@@ -1,0 +1,10 @@
+%name Latency-Delay Controller
+%desc Latency-Delay Memory
+%provides hasim_memory_controller
+
+%attributes hasim uncore memory
+
+%public memory-controller-latency-delay.bsv 
+
+
+%AWB_END

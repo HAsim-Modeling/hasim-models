@@ -62,7 +62,8 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH)) iTLBEpochPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH))     iTLBEpochPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ICACHE_EPOCH)) iCacheEpochPool <- mkMultiplexed(mkReg(0));
 
     // ****** Ports ******
 
@@ -117,7 +118,8 @@ module [HASIM_MODULE] mkIMem
         let cpu_iid <- localCtrl.startModelCycle();
         
         // Get our local state using the current context.
-        Reg#(IMEM_ITLB_EPOCH) iTLBEpoch = iTLBEpochPool[cpu_iid];
+        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = iTLBEpochPool[cpu_iid];
+        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
 
         Maybe#(IMEM_OUTPUT) stage_data = Invalid;
         
@@ -127,7 +129,7 @@ module [HASIM_MODULE] mkIMem
         if (m_rsp matches tagged Valid .rsp)
         begin
 
-            if (rsp.bundle.epoch.iTLB == iTLBEpoch)
+            if (rsp.bundle.epoch.iTLB == iTLBEpoch && rsp.bundle.epoch.iCache == iCacheEpoch)
             begin
                 // Check if we received a valid translation.
                 if (rsp.rspType == ITLB_pageFault)
@@ -168,10 +170,7 @@ module [HASIM_MODULE] mkIMem
                 // Epoch check failed. Don't make an icache request
                 physAddrToICache.send(cpu_iid, tagged Invalid);
 
-                stage_data = tagged Valid IMEM_OUTPUT {
-                    bundle: rsp.bundle,
-                    response: IMEM_bad_epoch
-                };
+                stage_data = tagged Invalid;
             end
         end
         else
@@ -194,6 +193,8 @@ module [HASIM_MODULE] mkIMem
     rule stage2_iCacheRsp;
         match {.cpu_iid, .m_stage_data} <- stage2Ctrl.nextReadyInstance();
 
+        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
+
         let m_icache_rsp <- immRspFromICache.receive(cpu_iid); 
 
         if (m_stage_data matches tagged Valid .stage_data)
@@ -213,7 +214,12 @@ module [HASIM_MODULE] mkIMem
                 let new_bundle = icache_rsp.bundle;
                 new_bundle.instruction = rsp.instruction;
                 getInstruction.deq();
-
+                
+                if (icache_rsp.rspType matches tagged ICACHE_retry)
+                begin
+                    iCacheEpoch <= iCacheEpoch + 1;
+                end
+                
                 iMemToPCCalc.send(cpu_iid, tagged Valid IMEM_OUTPUT {
                     bundle: new_bundle,
                     response: response
@@ -221,9 +227,9 @@ module [HASIM_MODULE] mkIMem
             end
             else
             begin
-                // Nothing from the icache, so there must have been an itlb
-                // fault or bad epoch. Use the stage data as is.
-                iMemToPCCalc.send(cpu_iid, tagged Valid stage_data);
+                // Nothing from the icache, so there must have been an bad epoch. 
+                // Propogate the bubble.
+                iMemToPCCalc.send(cpu_iid, tagged Invalid);
             end
         end
         else

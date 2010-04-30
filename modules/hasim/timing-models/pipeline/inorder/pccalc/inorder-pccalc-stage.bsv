@@ -81,7 +81,7 @@ module [HASIM_MODULE] mkPCCalc
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)  epochPool <- mkMultiplexedReg(initIMemEpoch(0, 0, 0, 0));
+    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)  epochPool <- mkMultiplexedReg(initialIMemEpoch);
 
     // ****** Soft Connections ******
 
@@ -260,7 +260,7 @@ module [HASIM_MODULE] mkPCCalc
                 debugLog.record_next_cycle(cpu_iid, $format("1: LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
 
                 redirect = tagged Valid pred_pc;
-                epoch.iCache = epoch.iCache+1;
+                epoch.prediction = epoch.prediction + 1;
             end
             else
             begin

@@ -1,0 +1,14 @@
+%name Mesh Interconnect
+%desc 2D Square Mesh
+%provides hasim_interconnect
+
+%attributes hasim uncore
+ 
+%public icn-mesh.bsv
+
+%param NUM_VCS  2       "Number of virtual channels."
+%param BUFFER_DEPTH  4  "Buffering per virtual channel."
+
+%param --dynamic MESH_WIDTH  3       "Number of routers in a mesh row."
+%param --dynamic MESH_HEIGHT 3       "Number of routers in a mesh column."
+%param --dynamic MESH_MEM_CTRL_LOC 4 "Position of memory controller in the mesh (N = (N+1)th node simulated, so 0 = first node simulated = (0,0)."

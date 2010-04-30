@@ -10,25 +10,30 @@ import FShow::*;
 
 `define IMEM_ITLB_EPOCH_BITS 2
 `define IMEM_ICACHE_EPOCH_BITS 2
+`define IMEM_PREDICTION_EPOCH_BITS 2
 
 
 typedef Bit#(`IMEM_ITLB_EPOCH_BITS) IMEM_ITLB_EPOCH;
 typedef Bit#(`IMEM_ICACHE_EPOCH_BITS) IMEM_ICACHE_EPOCH;
+typedef Bit#(`IMEM_PREDICTION_EPOCH_BITS) IMEM_PREDICTION_EPOCH;
 
 typedef struct
 {
     IMEM_ITLB_EPOCH iTLB;
     IMEM_ICACHE_EPOCH iCache;
+    IMEM_PREDICTION_EPOCH prediction;
     TOKEN_BRANCH_EPOCH branch;
     TOKEN_FAULT_EPOCH fault;
 }
 IMEM_EPOCH deriving (Eq, Bits);
 
-function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, TOKEN_BRANCH_EPOCH b,TOKEN_FAULT_EPOCH f);
+function IMEM_EPOCH initIMemEpoch(IMEM_ITLB_EPOCH iT, IMEM_ICACHE_EPOCH iC, IMEM_PREDICTION_EPOCH iP, TOKEN_BRANCH_EPOCH b,TOKEN_FAULT_EPOCH f);
 
-    return IMEM_EPOCH {iTLB: iT, iCache: iC, branch: b, fault: f};
+    return IMEM_EPOCH {iTLB: iT, iCache: iC, prediction: iP, branch: b, fault: f};
 
 endfunction
+
+IMEM_EPOCH initialIMemEpoch = initIMemEpoch(0, 0, 0, 0, 0);
 
 
 typedef struct

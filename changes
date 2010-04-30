@@ -3945,3 +3945,75 @@ Directory modules/hasim/timing-models/uncore/interconnects/ring
 * Update ring model permutation port with cleaner implementation.
 
 Michael P.
+
+----------
+pellauer    Date: Fri Apr 30 18:05:09 EDT 2010  CSN: CSN-hasim-models-131
+                  Fri Apr 30 22:05:09 UTC 2010
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          130 
+ chip-base-types.bsv       Locally Modified          130 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          130 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          130 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          130 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          130 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          130 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          130 
+
+Directory modules/hasim/timing-models/caches/l1-caches/base-types
+ l1-cache-base-types.bsv   Locally Modified          130 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          130 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/null
+ last-level-cache-null.bsv Locally Modified          130 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.bsv Locally Modified          130 
+
+Directory modules/hasim/timing-models/uncore/memory-controller
+ latency-delay/            Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.awb Locally Added               0 
+ memory-controller-latency-delay.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects
+ torus/                    Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.awb              Locally Added               0 
+ icn-mesh.bsv              Locally Added               0 
+
+
+Adding Torus/Mesh network model. The changing of the interfacing between the
+LLC and OCN will break the ring/crossbar models until they can be brought up
+to the new model. Still, this code is important enough that it should be
+committed. Other models will be fixed ASAP.
+
+Fixed a bug in Decode where indexing was wrong.
+
+Moved Front End epoch check to IMEM stage from PC Calc. Separated ICache epoch
+from Branch predictor epoch.
+
+Code for the mesh still needs much cleaning up. Specifically homes need to be
+found for the specialized ports and controllers it uses. Additionally the
+Split/Join ports should probably be instantiated elsewhere to keep the OCN all
+in the NUM_STATIONS multiplexing domain rather than crossing the
+NUM_CPUS/NUM_STATIONS boundary.
+
+Michael P.

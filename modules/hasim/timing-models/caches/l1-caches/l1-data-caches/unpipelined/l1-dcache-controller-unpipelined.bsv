@@ -229,7 +229,7 @@ module [HASIM_MODULE] mkL1DCache ();
             begin
 
                 // The fill is a load response. Return it to the CPU.
-                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP LOAD: %0d", miss_tok.index));
+                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP LOAD: %0d, LINE: 0x%h", miss_tok.index, fill.physicalAddress));
                 loadRspDelToCPU.send(cpu_iid, tagged Valid initDCacheLoadMissRsp(miss_tok.index));
                 storeRspDelToCPU.send(cpu_iid, tagged Invalid);
                 
@@ -239,7 +239,7 @@ module [HASIM_MODULE] mkL1DCache ();
 
                 // The fill is a store response. Tell the CPU the entry has been loaded
                 // so it's OK to perform their store with no coherence issues.
-                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP STORE: %0d", miss_tok.index));
+                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP STORE: %0d, LINE: 0x%h", miss_tok.index, fill.physicalAddress));
                 loadRspDelToCPU.send(cpu_iid, tagged Invalid);
                 storeRspDelToCPU.send(cpu_iid, tagged Valid initDCacheStoreDelayOk(miss_tok.index));
 
@@ -353,7 +353,7 @@ module [HASIM_MODULE] mkL1DCache ();
             // See if the cache algorithm hit or missed.
             let line_addr = toLineAddress(req.physicalAddress);
             dCacheAlg.loadLookupReq(cpu_iid, line_addr);
-            debugLog.record(cpu_iid, $format("2: LOAD REQ: 0x%h", req.physicalAddress));
+            debugLog.record(cpu_iid, $format("2: LOAD REQ: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
 
             // Finish the request in the next stage.
             local_state.loadReq = tagged Valid req;
@@ -461,7 +461,7 @@ module [HASIM_MODULE] mkL1DCache ();
             // See if the cache algorithm hit or missed.
             let line_addr = toLineAddress(req.physicalAddress);
             dCacheAlg.storeLookupReq(cpu_iid, line_addr);
-            debugLog.record(cpu_iid, $format("3: STORE REQ: 0x%h", req.physicalAddress));
+            debugLog.record(cpu_iid, $format("3: STORE REQ: 0x%h, LINE: 0x%h", req.physicalAddress, line_addr));
             
             // Finish handling the request in the next stage.
             local_state.storeReq = tagged Valid req;
