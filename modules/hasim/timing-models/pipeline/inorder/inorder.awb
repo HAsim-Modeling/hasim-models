@@ -10,6 +10,4 @@
 %public inorder-pipeline.bsv
 %public inorder-pipeline.h
 
-%param SYNTH_BOUNDARY mkPipeline "Name of synthesis boundary"
-
 %AWB_END

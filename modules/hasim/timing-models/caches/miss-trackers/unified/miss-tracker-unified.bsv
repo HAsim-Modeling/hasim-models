@@ -8,6 +8,7 @@
 
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/chip_base_types.bsh"
+`include "asim/provides/memory_base_types.bsh"
 
 // ******* Local Includes *******
 
@@ -98,14 +99,18 @@ interface CACHE_MISS_TRACKER#(parameter type t_NUM_INSTANCES, parameter type t_M
 
     method Bool canAllocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool canAllocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
     
     method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
     method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid, CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok_to_free);
+    
+    method Bool fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) freeNextDelivery(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
 endinterface
 
@@ -131,6 +136,19 @@ module [HASIM_MODULE] mkCacheMissTracker
     // Initially each entry is initialized to be equal to its index.
     MULTIPLEXED_LUTRAM#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) freelist <- mkMultiplexedLUTRAMInitializedWith(id);
     
+    // A LUTRAM to store which other miss IDs a fill should be returned to,
+    // represented as a linked list.
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillListPool <- mkMultiplexedLUTRAMMultiWrite(tagged Invalid);
+    
+    // A register to store the current token that we are returning a fill to, beyond the first.
+    MULTIPLEXED_REG#(t_NUM_INSTANCES, Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFillsPool <- mkMultiplexedReg(tagged Invalid);
+    
+    // A register to store the current token that is the tail of a "run".
+    MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTailPool <- mkMultiplexedReg(0);
+
+    // A register to store the last load we served. No more loads will be made to this address.
+    MULTIPLEXED_REG#(t_NUM_INSTANCES, LINE_ADDRESS) lastServedAddrPool <- mkMultiplexedReg(?);
+
     // Track the state of the freelist. Initially the freelist is full and
     // every ID is on the list.
     MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtrPool <- mkMultiplexedRegMultiWrite(minBound);
@@ -188,6 +206,14 @@ module [HASIM_MODULE] mkCacheMissTracker
     endmethod
     
 
+    method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+
+        Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
+        return lastServedAddr == addr;
+
+    endmethod
+    
+
     method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     
         return full(iid);
@@ -205,13 +231,24 @@ module [HASIM_MODULE] mkCacheMissTracker
     //
     // Pop the freelist and return the head, coloring the token as appropriate.
         
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
 
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTail = runTailPool.getReg(iid);
+        Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillList = multipleFillListPool.getRAMWithWritePort(iid, 0);
 
         let idx = freelist.getRAM(iid).sub(headPtr);
 
         headPtr <= headPtr + 1;
+
+        if (lastServedAddr == addr)
+        begin
+            multipleFillList.upd(runTail, tagged Valid idx);
+        end
+
+        runTail <= idx;
+        lastServedAddr <= addr;
 
         return initMissTokLoad(idx);
     
@@ -238,12 +275,43 @@ module [HASIM_MODULE] mkCacheMissTracker
     method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid, CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok);
     
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
+        Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillList = multipleFillListPool.getRAMWithWritePort(iid, 1);
 
         freelist.getRAM(iid).upd(tailPtr, missTokIndex(miss_tok));
 
         tailPtr <= tailPtr + 1;
+        
+        servingMultipleFills <= multipleFillList.sub(missTokIndex(miss_tok));
+        multipleFillList.upd(missTokIndex(miss_tok), tagged Invalid);
     
     endmethod
+
+
+    method Bool fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+        Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
+        return isValid(servingMultipleFills);
+    endmethod
+
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) freeNextDelivery(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
+        Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillList = multipleFillListPool.getRAMWithWritePort(iid, 1);
+
+
+        let cur = validValue(servingMultipleFills);
+
+        freelist.getRAM(iid).upd(tailPtr, cur);
+        tailPtr <= tailPtr + 1;        
+
+        servingMultipleFills <= multipleFillList.sub(cur);
+        multipleFillList.upd(cur, tagged Invalid);
+
+        return initMissTokLoad(cur);
+
+    endmethod
+
 
 endmodule
 

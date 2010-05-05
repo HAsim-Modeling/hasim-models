@@ -413,7 +413,7 @@ module [HASIM_MODULE] mkL1DCache ();
                 begin
 
                     // Allocate the next miss ID and give it back to the CPU.
-                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid);
+                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, toLineAddress(req.physicalAddress));
 
                     // Record that we are using the memory queue.
                     local_state.memQUsed = True;

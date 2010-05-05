@@ -44,6 +44,7 @@ typedef struct
     Bool writePortUsed;
     LINE_ADDRESS writePortData;
     Maybe#(ICACHE_INPUT) loadReq;
+    Bool loadBypass;
     
 }
 IC_LOCAL_STATE deriving (Eq, Bits);
@@ -60,7 +61,8 @@ function IC_LOCAL_STATE initLocalState();
         { 
             writePortUsed: False,
             writePortData: 0,
-            loadReq: tagged Invalid
+            loadReq: tagged Invalid,
+            loadBypass: False
         };
 
 endfunction
@@ -118,36 +120,11 @@ module [HASIM_MODULE] mkL1ICache ();
 
     STAGE_CONTROLLER#(NUM_CPUS, IC_LOCAL_STATE) stage2Ctrl <- mkStageController();
 
-    // ****** Local State ******
-
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, Maybe#(LINE_ADDRESS)) lastMissPool <- mkMultiplexedRegMultiWrite(tagged Invalid);
-
     // ****** Stats ******
 
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statHits    <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_HIT);
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMisses  <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_MISS);
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statRetries <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_RETRY);
-
-    // ****** Helper Functions ******
-    
-    // missOutstanding
-    
-    // Report if there's an outstanding miss to a certain address.
-    // For now this is imprecise: it only looks at the last outstanding miss.
-    // This is not a correctness issue, but may affect target performance.
-    // In the future this could be more sophisticated, with a CAM or a hash.
-    
-    function Bool missOutstanding(CPU_INSTANCE_ID cpu_iid, LINE_ADDRESS req_addr);
-
-        // Get our local state from the pools.
-        Reg#(Maybe#(LINE_ADDRESS)) lastMiss = lastMissPool.getRegWithWritePort(cpu_iid, 1);
-
-        if (lastMiss matches tagged Valid .miss_addr)
-            return (miss_addr == req_addr);
-        else
-            return False;
-
-    endfunction
 
     // ****** Rules ******
 
@@ -168,16 +145,27 @@ module [HASIM_MODULE] mkL1ICache ();
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
 
-        // Get our local state from the pools.
-        Reg#(Maybe#(LINE_ADDRESS)) lastMiss = lastMissPool.getRegWithWritePort(cpu_iid, 0);
-
         // Make a conglomeration of local information to pass from stage to stage.
         let local_state = initLocalState();
         
         // Check for fills.
         let m_fill <- fillFromMemory.receive(cpu_iid);
+        
+        if (outstandingMisses.fillToDeliver(cpu_iid))
+        begin
 
-        if (m_fill matches tagged Valid .fill)
+            // A fill that came in previously is going to multiple miss tokens.
+            let miss_tok <- outstandingMisses.freeNextDelivery(cpu_iid);
+            
+            // Return it to the CPU.
+            debugLog.record_next_cycle(cpu_iid, $format("1: FILL MULTIPLE RSP: %0d", miss_tok.index));
+            let rsp = initICacheMissRsp(miss_tok.index);
+            loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
+            // We must ignore any fills this cycle.
+            fillFromMemory.noDeq(cpu_iid);
+
+        end
+        else if (m_fill matches tagged Valid .fill)
         begin
 
             // Note that the actual cache update will be done later, so that
@@ -194,13 +182,7 @@ module [HASIM_MODULE] mkL1ICache ();
             // Return it to the CPU.
             debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d LINE: 0x%h", miss_tok.index, fill.physicalAddress));
             let rsp = initICacheMissRsp(miss_tok.index);
-            loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
-            
-            if (lastMiss matches tagged Valid .addr &&& fill.physicalAddress == addr)
-            begin
-                lastMiss <= tagged Invalid;
-            end
-            
+            loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);            
 
             // We finished the fill succesfully, so dequeue it.
             fillFromMemory.doDeq(cpu_iid);
@@ -225,13 +207,32 @@ module [HASIM_MODULE] mkL1ICache ();
         if (msg_from_cpu matches tagged Valid .req)
         begin
 
-            // See if the cache algorithm hit or missed.
             let line_addr = toLineAddress(req.physicalAddress);
-            iCacheAlg.loadLookupReq(cpu_iid, line_addr);
-            debugLog.record_next_cycle(cpu_iid, $format("1: LOAD REQ: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
 
-            // Finish the request in the next stage.
-            local_state.loadReq = tagged Valid req;
+            // See if it's served by the fill from this cycle
+            if (local_state.writePortUsed && line_addr == local_state.writePortData)
+            begin
+                
+                // The fill was for this address, so we'll serve it, bypassing the cache.
+                debugLog.record_next_cycle(cpu_iid, $format("1: LOAD BYPASS: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
+
+                // Pass the bypass to the next stage.
+                local_state.loadBypass = True;
+                local_state.loadReq = tagged Valid req;
+
+            end
+            else
+            begin
+            
+                // See if the cache algorithm hit or missed.
+                iCacheAlg.loadLookupReq(cpu_iid, line_addr);
+                debugLog.record_next_cycle(cpu_iid, $format("1: LOAD REQ: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
+
+                // Finish the request in the next stage.
+                local_state.loadReq = tagged Valid req;
+
+            end
+
 
         end
         else
@@ -262,13 +263,21 @@ module [HASIM_MODULE] mkL1ICache ();
         // Get the local state from the previous stage.
         match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
 
-        Reg#(Maybe#(LINE_ADDRESS)) lastMiss = lastMissPool.getRegWithWritePort(cpu_iid, 1);
-
         // Check if the memQ has room for any new requests.
         let memQ_not_full <- reqToMemQ.canEnq(cpu_iid);
 
-        // See if we need to finish any load responses.
-        if (local_state.loadReq matches tagged Valid .req)
+        // See if we need to finish any load responses
+        if (local_state.loadBypass)
+        begin
+            
+            // A bypass, which is as good as a hit, so give the data back. We won't need the memory queue.
+            loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheHit(validValue(local_state.loadReq)));
+            reqToMemQ.noEnq(cpu_iid);
+            statHits.incr(cpu_iid);
+            debugLog.record(cpu_iid, $format("2: LOAD HIT (BYPASSED)"));
+
+        end
+        else if (local_state.loadReq matches tagged Valid .req)
         begin
 
             // Get the lookup response.
@@ -288,23 +297,38 @@ module [HASIM_MODULE] mkL1ICache ();
             else
             begin
 
-                // A miss. But do we have a free missID to track the fill with?
+                // A miss. But is there already an outstanding miss to this address?
+                // And do we have a free missID to track the fill with?
                 // And is the memQ not full?
-                // And is it to a different address than
-                if (outstandingMisses.canAllocateLoad(cpu_iid) && memQ_not_full && !missOutstanding(cpu_iid, toLineAddress(req.physicalAddress)))
+
+                let line_addr = toLineAddress(req.physicalAddress);
+                let can_allocate = outstandingMisses.canAllocateLoad(cpu_iid);
+                
+                if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) && can_allocate)
+                begin
+                
+                    // Allocate the next miss ID and give it back to the CPU.
+                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, line_addr);
+                    
+                    // No fill to memory necessary.
+                    reqToMemQ.noEnq(cpu_iid);
+
+                    // Tell the CPU their load missed, but we're handling it.
+                    loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheMiss(req, miss_tok.index));
+                    statMisses.incr(cpu_iid);
+                    debugLog.record(cpu_iid, $format("2: LOAD MISS (ALREADY OUTSTANDING): %0d", miss_tok.index));
+
+                end
+                else if (can_allocate && memQ_not_full)
                 begin
 
                     // Allocate the next miss ID and give it back to the CPU.
-                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid);
+                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, line_addr);
                     
                     // Send the fill request to memory, using the opaque bits for the miss id.
-                    let line_addr = toLineAddress(req.physicalAddress);
                     let mem_req = initMemLoad(line_addr);
                     mem_req.opaque = toMemOpaque(miss_tok);
                     reqToMemQ.doEnq(cpu_iid, mem_req);
-
-                    // Record that there's an outstanding miss to this address in order to filter out some spurious requests.
-                    lastMiss <= tagged Valid line_addr;
 
                     // Tell the CPU their load missed, but we're handling it.
                     loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheMiss(req, miss_tok.index));
