@@ -43,6 +43,7 @@ typedef union tagged {
 
 typedef union tagged {
     void IMEM_itlb_fault;
+    void IMEM_icache_req;
     void IMEM_icache_hit;
     L1_ICACHE_MISS_ID IMEM_icache_miss;
     void IMEM_icache_retry;

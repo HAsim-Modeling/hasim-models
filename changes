@@ -4017,3 +4017,66 @@ in the NUM_STATIONS multiplexing domain rather than crossing the
 NUM_CPUS/NUM_STATIONS boundary.
 
 Michael P.
+
+----------
+pellauer    Date: Wed May  5 02:01:12 EDT 2010  CSN: CSN-hasim-models-132
+                  Wed May  5 06:01:12 UTC 2010
+
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified          131 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline-back-end.awb Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          131 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          131 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          131 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline-front-end.bsv Locally Added               0 
+ inorder-pipeline.bsv      Locally Modified          131 
+ inorder-pipeline-back-end.bsv Locally Added               0 
+ inorder-pipeline-front-end.awb Locally Added               0 
+ inorder.awb               Locally Modified          131 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          131 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          131 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          131 
+
+Directory modules/hasim/timing-models/uncore/interconnects/ring
+ icn-ring.bsv              Locally Modified          131 
+
+Directory modules/hasim/timing-models/uncore/interconnects/crossbar
+ icn-crossbar.bsv          Locally Modified          131 
+
+
+* Bring ring/crossbar over to the new OCN interface.
+** This means ring/crossbar are packetized by default. We need to think of some
+   way to generalize the network interface so that the LLC is agnostic to
+   packetization.
+** Model IPC is as terrible for the ring/crossbar as for the mesh. Hello World 
+   commits roughly 5000 instructions, which comes from ~6000 ICache hits, ~1700
+   ICache misses, and ~20,000 ICache retries due to being out of buffering to
+   the OCN. This model will help us zero in on where the performance bottleneck
+   is.
+** For now there's a lot of duplicated code between the three networks. There
+   should be a way to refactor this in the future.
+
+* Fixed a bug that was causing instruction queue slots to be leaked in the 
+inorder model.
+
+* Split pipeline into two separate synthesis boundaries to prepare for scaling
+  to 16 cores.
+  
+Michael P.

@@ -62,8 +62,7 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ITLB_EPOCH))     iTLBEpochPool <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(IMEM_ICACHE_EPOCH)) iCacheEpochPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)     epochPool <- mkMultiplexedReg(initialIMemEpoch);
 
     // ****** Ports ******
 
@@ -118,9 +117,7 @@ module [HASIM_MODULE] mkIMem
         let cpu_iid <- localCtrl.startModelCycle();
         
         // Get our local state using the current context.
-        Reg#(IMEM_ITLB_EPOCH)     iTLBEpoch = iTLBEpochPool[cpu_iid];
-        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
-
+        Reg#(IMEM_EPOCH)     epoch = epochPool.getReg(cpu_iid);
         Maybe#(IMEM_OUTPUT) stage_data = Invalid;
         
         // See if there's a response from the ITLB.
@@ -129,16 +126,28 @@ module [HASIM_MODULE] mkIMem
         if (m_rsp matches tagged Valid .rsp)
         begin
 
-            if (rsp.bundle.epoch.iTLB == iTLBEpoch && rsp.bundle.epoch.iCache == iCacheEpoch)
+            Bool good_epoch;
+
+            if (rsp.bundle.epoch.prediction != epoch.prediction ||
+                rsp.bundle.epoch.branch != epoch.branch ||
+                rsp.bundle.epoch.fault != epoch.fault)
+            begin
+                good_epoch = True;
+                epoch <= rsp.bundle.epoch;
+            end
+            else
+            begin
+                good_epoch = rsp.bundle.epoch.iTLB == epoch.iTLB && 
+                             rsp.bundle.epoch.iCache == epoch.iCache;
+            end
+
+            if (good_epoch)
             begin
                 // Check if we received a valid translation.
                 if (rsp.rspType == ITLB_pageFault)
                 begin
 
                     // There was a page fault. :(
-
-                    // Increment the epoch so we'll drop any following faults (which occur quite commonly).
-                    iTLBEpoch <= iTLBEpoch + 1;
 
                     // No physical address to load from icache.
                     physAddrToICache.send(cpu_iid, tagged Invalid);
@@ -161,16 +170,20 @@ module [HASIM_MODULE] mkIMem
 
                     stage_data = tagged Valid IMEM_OUTPUT {
                         bundle: rsp.bundle,
-                        response: ?
+                        response: IMEM_icache_req
                     };
                 end
             end
             else
             begin
-                // Epoch check failed. Don't make an icache request
+                // Epoch check failed. Don't make an icache request.
                 physAddrToICache.send(cpu_iid, tagged Invalid);
-
-                stage_data = tagged Invalid;
+                
+                // Send the request on so PCCalc can reclaim the instQ slot.
+                stage_data = tagged Valid IMEM_OUTPUT {
+                    bundle: rsp.bundle,
+                    response: IMEM_bad_epoch
+                };
             end
         end
         else
@@ -193,50 +206,63 @@ module [HASIM_MODULE] mkIMem
     rule stage2_iCacheRsp;
         match {.cpu_iid, .m_stage_data} <- stage2Ctrl.nextReadyInstance();
 
-        Reg#(IMEM_ICACHE_EPOCH) iCacheEpoch = iCacheEpochPool[cpu_iid];
+        Reg#(IMEM_EPOCH) epoch = epochPool.getReg(cpu_iid);
+        IMEM_EPOCH new_epoch = epoch;
+        
 
         let m_icache_rsp <- immRspFromICache.receive(cpu_iid); 
 
         if (m_stage_data matches tagged Valid .stage_data)
         begin
-            if (m_icache_rsp matches tagged Valid .icache_rsp)
-            begin
-                // Response from icache. Use the updated bundle, and
-                // corresponding imem response.
-                IMEM_RESPONSE response = case (icache_rsp.rspType) matches
-                    tagged ICACHE_hit: tagged IMEM_icache_hit;
-                    tagged ICACHE_miss .miss_id: tagged IMEM_icache_miss miss_id;
-                    tagged ICACHE_retry: tagged IMEM_icache_retry;
-                endcase;
-                
-                // Fill in the instruction from the functional partition.
-                let rsp = getInstruction.getResp();
-                let new_bundle = icache_rsp.bundle;
-                new_bundle.instruction = rsp.instruction;
-                getInstruction.deq();
-                
-                if (icache_rsp.rspType matches tagged ICACHE_retry)
+            case (stage_data.response) matches
+                tagged IMEM_icache_req:
                 begin
-                    iCacheEpoch <= iCacheEpoch + 1;
+
+                    // assert isValid icache_rsp
+                    let icache_rsp = validValue(m_icache_rsp);
+
+                    // Response from icache. Use the updated bundle, and
+                    // corresponding imem response.
+                    IMEM_RESPONSE response = case (icache_rsp.rspType) matches
+                        tagged ICACHE_hit: tagged IMEM_icache_hit;
+                        tagged ICACHE_miss .miss_id: tagged IMEM_icache_miss miss_id;
+                        tagged ICACHE_retry: tagged IMEM_icache_retry;
+                    endcase;
+
+                    // Fill in the instruction from the functional partition.
+                    let rsp = getInstruction.getResp();
+                    let new_bundle = icache_rsp.bundle;
+                    new_bundle.instruction = rsp.instruction;
+                    getInstruction.deq();
+
+                    if (icache_rsp.rspType matches tagged ICACHE_retry)
+                    begin
+                        new_epoch.iCache = new_epoch.iCache + 1;
+                    end
+
+                    iMemToPCCalc.send(cpu_iid, tagged Valid IMEM_OUTPUT {
+                        bundle: new_bundle,
+                        response: response
+                    });
                 end
-                
-                iMemToPCCalc.send(cpu_iid, tagged Valid IMEM_OUTPUT {
-                    bundle: new_bundle,
-                    response: response
-                });
-            end
-            else
-            begin
-                // Nothing from the icache, so there must have been an bad epoch. 
-                // Propogate the bubble.
-                iMemToPCCalc.send(cpu_iid, tagged Invalid);
-            end
+                tagged IMEM_itlb_fault:
+                begin
+                    new_epoch.iTLB = new_epoch.iTLB + 1;
+                end
+                default:
+                begin
+                    // Propogate whatever happened in the first stage.
+                    iMemToPCCalc.send(cpu_iid, tagged Valid stage_data);
+                end
+            endcase
         end
         else
         begin
             // Bubble from ITLB. Send bubble onto pccalc.
             iMemToPCCalc.send(cpu_iid, Invalid);
         end
+        
+        epoch <= new_epoch;
 
         // End the model cycle.
         localCtrl.endModelCycle(cpu_iid, 1);

@@ -218,11 +218,18 @@ module [HASIM_MODULE] mkPCCalc
             let attr = validValue(m_attr);
 
             // Check for problems with this bundle.
-            if (imem_rsp.bundle.epoch != epoch)
+            if (imem_rsp.bundle.epoch.fault != epoch.fault || imem_rsp.bundle.epoch.branch != epoch.branch || imem_rsp.bundle.epoch.prediction != epoch.prediction)
             begin
                 // Epoch is wrong. No need to redirect.
                 enqueue = False;
                 debugLog.record_next_cycle(cpu_iid, $format("1: WRONG EPOCH"));
+            end
+            else if (imem_rsp.response matches tagged IMEM_bad_epoch)
+            begin
+                // This was dropped by an earlier stage for some reason.
+                // Reclaim the credit from the instruction queue.
+                enqueue = False;
+                debugLog.record_next_cycle(cpu_iid, $format("1 WRONG EPOCH (PREVIOUSLY DROPPED)"));
             end
             else if (imem_rsp.response matches tagged IMEM_itlb_fault)
             begin
@@ -290,6 +297,11 @@ module [HASIM_MODULE] mkPCCalc
                     inst: imem_rsp.bundle.instruction,
                     branchAttr: attr
                 };
+                debugLog.record_next_cycle(cpu_iid, $format("1: ENQ PC: 0x%h inst: 0x%h", imem_rsp.bundle.virtualAddress, imem_rsp.bundle.instruction));
+            end
+            else
+            begin
+                debugLog.record_next_cycle(cpu_iid, $format("1: RECLAIM CREDIT"));
             end
 
             let instq_enq = INSTQ_ENQUEUE {

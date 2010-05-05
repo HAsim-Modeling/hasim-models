@@ -1,0 +1,13 @@
+%AWB_START
+
+%name Inorder Pipeline Back End
+%desc Inorder Pipeline Back End
+%provides inorder_pipeline_back_end
+%requires execute_stage dmem_stage commitq_stage commit_stage store_buffer write_buffer
+%attributes hasim model pipeline inorder
+
+%public inorder-pipeline-back-end.bsv
+
+%param SYNTH_BOUNDARY mkPipelineBackEnd "Name of synthesis boundary"
+
+%AWB_END

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2008 Intel Corporation
+// Copyright (C) 2010 Massachusetts Institute of Technology
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -18,13 +18,23 @@
 
 `include "asim/provides/hasim_common.bsh"
 
-`include "asim/provides/inorder_pipeline_front_end.bsh"
-`include "asim/provides/inorder_pipeline_back_end.bsh"
+`include "asim/provides/execute_stage.bsh"
+`include "asim/provides/dmem_stage.bsh"
+`include "asim/provides/commitq_stage.bsh"
+`include "asim/provides/commit_stage.bsh"
 
-module [HASIM_MODULE] mkPipeline ();
+`include "asim/provides/store_buffer.bsh"
+`include "asim/provides/write_buffer.bsh"
 
-    let frontEnd <- mkPipelineFrontEnd();
-    let backEnd  <- mkPipelineBackEnd();
+module [HASIM_MODULE] mkPipelineBackEnd ();
+
+    let execute <- mkExecute();
+    let dmem    <- mkDMem();
+    let cq      <- mkCommitQueue();
+    let commit  <- mkCommit();
+
+    let sb     <- mkStoreBuffer();
+    let wb     <- mkWriteBuffer();
 
 endmodule
 

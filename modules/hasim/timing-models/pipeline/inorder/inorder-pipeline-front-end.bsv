@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2008 Intel Corporation
+// Copyright (C) 2010 Massachusetts Institute of Technology
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -18,13 +18,25 @@
 
 `include "asim/provides/hasim_common.bsh"
 
-`include "asim/provides/inorder_pipeline_front_end.bsh"
-`include "asim/provides/inorder_pipeline_back_end.bsh"
+`include "asim/provides/fetch_stage.bsh"
+`include "asim/provides/imem_stage.bsh"
+`include "asim/provides/pccalc_stage.bsh"
+`include "asim/provides/instq_stage.bsh"
+`include "asim/provides/decode_stage.bsh"
 
-module [HASIM_MODULE] mkPipeline ();
+`include "asim/provides/line_predictor.bsh"
+`include "asim/provides/branch_predictor.bsh"
 
-    let frontEnd <- mkPipelineFrontEnd();
-    let backEnd  <- mkPipelineBackEnd();
+module [HASIM_MODULE] mkPipelineFrontEnd ();
+
+    let fetch   <- mkFetch();
+    let imem    <- mkIMem();
+    let pccalc  <- mkPCCalc();
+    let iq      <- mkInstructionQueue();
+    let decode  <- mkDecode();
+
+    let lp     <- mkLinePredictor();
+    let bp     <- mkBranchPredictor();
 
 endmodule
 

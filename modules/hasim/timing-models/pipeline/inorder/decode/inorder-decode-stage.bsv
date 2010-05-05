@@ -390,7 +390,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
             
             // A fault occurred.
-            debugLog.record(cpu_iid, fshow("2: FAULT"));
+            debugLog.record_next_cycle(cpu_iid, fshow("2: FAULT"));
             
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
             epoch.fault <= epoch.fault + 1;
@@ -404,7 +404,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
 
             // A mispredict occurred.
-            debugLog.record(cpu_iid, fshow("2: MISPREDICT"));
+            debugLog.record_next_cycle(cpu_iid, fshow("2: MISPREDICT"));
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
             epoch.branch <= epoch.branch + 1;
@@ -430,7 +430,7 @@ module [HASIM_MODULE] mkDecode ();
                     begin
 
                        // We have the dependencies, tell the next stage to just proceed.
-                        debugLog.record(cpu_iid, fshow("2: Deps ready."));
+                        debugLog.record_next_cycle(cpu_iid, fshow("2: Deps ready."));
                        stage3Ctrl.ready(cpu_iid, tagged STAGE3_depsReady bundle);
 
                     end
@@ -438,7 +438,7 @@ module [HASIM_MODULE] mkDecode ();
                     begin
 
                         // We need to retrieve dependencies from the functional partition.
-                        debugLog.record(cpu_iid, fshow("2: Request Deps."));
+                        debugLog.record_next_cycle(cpu_iid, fshow("2: Request Deps."));
                         getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
 
                        // Tell the next stage to get the response.
@@ -451,7 +451,7 @@ module [HASIM_MODULE] mkDecode ();
                 begin
                 
                     // There's a bubble. Just propogate it.
-                    debugLog.record(cpu_iid, fshow("2: BUBBLE"));
+                    debugLog.record_next_cycle(cpu_iid, fshow("2: BUBBLE"));
                     stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
 
                 end
@@ -461,7 +461,7 @@ module [HASIM_MODULE] mkDecode ();
             begin
             
                 // The instruction is from an old epoch. Tell the following stages to drop it.
-                debugLog.record(cpu_iid, fshow("2: FLUSH"));
+                debugLog.record_next_cycle(cpu_iid, fshow("2: FLUSH"));
                 
                 // Drop any dependencies we may have gotten.
                 memoDependencies <= tagged Invalid;
@@ -475,7 +475,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
         
             // There's a bubble. Just propogate it.
-            debugLog.record(cpu_iid, fshow("2: BUBBLE"));
+            debugLog.record_next_cycle(cpu_iid, fshow("2: BUBBLE"));
             stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
 
         end

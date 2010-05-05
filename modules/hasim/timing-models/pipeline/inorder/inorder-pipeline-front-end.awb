@@ -1,0 +1,14 @@
+%AWB_START
+
+%name Inorder Pipeline Front End
+%desc Inorder Pipeline Front End
+%provides inorder_pipeline_front_end
+%requires fetch_stage imem_stage pccalc_stage instq_stage decode_stage branch_predictor line_predictor
+
+%attributes hasim model pipeline inorder
+
+%public inorder-pipeline-front-end.bsv
+
+%param SYNTH_BOUNDARY mkPipelineFrontEnd "Name of synthesis boundary"
+
+%AWB_END

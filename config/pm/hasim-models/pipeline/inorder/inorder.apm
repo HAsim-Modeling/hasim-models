@@ -7,6 +7,8 @@ Version=2.1
 Name=Inorder Pipeline, 2-bit branch predictor
 Type=HAsim
 Class=Asim::Model
+DefaultBenchmark=
+DefaultRunOpts=
 
 [Model]
 DefaultAttributes=hasim model inorder
@@ -29,20 +31,9 @@ File=modules/hasim/timing-models/pipeline/inorder/execute/inorder-execute-stage.
 Packagehint=hasim-models
 
 [Inorder Pipeline/Requires]
-decode_stage=Inorder Decode/Issue Stage
-fetch_stage=Inorder Fetch Stage
-execute_stage=Inorder Execute Stage
-commit_stage=Inorder Commit Stage
-dmem_stage=Inorder DMem Stage
-store_buffer=Multi-Entry Store Buffer
 pipeline_base_types=Inorder Pipeline Base Types
-branch_predictor=Branch Predictor with Target Buffer
-pccalc_stage=Inorder PCCalc Stage
-instq_stage=Inorder Instruction Queue Stage
-imem_stage=Inorder IMem Stage
-write_buffer=Blocking Write Buffer
-commitq_stage=Inorder Commit Queue Stage
-line_predictor=No Branch Line Predictor
+inorder_pipeline_back_end=Inorder Pipeline Back End
+inorder_pipeline_front_end=Inorder Pipeline Front End
 
 [Inorder Fetch Stage]
 File=modules/hasim/timing-models/pipeline/inorder/fetch/inorder-fetch-stage.awb
@@ -94,3 +85,28 @@ Packagehint=hasim-models
 [No Branch Line Predictor]
 File=modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch/nobranch-line-predictor.awb
 Packagehint=hasim-models
+
+[Inorder Pipeline Front End/Requires]
+decode_stage=Inorder Decode/Issue Stage
+fetch_stage=Inorder Fetch Stage
+instq_stage=Inorder Instruction Queue Stage
+pccalc_stage=Inorder PCCalc Stage
+imem_stage=Inorder IMem Stage
+line_predictor=No Branch Line Predictor
+branch_predictor=Branch Predictor with Target Buffer
+
+[Inorder Pipeline Back End]
+File=modules/hasim/timing-models/pipeline/inorder/inorder-pipeline-back-end.awb
+Packagehint=hasim-models
+
+[Inorder Pipeline Front End]
+File=modules/hasim/timing-models/pipeline/inorder/inorder-pipeline-front-end.awb
+Packagehint=hasim-models
+
+[Inorder Pipeline Back End/Requires]
+store_buffer=Multi-Entry Store Buffer
+execute_stage=Inorder Execute Stage
+write_buffer=Blocking Write Buffer
+commit_stage=Inorder Commit Stage
+commitq_stage=Inorder Commit Queue Stage
+dmem_stage=Inorder DMem Stage

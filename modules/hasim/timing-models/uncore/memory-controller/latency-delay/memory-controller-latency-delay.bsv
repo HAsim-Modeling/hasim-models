@@ -108,7 +108,7 @@ module [HASIM_MODULE] mkMemoryController();
         end
         else
         begin
-            debugLog.record($format("1: No credits in."));
+            debugLog.record_next_cycle($format("1: No credits in."));
         end
 
         notFulls <= new_not_fulls;
@@ -155,17 +155,17 @@ module [HASIM_MODULE] mkMemoryController();
                 tagged FLIT_HEAD .info:
                 begin
                 
-                    debugLog.record($format("1: Initiating response to destination: %0d", info.dst));
+                    debugLog.record($format("2: Initiating response to destination: %0d", info.dst));
                 end
                 tagged FLIT_BODY .info:
                 begin
-                    debugLog.record($format("1: Sending body flit."));
+                    debugLog.record($format("2: Sending body flit."));
                 end
             endcase
         end
         else
         begin
-            debugLog.record($format("1: No send."));
+            debugLog.record($format("2: No send."));
         end
 
         // Send out the result.
@@ -242,7 +242,7 @@ module [HASIM_MODULE] mkMemoryController();
     endrule
 
     (* conservative_implicit_conditions *)
-    rule stage3_creditsOut (stage4Ctrl.consumerCanStart());
+    rule stage4_creditsOut (stage4Ctrl.consumerCanStart());
     
         stage4Ctrl.consumerStart();
 
@@ -263,7 +263,7 @@ module [HASIM_MODULE] mkMemoryController();
             end
         
         end
-        debugLog.record($format("3: Send output credits."));
+        debugLog.record($format("4: Send output credits."));
         
         creditToOCN.send(tagged Valid creds);
         
