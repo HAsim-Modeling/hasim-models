@@ -4080,3 +4080,16 @@ inorder model.
   to 16 cores.
   
 Michael P.
+
+----------
+pellauer    Date: Wed May  5 10:24:33 EDT 2010  CSN: CSN-hasim-models-133
+                  Wed May  5 14:24:33 UTC 2010
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/crossbar
+ icn-crossbar.bsv          Locally Modified          132 
+
+
+* Fix if/else bug in the crossbar.
+
+Michael P.

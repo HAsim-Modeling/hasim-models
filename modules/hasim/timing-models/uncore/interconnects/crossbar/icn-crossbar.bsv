@@ -208,7 +208,7 @@ module [HASIM_MODULE] mkInterconnect
         Bool bus_used = busUsed;
         Maybe#(WINNER_INFO) new_holding_bus = holdingBus;
         
-        debugLog.record(iid, $format("2: VCA Begin."));
+        debugLog.record(iid, $format("3: SA: Begin."));
         for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
         begin
 
@@ -218,27 +218,36 @@ module [HASIM_MODULE] mkInterconnect
                 if (virtualChannels[ln][vc].notEmpty())
                 begin
                 
-                    if (virtualChannels[ln][vc].first() matches tagged FLIT_HEAD .info &&& outputQs[info.dst][ln][vc].notFull() &&& !isValid(new_holding_bus) &&& !bus_used)
+                    if (virtualChannels[ln][vc].first() matches tagged FLIT_HEAD .info)
                     begin
-
-                        new_holding_bus = tagged Valid WINNER_INFO 
-                                {
-                                    inputPort: info.src,
-                                    lane: fromInteger(ln),
-                                    virtualChannel: fromInteger(vc), 
-                                    outputPort: info.dst
-                                };
-                        outputQs[info.dst][ln][vc].enq(virtualChannels[ln][vc].first());
-                        bus_used = True;
-                        virtualChannels[ln][vc].deq();
+                        
+                        if (outputQs[info.dst][ln][vc].notFull() &&& !isValid(new_holding_bus) &&& !bus_used)
+                        begin
+                            debugLog.record(iid, $format("3: SA: Bus grant: lane %0d, vc %0d destination: %0d", ln, vc, info.dst));
+                            new_holding_bus = tagged Valid WINNER_INFO 
+                                    {
+                                        inputPort: info.src,
+                                        lane: fromInteger(ln),
+                                        virtualChannel: fromInteger(vc), 
+                                        outputPort: info.dst
+                                    };
+                            outputQs[info.dst][ln][vc].enq(virtualChannels[ln][vc].first());
+                            bus_used = True;
+                            virtualChannels[ln][vc].deq();
+                        end
+                        else
+                        begin
+                            debugLog.record(iid, $format("3: SA: Head flit stall."));
+                        end
 
                     end
-                    else if (new_holding_bus matches tagged Valid .winner)
+                    else
                     begin
-                    
-                        if (winner.inputPort == iid &&& winner.lane == fromInteger(ln) &&& winner.virtualChannel == fromInteger(vc))
+                        // Body flit at head of queue. We'd better have the bus!
+                        if (new_holding_bus matches tagged Valid .winner &&& winner.inputPort == iid &&& winner.lane == fromInteger(ln) &&& winner.virtualChannel == fromInteger(vc))
                         begin
 
+                            debugLog.record(iid, $format("3: SA: Bus grant: lane %0d, vc %0d destination: %0d", ln, vc, winner.outputPort));
                             // assert !bus_used
                             bus_used = True;
                             outputQs[winner.outputPort][ln][vc].enq(virtualChannels[ln][vc].first());
@@ -254,13 +263,13 @@ module [HASIM_MODULE] mkInterconnect
                             virtualChannels[ln][vc].deq();
 
                         end
+                        else
+                        begin
 
-                    end
-                    else
-                    begin
-                    
-                        $display("ERROR: Bus: Body flit at head of virtual channel without holding bus.");
-                        $finish(1);
+                            $display("ERROR: Bus: Body flit at head of virtual channel without holding bus.");
+                            $finish(1);
+
+                        end
 
                     end
                 end
