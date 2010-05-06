@@ -247,7 +247,7 @@ module [HASIM_MODULE] mkDecode ();
     endfunction
 
     // ****** Rules ******
-   
+
     // stage1_writebacks
     
     // Begin simulating a new context.

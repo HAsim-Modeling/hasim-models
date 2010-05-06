@@ -8,8 +8,9 @@
 %attributes hasim model pipeline inorder
 
 %public branch-predictor.bsv
+%public branch-predictor.dic
 
-%param BTB_IDX_SIZE 12 "Number of bits for Target Buffer index."
+%param BTB_IDX_SIZE 8 "Number of bits for Target Buffer index."
 %param BTB_OFFSET_SIZE 2  "Number of bits for Target Buffer address offset."
 
 %AWB_END

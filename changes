@@ -4119,3 +4119,37 @@ Directory modules/hasim/timing-models/caches/miss-trackers/unified
 * Remove now-spurious synthesis boundary on inorder pipeline.
 
 Michael P.
+
+----------
+pellauer    Date: Thu May  6 18:28:11 EDT 2010  CSN: CSN-hasim-models-135
+                  Thu May  6 22:28:11 UTC 2010
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ 2bit-bp-alg.bsv           Locally Modified          134 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.awb  Locally Modified          134 
+ inorder-decode-stage.bsv  Locally Modified          134 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          134 
+ branch-predictor.dic      Locally Added               0 
+ branch-predictor.awb      Locally Modified          134 
+
+Directory modules/hasim/timing-models/uncore/interconnects/ring
+ icn-ring.bsv              Locally Modified          134 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.awb              Locally Modified          134 
+ icn-mesh.bsv              Locally Modified          134 
+
+
+
+* Move model BTB to Scratchpad. Move branch predictor bits to LUTRAM. Other
+  branch predictor algorithms will be temporarily broken until they are
+  brought up to the new multiplexing.
+
+* Refactor ports code it its rightful place in modellib.
+
+Michael P.

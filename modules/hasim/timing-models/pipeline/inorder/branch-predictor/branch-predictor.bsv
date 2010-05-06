@@ -20,6 +20,8 @@ import Vector::*;
 import FIFO::*;
 
 `include "asim/provides/hasim_common.bsh"
+`include "asim/provides/common_services.bsh"
+`include "asim/provides/mem_services.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/fpga_components.bsh"
 `include "asim/provides/hasim_isa.bsh"
@@ -29,6 +31,8 @@ import FIFO::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/hasim_branch_pred_alg.bsh"
+
+`include "asim/dict/VDEV_SCRATCH.bsh"
 
 typedef Bit#(`BTB_OFFSET_SIZE) BTB_OFFSET;
 typedef Bit#(TSub#(`FUNCP_ISA_V_ADDR_SIZE,TAdd#(`BTB_IDX_SIZE, `BTB_OFFSET_SIZE))) BTB_TAG;
@@ -49,11 +53,11 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     // ****** Model State (per instance) ******
     
-    MULTIPLEXED#(NUM_CPUS, BRAM#(BTB_INDEX, Maybe#(Tuple2#(BTB_TAG, ISA_ADDRESS)))) bTBPool <- mkMultiplexed(mkBRAMInitialized(Invalid));
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, BTB_INDEX, Maybe#(Tuple2#(BTB_TAG, ISA_ADDRESS))) btb <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_HASIM_BTB_SCRATCHPAD, SCRATCHPAD_CACHED);
 
     MULTIPLEXED#(NUM_CPUS, FIFO#(ISA_ADDRESS)) pcQPool <- mkMultiplexed(mkFIFO());
 
-    MULTIPLEXED#(NUM_CPUS, BRANCH_PREDICTOR_ALG) bPAlgPool <- mkMultiplexed(mkBranchPredAlg());
+    BRANCH_PREDICTOR_ALG bPAlg <- mkBranchPredAlg();
 
 
     // ****** Ports ******
@@ -121,8 +125,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
         debugLog.nextModelCycle(cpu_iid);
 
         // Get the local state for the current instance.
-        let btb = bTBPool[cpu_iid];
-        let bPAlg = bPAlgPool[cpu_iid];
         let pcQ = pcQPool[cpu_iid];
 
         // Let's see if there was a prediction request.
@@ -132,8 +134,8 @@ module [HASIM_MODULE] mkBranchPredictor ();
         begin
         
             // Lookup this PC in the BTB and branch predictor.
-            btb.readReq(getIndex(addr));
-            bPAlg.getPredReq(addr);
+            btb.readReq(cpu_iid, getIndex(addr));
+            bPAlg.getPredReq(cpu_iid, addr);
 
             // Pass the information to the next stage.
             stage2Ctrl.ready(cpu_iid, tagged STAGE2_btbRsp addr);
@@ -165,8 +167,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
         
         // Get our local state from the instance.
-        let btb = bTBPool[cpu_iid];
-        let bPAlg = bPAlgPool[cpu_iid];
 
         if (state matches tagged STAGE2_bubble)
         begin
@@ -183,8 +183,8 @@ module [HASIM_MODULE] mkBranchPredictor ();
         begin
 
             // Get the responses from the predictors.
-            let m_rsp <- btb.readRsp();
-            let predTaken <- bPAlg.getPredResp();
+            let m_rsp <- btb.readRsp(cpu_iid);
+            let predTaken <- bPAlg.getPredRsp(cpu_iid);
 
             // Let's see if the BTB has some information for us.
             // A taken prediction is useless if we don't know where to go!
@@ -250,10 +250,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
         // Get the next ready instance.
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
 
-        // Get our local state from the instance.
-        let btb = bTBPool[cpu_iid];
-        let bPAlg = bPAlgPool[cpu_iid];
-
         // Check for any new training.
         let m_train <- trainingFromExe.receive(cpu_iid);
 
@@ -269,7 +265,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
                 // Update the BTB to note the actual target.            
                 debugLog.record(cpu_iid, $format("3: BTB TRAIN: %h -> %h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
-                btb.write(getIndex(pc), tagged Valid tuple2(getTag(pc),tgt));
+                btb.write(cpu_iid, getIndex(pc), tagged Valid tuple2(getTag(pc),tgt));
                 taken = True;
 
             end
@@ -279,7 +275,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
                 // BTB must be an alias for a different branch.  Remove BTB entry.
                 // Note: this is a bit aggressive. Two-bit predictor semantics could be an alternative?
                 debugLog.record(cpu_iid, $format("3: BTB TRAIN: %h not branch", pc) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
-                btb.write(getIndex(pc), Invalid);
+                btb.write(cpu_iid, getIndex(pc), Invalid);
 
             end
             
@@ -299,7 +295,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
                 // Update the predictor with the training.
                 debugLog.record(cpu_iid, $format("3: BP TRAIN: %h, pred: %d, taken: %d", pc, pred, taken));
-                bPAlg.upd(bpt.branchPC, pred, taken);
+                bPAlg.upd(cpu_iid, bpt.branchPC, pred, taken);
 
             end
 
