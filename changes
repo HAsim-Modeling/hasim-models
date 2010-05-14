@@ -4204,3 +4204,25 @@ Directory modules/hasim/timing-models/uncore/interconnects/crossbar
 * Crossbar/bus interconnet now smarter about number of contexts dynamically running.
 
 Michael P.
+
+----------
+pellauer    Date: Fri May 14 13:28:58 EDT 2010  CSN: CSN-hasim-models-137
+                  Fri May 14 17:28:58 UTC 2010
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-set-associative.awb Locally Added               0 
+ last-level-cache-set-associative.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/last-level-caches
+ alg/                      Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.awb   Locally Added               0 
+ llc-set-associative.bsv   Locally Added               0 
+ llc-set-associative.dic   Locally Added               0 
+
+
+* Adding files that were inadvertanetly left out of the last commit.
+
+Michael P.

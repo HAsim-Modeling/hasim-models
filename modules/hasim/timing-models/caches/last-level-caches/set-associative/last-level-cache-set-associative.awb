@@ -1,0 +1,12 @@
+%name Set-Associative Last Level Cache
+%desc Set-Associative Last Level Cache, Pseudo-LRU
+
+%provides hasim_last_level_cache
+
+%attributes hasim model caches
+
+%public last-level-cache-set-associative.bsv
+
+%param NUM_WAYS 8 "Number of ways in set-associative cache."
+
+%param SYNTH_BOUNDARY mkLastLevelCache "Name of synthesis boundary"
