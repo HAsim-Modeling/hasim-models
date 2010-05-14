@@ -100,6 +100,7 @@ interface CACHE_MISS_TRACKER#(parameter type t_NUM_INSTANCES, parameter type t_M
     method Bool canAllocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool canAllocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+    method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
     
     method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
@@ -147,7 +148,7 @@ module [HASIM_MODULE] mkCacheMissTracker
     MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTailPool <- mkMultiplexedReg(0);
 
     // A register to store the last load we served. No more loads will be made to this address.
-    MULTIPLEXED_REG#(t_NUM_INSTANCES, LINE_ADDRESS) lastServedAddrPool <- mkMultiplexedReg(?);
+    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, Maybe#(LINE_ADDRESS)) lastServedAddrPool <- mkMultiplexedRegMultiWrite(tagged Invalid);
 
     // Track the state of the freelist. Initially the freelist is full and
     // every ID is on the list.
@@ -208,8 +209,11 @@ module [HASIM_MODULE] mkCacheMissTracker
 
     method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
 
-        Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
-        return lastServedAddr == addr;
+        Reg#(Maybe#(LINE_ADDRESS)) lastServedAddr = lastServedAddrPool.getRegWithWritePort(iid, 0);
+        if (lastServedAddr matches tagged Valid .a)
+            return (a == addr);
+        else
+            return False;
 
     endmethod
     
@@ -235,23 +239,33 @@ module [HASIM_MODULE] mkCacheMissTracker
 
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTail = runTailPool.getReg(iid);
-        Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
+        Reg#(Maybe#(LINE_ADDRESS)) lastServedAddr = lastServedAddrPool.getRegWithWritePort(iid, 0);
         LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillList = multipleFillListPool.getRAMWithWritePort(iid, 0);
 
         let idx = freelist.getRAM(iid).sub(headPtr);
 
         headPtr <= headPtr + 1;
 
-        if (lastServedAddr == addr)
+        if (lastServedAddr matches tagged Valid .a &&& a == addr)
         begin
             multipleFillList.upd(runTail, tagged Valid idx);
         end
 
         runTail <= idx;
-        lastServedAddr <= addr;
+        lastServedAddr <= tagged Valid addr;
 
         return initMissTokLoad(idx);
     
+    endmethod
+    
+    method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+        
+        Reg#(Maybe#(LINE_ADDRESS)) lastServedAddr = lastServedAddrPool.getRegWithWritePort(iid, 1);
+        if (lastServedAddr matches tagged Valid .a &&& a == addr)
+        begin
+            lastServedAddr <= tagged Invalid;
+        end
+
     endmethod
 
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);

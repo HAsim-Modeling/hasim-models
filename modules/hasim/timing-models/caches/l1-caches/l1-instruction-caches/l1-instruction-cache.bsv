@@ -119,6 +119,7 @@ module [HASIM_MODULE] mkL1ICache ();
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, IC_LOCAL_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, IC_LOCAL_STATE) stage3Ctrl <- mkStageController();
 
     // ****** Stats ******
 
@@ -177,6 +178,7 @@ module [HASIM_MODULE] mkL1ICache ();
             // Deallocate the Miss ID.
             L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
             outstandingMisses.free(cpu_iid, miss_tok);
+            outstandingMisses.reportLoadDone(cpu_iid, fill.physicalAddress);
             
 
             // Return it to the CPU.
@@ -361,8 +363,18 @@ module [HASIM_MODULE] mkL1ICache ();
             reqToMemQ.noEnq(cpu_iid);
 
         end
-
         
+        stage3Ctrl.ready(cpu_iid, local_state);
+        
+    endrule
+
+    (* conservative_implicit_conditions *)
+    rule stage3_end (True);
+    
+        match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
+        
+        debugLog.record(cpu_iid, $format("3: DONE"));
+                    
         // Take care of the cache update.
         if (local_state.writePortUsed)
         begin

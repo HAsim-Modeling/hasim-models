@@ -6,9 +6,11 @@ module [HASIM_MODULE] mkCacheAlgAlwaysHit
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SIZE));
 
-    FIFO#(LINE_ADDRESS) loadLookupQ <- mkFIFO();
-    FIFO#(LINE_ADDRESS) storeLookupQ <- mkFIFO();
-    FIFO#(LINE_ADDRESS) evictionQ <- mkFIFO();
+    let buffering = valueof(t_NUM_INSTANCES) + 1;
+
+    FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);
+    FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);
+    FIFO#(LINE_ADDRESS) evictionQ <- mkSizedFIFO(buffering);
 
     method Action loadLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
     

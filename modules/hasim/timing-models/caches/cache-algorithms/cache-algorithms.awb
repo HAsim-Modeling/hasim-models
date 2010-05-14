@@ -8,3 +8,4 @@
 %public cache-algorithm-always-hit.bsv
 %public cache-algorithm-pseudorandom.bsv
 %public cache-algorithm-direct-mapped.bsv
+%public cache-algorithm-set-associative.bsv

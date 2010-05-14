@@ -62,7 +62,7 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)     epochPool <- mkMultiplexedReg(initialIMemEpoch);
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, IMEM_EPOCH)     epochPool <- mkMultiplexedRegMultiWrite(initialIMemEpoch);
 
     // ****** Ports ******
 
@@ -117,7 +117,7 @@ module [HASIM_MODULE] mkIMem
         let cpu_iid <- localCtrl.startModelCycle();
         
         // Get our local state using the current context.
-        Reg#(IMEM_EPOCH)     epoch = epochPool.getReg(cpu_iid);
+        Reg#(IMEM_EPOCH)     epoch = epochPool.getRegWithWritePort(cpu_iid, 0);
         Maybe#(IMEM_OUTPUT) stage_data = Invalid;
         
         // See if there's a response from the ITLB.
@@ -206,7 +206,7 @@ module [HASIM_MODULE] mkIMem
     rule stage2_iCacheRsp;
         match {.cpu_iid, .m_stage_data} <- stage2Ctrl.nextReadyInstance();
 
-        Reg#(IMEM_EPOCH) epoch = epochPool.getReg(cpu_iid);
+        Reg#(IMEM_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 1);
         IMEM_EPOCH new_epoch = epoch;
         
 

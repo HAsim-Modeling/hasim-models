@@ -1,0 +1,10 @@
+def STATS.LLC.READ_HIT    "LLC Read Hits";
+def STATS.LLC.READ_MISS   "LLC Read Misses";
+def STATS.LLC.READ_RETRY  "LLC Read Retries";
+
+
+def STATS.LLC.WRITE_HIT   "LLC Write Hits";
+def STATS.LLC.WRITE_MISS  "LLC Write Misses";
+def STATS.LLC.WRITE_RETRY "LLC Write Retries";
+
+def STATS.LLC.FILL_RETRY  "LLC Fill Retries";

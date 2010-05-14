@@ -41,9 +41,11 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name)
 
 
 
-    FIFO#(LINE_ADDRESS) loadLookupQ <- mkFIFO();
-    FIFO#(LINE_ADDRESS) storeLookupQ <- mkFIFO();
-    FIFO#(Bit#(t_IDX_SIZE)) evictionQ <- mkFIFO();
+    let buffering = valueof(t_NUM_INSTANCES) + 1;
+
+    FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);
+    FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);
+    FIFO#(Bit#(t_IDX_SIZE)) evictionQ <- mkSizedFIFO(buffering);
 
     // Initialize a opaque memory to store our tags in.   
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES, 3, Bit#(t_IDX_SIZE), Maybe#(t_INTERNAL_ENTRY)) tagStore <- mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED);
