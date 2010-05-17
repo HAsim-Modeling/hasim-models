@@ -115,7 +115,7 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name)
         tagStore.readPorts[`PORT_STORE].readReq(iid, idx);
 
         // Pass the request on to the next stage.
-        storeLookupQ.enq(getCacheIndex(addr));
+        storeLookupQ.enq(addr);
     
     endmethod
     

@@ -17,6 +17,7 @@
 //
 
 import Vector::*;
+import FIFOF::*;
 
 `include "asim/provides/librl_bsv_base.bsh"
 `include "asim/provides/librl_bsv_storage.bsh"
@@ -39,27 +40,25 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
          Alias#(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY),
          // The following is brought to you courtesy of proviso hell:
          Add#(t_TMP, TAdd#(TSub#(TAdd#(TLog#(t_NUM_INSTANCES), t_IDX_SIZE),
-             TLog#(TDiv#(64, TExp#(TLog#(TAdd#(1, TAdd#(t_OPAQUE_SIZE,
-             t_TAG_SIZE))))))), TLog#(TDiv#(TExp#(TLog#(TAdd#(1, TAdd#(t_OPAQUE_SIZE, t_TAG_SIZE)))), 64))), 32));
+         TLog#(TDiv#(64, TExp#(TLog#(TMul#(t_NUM_WAYS, TAdd#(1,
+         TAdd#(t_OPAQUE_SIZE, t_TAG_SIZE)))))))),
+         TLog#(TDiv#(TExp#(TLog#(TMul#(t_NUM_WAYS, TAdd#(1, TAdd#(t_OPAQUE_SIZE,
+         t_TAG_SIZE))))), 64))), 32));
 
 
     let buffering = valueof(t_NUM_INSTANCES) + 1;
     Integer numWays = valueof(t_NUM_WAYS);
 
     FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);
-    FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);
+    //FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);
     FIFO#(Bit#(t_IDX_SIZE)) evictionQ <- mkSizedFIFO(buffering);
+    FIFOF#(Tuple3#(INSTANCE_ID#(t_NUM_INSTANCES), Bit#(t_IDX_SIZE), t_INTERNAL_ENTRY)) allocQ <- mkSizedFIFOF(buffering);
 
     // Initialize a opaque memory to store our tags in.   
-    Vector#(t_NUM_WAYS, MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES, 2, Bit#(t_IDX_SIZE), t_INTERNAL_ENTRY)) tagStoreBanks = newVector();
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES, 3, Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, t_INTERNAL_ENTRY)) tagStoreBanks <- mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED);
     
     MULTIPLEXED_LUTRAM_MULTI_WRITE#(t_NUM_INSTANCES, 3, Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) accessedPool <- mkMultiplexedLUTRAMMultiWrite(replicate(False));
     MULTIPLEXED_LUTRAM#(t_NUM_INSTANCES, Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) validsPool <- mkMultiplexedLUTRAM(replicate(False));
-
-    for (Integer x = 0; x < numWays; x = x + 1)
-    begin
-        tagStoreBanks[x] <- mkMultiReadScratchpad_Multiplexed(opaque_name + x, SCRATCHPAD_CACHED);
-    end
 
     function Maybe#(CACHE_ENTRY#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr, Bool valid, t_INTERNAL_ENTRY entry);
     
@@ -97,14 +96,64 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         
     endfunction
 
-    method Action loadLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+    rule finishAllocate (True);
+    
+        match {.iid, .idx, .entry} = allocQ.first();
+        allocQ.deq();
+        let entryvec <- tagStoreBanks.readPorts[`PORT_ALLOC].readRsp(iid);
+
+        LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) accessed = accessedPool.getRAMWithWritePort(iid, `PORT_ALLOC);
+        LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) valids   = validsPool.getRAM(iid);
+
+        Bit#(TLog#(t_NUM_WAYS)) winner = 0;
+        let accessedvec = accessed.sub(idx);
+        let validvec = valids.sub(idx);
+        Bool allValid = all(id, validvec);
+
+        if (!allValid)
+        begin
+        
+            // Pick an invalid entry.
+            for (Integer x = 0; x < numWays; x = x + 1)
+            begin
+                if (!validvec[x])
+                begin
+                    winner = fromInteger(x);
+                end
+            end
+
+        end
+        else
+        begin
+
+            // Figure out which was (pseudo) LRU. Assert that at least one entry accessed == 0.
+            for (Integer x = 0; x < numWays; x = x + 1)
+            begin
+                if (!accessedvec[x])
+                begin
+                    winner = fromInteger(x);
+                end
+            end
+
+        end
+        
+        let new_accessed = accessedvec;
+        let new_valid = validvec;
+        let new_entry = entryvec;
+        new_accessed[winner] = False;
+        accessed.upd(idx, new_accessed);
+        validvec[winner] = True;
+        valids.upd(idx, validvec);
+        new_entry[winner]= entry;
+        tagStoreBanks.write(iid, idx, new_entry);
+
+    endrule
+
+    method Action loadLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr) if (!allocQ.notEmpty());
 
         // Look up the index in the tag store.
         let idx = getCacheIndex(addr);
-        for (Integer x = 0; x < numWays; x = x + 1)
-        begin
-            tagStoreBanks[x].readPorts[`PORT_LOAD].readReq(iid, idx);
-        end
+        tagStoreBanks.readPorts[`PORT_LOAD].readReq(iid, idx);
 
         // Pass the request on to the next stage.
         loadLookupQ.enq(addr);
@@ -124,16 +173,17 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         Maybe#(CACHE_ENTRY#(t_OPAQUE)) res = tagged Invalid;
         let validvec = valids.sub(idx);
         
+        let entryvec <- tagStoreBanks.readPorts[`PORT_LOAD].readRsp(iid);
+
         Maybe#(Bit#(TLog#(t_NUM_WAYS))) winner = tagged Invalid;
 
         for (Integer x = 0; x < numWays; x = x + 1)
         begin
-            let entry <- tagStoreBanks[x].readPorts[`PORT_LOAD].readRsp(iid);
         
-            if (entryTagCheck(addr, validvec[x], entry) matches tagged Valid .entry2)
+            if (entryTagCheck(addr, validvec[x], entryvec[x]) matches tagged Valid .entry)
             begin
                 winner = tagged Valid fromInteger(x);
-                res = tagged Valid entry2;
+                res = tagged Valid entry;
             end
         end
         
@@ -204,17 +254,14 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         return tagged Invalid;
     endmethod
 
-    method Action evictionCheckReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+    method Action evictionCheckReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr) if (!allocQ.notEmpty());
 
         // Look up the index in the tag store.
         let idx = getCacheIndex(addr);
-        for (Integer x = 0; x < numWays; x = x + 1)
-        begin
-            tagStoreBanks[x].readPorts[`PORT_EVICT].readReq(iid, idx);
-        end
+        tagStoreBanks.readPorts[`PORT_EVICT].readReq(iid, idx);
 
         // Pass the request on to the next stage.
-        evictionQ.enq(getCacheIndex(addr));
+        evictionQ.enq(idx);
     
     endmethod
     
@@ -230,17 +277,16 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         // Since we're a set associative cache we need to figure out which bank to insert into for this address.
         // This is where the Accessing psuedo-LRU scheme comes in.
         
-        Vector#(t_NUM_WAYS, t_INTERNAL_ENTRY) entries = newVector();
        
         let validvec = valids.sub(idx);
         let accessedvec = accessed.sub(idx);
+        let entryvec <- tagStoreBanks.readPorts[`PORT_EVICT].readRsp(iid);
         
         Bool allValid = True;
 
         for (Integer x = 0; x < numWays; x = x + 1)
         begin
 
-            entries[x] <- tagStoreBanks[x].readPorts[`PORT_EVICT].readRsp(iid);
             allValid = allValid || validvec[x];
 
         end
@@ -253,14 +299,14 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         else
         begin
         
-            Maybe#(CACHE_ENTRY#(t_OPAQUE)) res = tagged Valid toCacheEntry(entries[0], idx);
+            Maybe#(CACHE_ENTRY#(t_OPAQUE)) res = tagged Valid toCacheEntry(entryvec[0], idx);
 
             // Everyone's valid, so figure out which was (pseudo) LRU.
             for (Integer x = 0; x < numWays; x = x + 1)
             begin
                 if (!accessedvec[x])
                 begin
-                    res = tagged Valid toCacheEntry(entries[x], idx);
+                    res = tagged Valid toCacheEntry(entryvec[x], idx);
                 end
             end
 
@@ -276,50 +322,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         let entry = dirty ? initInternalCacheEntryDirty(addr) : initInternalCacheEntryClean(addr);
         entry.opaque = opaque;
         let idx = getCacheIndex(addr);
-
-        LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) accessed = accessedPool.getRAMWithWritePort(iid, `PORT_ALLOC);
-        LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) valids   = validsPool.getRAM(iid);
-
-        Bit#(TLog#(t_NUM_WAYS)) winner = 0;
-        let accessedvec = accessed.sub(idx);
-        let validvec = valids.sub(idx);
-        Bool allValid = all(id, validvec);
-
-        if (!allValid)
-        begin
+        tagStoreBanks.readPorts[`PORT_ALLOC].readReq(iid, idx);
+        allocQ.enq(tuple3(iid, idx, entry));
         
-            // Pick an invalid entry.
-            for (Integer x = 0; x < numWays; x = x + 1)
-            begin
-                if (!validvec[x])
-                begin
-                    winner = fromInteger(x);
-                end
-            end
-
-        end
-        else
-        begin
-
-            // Figure out which was (pseudo) LRU. Assert that at least one entry accessed == 0.
-            for (Integer x = 0; x < numWays; x = x + 1)
-            begin
-                if (!accessedvec[x])
-                begin
-                    winner = fromInteger(x);
-                end
-            end
-
-        end
-        
-        let new_accessed = accessedvec;
-        new_accessed[winner] = False;
-        accessed.upd(idx, new_accessed);
-        let new_valid = validvec;
-        validvec[winner] = True;
-        valids.upd(idx, validvec);
-        tagStoreBanks[winner].write(iid, idx, entry);
-
     endmethod
-
+    
 endmodule

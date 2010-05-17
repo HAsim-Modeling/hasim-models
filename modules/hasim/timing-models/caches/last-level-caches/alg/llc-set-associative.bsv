@@ -43,10 +43,9 @@ module [HASIM_MODULE] mkLastLevelCacheAlg
          Add#(t_OPAQUE_SZ, t_TMP, 8),
          Add#(IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
          // The following is brought to you courtesy of proviso hell:
-         Add#(t_TMP3, TAdd#(TSub#(TAdd#(TLog#(NUM_CPUS), IDX_SIZE), 
-         TLog#(TDiv#(64, TExp#(TLog#(TAdd#(1,
-         TAdd#(t_OPAQUE_SZ, t_TAG_SIZE))))))), TLog#(TDiv#(TExp#(TLog#(TAdd#(1,
-         TAdd#(t_OPAQUE_SZ, t_TAG_SIZE)))), 64))), 32));
+         Add#(t_TMP3, TAdd#(TSub#(16, TLog#(TDiv#(64, TExp#(TLog#(TMul#(4, TAdd#(1,
+         TAdd#(t_OPAQUE_SZ, t_TAG_SIZE)))))))), TLog#(TDiv#(TExp#(TLog#(TMul#(4, TAdd#(1,
+         TAdd#(t_OPAQUE_SZ, t_TAG_SIZE))))), 64))), 32));
 
     // NUM_WAYS is passed as a pseudo-numeric parameter.
     NumTypeParam#(`LLC_ALG_NUM_WAYS) numWays = ?;

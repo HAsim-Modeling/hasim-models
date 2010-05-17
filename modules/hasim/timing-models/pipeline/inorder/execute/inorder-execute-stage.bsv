@@ -84,7 +84,7 @@ module [HASIM_MODULE] mkExecute ();
     PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_Multiplexed("DTLBQ");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindToFet <- mkPortSend_Multiplexed("Exe_to_Fet_rewind");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN_FAULT_EPOCH) rewindToDec  <- mkPortSend_Multiplexed("Exe_to_Dec_mispredict");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, TOKEN_FAULT_EPOCH)) rewindToDec  <- mkPortSend_Multiplexed("Exe_to_Dec_mispredict");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN) trainingToBP <- mkPortSend_Multiplexed("Exe_to_BP_training");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("Exe_to_Dec_writeback");
@@ -190,7 +190,7 @@ module [HASIM_MODULE] mkExecute ();
 
             // Rewind the PC and train the BP.
             rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, tgt));
-            rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
+            rewindToDec.send(cpu_iid, tagged Valid tuple2(tok, bundle.faultEpoch));
             train.predCorrect = False;
             trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -223,7 +223,19 @@ module [HASIM_MODULE] mkExecute ();
             // Yes... but is it something we should be executing?
             let tok = bundle.token;
         
-            if (goodEpoch(bundle, epoch))
+            if (tokIsDummy(tok))
+            begin
+
+                // Ignore NOP
+                debugLog.record_next_cycle(cpu_iid, fshow("DUMMY: ") + fshow(tok));
+
+                let dmem_bundle = initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests);
+                    
+                // In the next stages we'll pass the junk instruction on, and mark its destinations ready.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_junk dmem_bundle);
+
+            end
+            else if (goodEpoch(bundle, epoch))
             begin
                 
                 // It's on the good path.            
@@ -397,7 +409,7 @@ module [HASIM_MODULE] mkExecute ();
 
                         // Rewind the PC to the actual target and train the BP.
                         rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
-                        rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
+                        rewindToDec.send(cpu_iid, tagged Valid tuple2(tok, bundle.faultEpoch));
                         train.predCorrect = False;
                         trainingToBP.send(cpu_iid, tagged Valid train);
 
@@ -430,7 +442,7 @@ module [HASIM_MODULE] mkExecute ();
 
                             // Resteer the PC to the actual destination and train.
                             rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
-                            rewindToDec.send(cpu_iid, tagged Valid bundle.faultEpoch);
+                            rewindToDec.send(cpu_iid, tagged Valid tuple2(tok, bundle.faultEpoch));
                             train.predCorrect = False;
                             trainingToBP.send(cpu_iid, tagged Valid train);
 

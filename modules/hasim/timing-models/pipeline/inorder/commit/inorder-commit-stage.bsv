@@ -66,8 +66,8 @@ import Vector::*;
 
 typedef union tagged
 {
-    Tuple2#(TOKEN, Bool) STAGE2_drop;
     DMEM_BUNDLE STAGE2_commitRsp;
+    Tuple2#(TOKEN, Bool) STAGE2_dummyRsp;
     void STAGE2_bubble;
 }
 COM_STAGE2_STATE deriving (Bits, Eq);
@@ -88,7 +88,7 @@ module [HASIM_MODULE] mkCommit ();
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN) writebackToDec <- mkPortSend_Multiplexed("Com_to_Dec_writeback");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)  rewindToDec <- mkPortSend_Multiplexed("Com_to_Dec_fault");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN)  rewindToDec <- mkPortSend_Multiplexed("Com_to_Dec_fault");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) faultToFet <- mkPortSend_Multiplexed("Com_to_Fet_fault");
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_DEALLOC_INPUT) deallocToSB <- mkPortSend_Multiplexed("Com_to_SB_dealloc");
@@ -166,9 +166,9 @@ module [HASIM_MODULE] mkCommit ();
             // Dequeue the queue, since this stage never stalls.
             deqToCommitQ.send(cpu_iid, tagged Valid (?));
 
-            if (!tokIsDummy(tok) && bundle.faultEpoch == faultEpoch)
+            if (bundle.faultEpoch == faultEpoch && !tokIsDummy(tok))
             begin
-
+            
                 // Normal commit flow for a good instruction.
                 debugLog.record_next_cycle(cpu_iid, fshow("1: COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
 
@@ -178,16 +178,20 @@ module [HASIM_MODULE] mkCommit ();
 
                 // The response will be handled by the next stage.
                 stage2Ctrl.ready(cpu_iid, tagged STAGE2_commitRsp bundle);
-
+            
             end
             else
             begin
 
-                // Just draining following an earlier fault or branch mispredict.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: DRAIN: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                // This token followed a branch mispredict or fault. We just need to undo its effects
+                // and reclaim its registers. This looks like a normal commit req, but is handled
+                // differently by the functional partition.
+                debugLog.record_next_cycle(cpu_iid, fshow("1: RECLAIM DUMMY: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                //tok.dummy = True;
+                //commitResults.makeReq(initFuncpReqCommitResults(tok));
 
-                // Finish dropping in the next stage.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_drop tuple2(tok, bundle.isStore));
+                // The response will be handled by the next stage.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_dummyRsp tuple2(tok, bundle.isStore));
 
             end
 
@@ -242,9 +246,16 @@ module [HASIM_MODULE] mkCommit ();
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
-        else if (state matches tagged STAGE2_drop {.tok, .is_store})
+        else if (state matches tagged STAGE2_dummyRsp {.tok, .is_store})
         begin
+    
+            // Get the commit response from the functional partition.
+            //let rsp = commitResults.getResp();
+            //commitResults.deq();
         
+            // Get our context from the token.
+            //let tok = rsp.token;
+
             // Instruction is no longer in flight.
 
             if (is_store)
@@ -268,9 +279,9 @@ module [HASIM_MODULE] mkCommit ();
             // Instructions dependent on this guy should be allowed to proceed.
             writebackToDec.send(cpu_iid, tagged Valid tok);
 
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
-        
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(cpu_iid, 3);
+
         end
         else if (state matches tagged STAGE2_commitRsp .bundle)
         begin
@@ -295,7 +306,7 @@ module [HASIM_MODULE] mkCommit ();
 
                 // Pass on the redirection. 
                 faultToFet.send(cpu_iid, tagged Valid tuple2(tok, redirect_addr));
-                rewindToDec.send(cpu_iid, tagged Valid (?));
+                rewindToDec.send(cpu_iid, tagged Valid tok);
 
                 if (bundle.isStore) 
                 begin
@@ -351,11 +362,11 @@ module [HASIM_MODULE] mkCommit ();
             end
 
 
-            // End of model cycle. (Path 3)
+            // End of model cycle. (Path 4)
             statCom.incr(cpu_iid);
             eventCom.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
             linkModelCommit.send(tuple2(cpu_iid, 1));
-            localCtrl.endModelCycle(cpu_iid, 3);
+            localCtrl.endModelCycle(cpu_iid, 4);
         
         end
 

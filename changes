@@ -4226,3 +4226,50 @@ Directory modules/hasim/timing-models/caches/last-level-caches/alg
 * Adding files that were inadvertanetly left out of the last commit.
 
 Michael P.
+
+----------
+pellauer    Date: Mon May 17 13:11:37 EDT 2010  CSN: CSN-hasim-models-138
+                  Mon May 17 17:11:37 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          137 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          137 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          137 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          137 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          137 
+ cache-algorithm-direct-mapped.bsv Locally Modified          137 
+ cache-algorithm-utils.bsv Locally Modified          137 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.bsv   Locally Modified          137 
+
+
+* Hash in the model cache. This results in a huge improvement to IPC, and a 
+  somewhat negative impact on FMR, presumably because the hash is being applied
+  twice.
+
+* Move set-associative algorithm from Vector of scratchpads to scratchpad of 
+  vectors. This helps offset the negative FMR a bit, and is presumably much
+  cheaper.
+
+* Move rewindToToken call from pccalc to decode. Since all front-end redirects
+  don't involve tokens, only faults/branch mispredictions need to call this.
+  By putting the call in decode we remove some bad race conditions whereby the
+  functional partition would become confused about which epoch a token properly
+  belongs to.
+  
+* To handle "dangling" tokens from the previous epoch start using the facility
+  to mark a token as a "dummy." This means it does nothing and is not committed.
+
+Michael P.
+
+  

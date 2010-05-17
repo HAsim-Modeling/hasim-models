@@ -2,6 +2,7 @@
 // ******* Project Imports *******
 
 `include "asim/provides/hasim_common.bsh"
+`include "asim/provides/librl_bsv_base.bsh"
 `include "asim/provides/funcp_base_types.bsh"
 `include "asim/provides/funcp_memstate_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
@@ -40,7 +41,11 @@ function Bit#(t_IDX_SIZE) getCacheIndex(LINE_ADDRESS addr)
     provisos 
         (Add#(t_IDX_SIZE, t_TMP, LINE_ADDRESS_SIZE));
 
-    return truncateLSB(addr);
+    // Purposely use the inverse hash as the hash, and the hash as the inverse.
+    // this should help keep things different from the actual scratchpad.
+
+    LINE_ADDRESS h = hashBits_inv(addr);
+    return truncate(h);
 
 endfunction
 
@@ -48,7 +53,17 @@ function Bit#(t_TAG_SIZE) getCacheTag(LINE_ADDRESS addr)
     provisos 
         (Add#(t_TAG_SIZE, t_TMP, LINE_ADDRESS_SIZE));
 
-    return truncate(addr);
+    LINE_ADDRESS h = hashBits_inv(addr);
+    return truncateLSB(h);
+
+endfunction
+
+function LINE_ADDRESS unhashAddress(Bit#(t_IDX_SIZE) idx, Bit#(t_TAG_SIZE) tag)
+    provisos
+        (Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
+
+    LINE_ADDRESS hashed_addr = {tag, idx};
+    return hashBits(hashed_addr);
 
 endfunction
 
@@ -140,7 +155,8 @@ function CACHE_ENTRY#(t_OPAQUE) toCacheEntry(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_T
     provisos
         (Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
 
-    let phys_addr = {idx, entry.tag};
+    let phys_addr = unhashAddress(idx, entry.tag);
+
     return CACHE_ENTRY 
     {
         dirty: entry.dirty, 

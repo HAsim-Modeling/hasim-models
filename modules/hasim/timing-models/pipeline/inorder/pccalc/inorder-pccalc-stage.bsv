@@ -84,10 +84,10 @@ module [HASIM_MODULE] mkPCCalc
     MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)  epochPool <- mkMultiplexedReg(initialIMemEpoch);
 
     // ****** Soft Connections ******
-
+/*
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
                        FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
- /*
+ 
     Connection_Client#(FUNCP_REQ_HANDLE_FAULT,
                        FUNCP_RSP_HANDLE_FAULT)       handleFault <- mkConnection_Client("funcp_handleFault");
  */
@@ -176,7 +176,7 @@ module [HASIM_MODULE] mkPCCalc
             // A fault occurred. Redirect to the given handler address.
             // (If there's no handler this will just be the faulting instruction.
             debugLog.record_next_cycle(cpu_iid, fshow("1: FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
-            rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
+            //rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             epoch.fault = epoch.fault + 1;
 
             back_end_fault = True;
@@ -190,7 +190,7 @@ module [HASIM_MODULE] mkPCCalc
             // A branch misprediction occured.
             // Epoch check ensures we haven't already redirected from a fault.
             debugLog.record_next_cycle(cpu_iid, fshow("1: REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
-            rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
+            //rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             epoch.branch = epoch.branch + 1;
 
             back_end_fault = True;
@@ -361,8 +361,8 @@ module [HASIM_MODULE] mkPCCalc
         end
         else if (state matches tagged STAGE2_rewindRsp .new_pc)
         begin
-            let rsp = rewindToToken.getResp();
-            rewindToToken.deq();
+            //let rsp = rewindToToken.getResp();
+            //rewindToToken.deq();
             debugLog.record(cpu_iid, $format("2: REWIND RSP + REDIRECT FINISH"));
             nextPCToFetch.send(cpu_iid, tagged Valid tuple2(new_pc, epoch));
 
