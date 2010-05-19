@@ -65,25 +65,16 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Model State (per Context) ******
     
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))) tokIDPool       <- mkMultiplexed(mkReg(replicate(Invalid)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)))   storeTokenPool  <- mkMultiplexed(mkRegU());
-    MULTIPLEXED#(NUM_CPUS, Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)))) physAddressPool <- mkMultiplexed(mkReg(replicate(Invalid)));
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 3, Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokIDPool <- mkMultiplexedRegMultiWrite(replicate(Invalid));
+    MULTIPLEXED_REG#(NUM_CPUS, Vector#(`SB_NUM_ENTRIES, STORE_TOKEN))                         storeTokenPool <- mkMultiplexedReg(?);
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddressPool <- mkMultiplexedRegMultiWrite(replicate(Invalid));
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) oldestCommittedPool   <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) numToCommitPool <- mkMultiplexed(mkReg(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(SB_INDEX)) nextFreeSlotPool      <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, SB_INDEX) oldestCommittedPool   <- mkMultiplexedRegMultiWrite(0);
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, SB_INDEX) numToCommitPool       <- mkMultiplexedRegMultiWrite(0);
+    MULTIPLEXED_REG#(NUM_CPUS, SB_INDEX)                nextFreeSlotPool      <- mkMultiplexedReg(0);
 
-    function Bool empty(CPU_INSTANCE_ID cpu_iid) = nextFreeSlotPool[cpu_iid] == oldestCommittedPool[cpu_iid];
-    function Bool full(CPU_INSTANCE_ID cpu_iid)  = oldestCommittedPool[cpu_iid] == nextFreeSlotPool[cpu_iid] + 1;
-
-
-    // ****** UnModel Pipeline State ******
-
-    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
-    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
-    FIFO#(CPU_INSTANCE_ID) stage4Q <- mkFIFO();
-    
-    Reg#(Vector#(NUM_CPUS, Bool)) stallForStoreRsp <- mkReg(replicate(False));
+    // function Bool empty(CPU_INSTANCE_ID cpu_iid) = nextFreeSlotPool[cpu_iid] == oldestCommittedPool[cpu_iid];
+    // function Bool full(CPU_INSTANCE_ID cpu_iid)  = oldestCommittedPool[cpu_iid] == nextFreeSlotPool[cpu_iid] + 1;
 
     // ****** Ports ******
 
@@ -113,6 +104,11 @@ module [HASIM_MODULE] mkStoreBuffer ();
     outports[2] = storeToWriteQ.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
+
 
 
     // ****** Rules ******
@@ -125,11 +121,11 @@ module [HASIM_MODULE] mkStoreBuffer ();
         debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
+        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool.getReg(cpu_iid);
+        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool.getRegWithWritePort(cpu_iid, 0);
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool.getRegWithWritePort(cpu_iid, 0);
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool.getRegWithWritePort(cpu_iid, 0);
 
         // Check if the decode is allocating a new slot.
         let m_alloc <- allocFromDec.receive(cpu_iid);
@@ -175,7 +171,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
 
         // Continue to the next stage.
-        stage2Q.enq(cpu_iid);
+        stage2Ctrl.ready(cpu_iid);
 
     endrule
 
@@ -185,26 +181,18 @@ module [HASIM_MODULE] mkStoreBuffer ();
     (* conservative_implicit_conditions *)
     rule stage2_search (True);
 
-        let cpu_iid = stage2Q.first();
-        stage2Q.deq();
+        let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get our local state based on the current context.
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool.getRegWithWritePort(cpu_iid, 0);
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool.getRegWithWritePort(cpu_iid, 1);
 
         // See if the DMem is completing or searching.
         let m_req <- reqFromDMem.receive(cpu_iid);
 
-        case (m_req) matches
-            tagged Invalid:
-            begin
+        if (m_req matches tagged Valid .req)
+        begin
 
-                // Propogate the bubble.
-                debugLog.record(cpu_iid, fshow("NO SEARCH"));
-                rspToDMem.send(cpu_iid, Invalid);
-
-            end
-            tagged Valid .req:
             case (req.reqType) matches
                 tagged SB_search:
                 begin
@@ -253,6 +241,9 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         rspToDMem.send(cpu_iid, tagged Valid initSBMiss(req.bundle));
 
                     end
+                    
+                    // Continue in the next stage.
+                    stage3Ctrl.ready(cpu_iid, False);
 
                 end
                 tagged SB_complete:
@@ -282,37 +273,48 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     // Tell the functional partition to make the store locally visible.
                     doStores.makeReq(initFuncpReqDoStores(req.bundle.token));
 
-                    // Don't end the model cycle until the store response has come in.
-                    stallForStoreRsp[cpu_iid] <= True;
-
                     // No need for a response.
                     rspToDMem.send(cpu_iid, tagged Invalid);
+
+                    // Get the store respone in the next stage.
+                    stage3Ctrl.ready(cpu_iid, True);
 
                 end
 
             endcase
+        end
+        else
+        begin
 
-        endcase
-        
-        // Continue to the next stage.
-        stage3Q.enq(cpu_iid);
+            // Propogate the bubble.
+            debugLog.record(cpu_iid, fshow("NO SEARCH"));
+            rspToDMem.send(cpu_iid, Invalid);
+            stage3Ctrl.ready(cpu_iid, False);
+
+        end
 
     endrule
-    
-    (* conservative_implicit_conditions *)
+
     rule stage3_dealloc (True);
     
         // Get our context from the previous stage.
-        let cpu_iid = stage3Q.first();
-        stage3Q.deq();
+        match {.cpu_iid, .get_rsp} <- stage3Ctrl.nextReadyInstance();
     
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
-        Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
+        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool.getRegWithWritePort(cpu_iid, 0);
+        Reg#(SB_INDEX) numToCommit = numToCommitPool.getRegWithWritePort(cpu_iid, 0);
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = tokIDPool.getRegWithWritePort(cpu_iid, 1);
+        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool.getReg(cpu_iid);
+
+        // See if we need to get a store response.
+        if (get_rsp)
+        begin
+        
+            let rsp = doStores.getResp();
+            doStores.deq();
+
+        end
 
         // See if we're getting a deallocation request.
         let m_dealloc <- deallocFromCom.receive(cpu_iid);
@@ -342,25 +344,23 @@ module [HASIM_MODULE] mkStoreBuffer ();
         end
         
         // Finish up in the next stage.
-        stage4Q.enq(cpu_iid);
+        stage4Ctrl.ready(cpu_iid);
         
     endrule
     
     (* conservative_implicit_conditions *)
-    rule stage4_commit (!stallForStoreRsp[stage4Q.first()]);
+    rule stage4_commit (True);
     
         // Get our context from the previous stage.
-        let cpu_iid = stage4Q.first();
-        stage4Q.deq();
+        let cpu_iid <- stage4Ctrl.nextReadyInstance();
     
         // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool[cpu_iid];
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool[cpu_iid];
-        Reg#(SB_INDEX) numToCommit = numToCommitPool[cpu_iid];
+        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool.getRegWithWritePort(cpu_iid, 1);
+        Reg#(SB_INDEX) numToCommit = numToCommitPool.getRegWithWritePort(cpu_iid, 1);
 
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = tokIDPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool[cpu_iid];
-        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool[cpu_iid];
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = tokIDPool.getRegWithWritePort(cpu_iid, 2);
+        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool.getRegWithWritePort(cpu_iid, 1);
+        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool.getReg(cpu_iid);
 
         // See if the Write Buffer has room.
         let m_credit <- creditFromWriteQ.receive(cpu_iid);
@@ -426,18 +426,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
         
         localCtrl.endModelCycle(cpu_iid, 1);
 
-    endrule
-    
-    (* conservative_implicit_conditions *)
-    rule storeRsp (True);
-    
-        let rsp = doStores.getResp();
-        doStores.deq();
-        let tok = rsp.token;
-        
-        let cpu_iid = tokCpuInstanceId(tok);
-        stallForStoreRsp[cpu_iid] <= False;
-    
     endrule
 
 endmodule

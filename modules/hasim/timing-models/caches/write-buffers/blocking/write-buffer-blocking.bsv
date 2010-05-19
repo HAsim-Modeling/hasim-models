@@ -67,14 +67,6 @@ module [HASIM_MODULE] mkWriteBuffer ();
     function Bool full(CPU_INSTANCE_ID cpu_iid)  = headPool.getReg(cpu_iid)._read() == tailPool.getReg(cpu_iid)._read() + 1;
 
     MULTIPLEXED_REG#(NUM_CPUS, Bool) stalledPool <- mkMultiplexedReg(False);
-    
-    
-    // ****** UnModel Pipeline State ******
-
-    FIFO#(CPU_INSTANCE_ID) stage2Q <- mkFIFO();
-    FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
-    
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CONTEXTS, 2, Bool) stallForStoreRspPool <- mkMultiplexedRegMultiWrite(False);
 
     // ****** Ports ******
 
@@ -106,6 +98,8 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
 
     // ****** Rules ******
 
@@ -177,23 +171,21 @@ module [HASIM_MODULE] mkWriteBuffer ();
         endcase
         
         // Continue to the next stage.
-        stage2Q.enq(cpu_iid);
+        stage2Ctrl.ready(cpu_iid);
 
     endrule
 
     (* conservative_implicit_conditions *)
     rule stage2_alloc (True);
-    
 
-        let cpu_iid = stage2Q.first();
-        stage2Q.deq();
+        let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get our local state based on the current context.
         Reg#(WB_INDEX) tail = tailPool.getReg(cpu_iid);
         Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool.getRegWithWritePort(cpu_iid, 0);
         Reg#(WB_INDEX) head = headPool.getReg(cpu_iid);
         Reg#(Bool) stalled = stalledPool.getReg(cpu_iid);
-        Reg#(Bool) stallForStoreRsp = stallForStoreRspPool.getRegWithWritePort(cpu_iid, 0);
+        Bool stall_for_store_rsp = False;
 
         // Check if the store buffer is enq'ing a new write.
         let m_enq <- enqFromSB.receive(cpu_iid);
@@ -212,7 +204,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
             
             // Tell the functional partition to commit the store.
             commitStores.makeReq(initFuncpReqCommitStores(st_tok));
-            stallForStoreRsp <= True;
+            stall_for_store_rsp = True;
         
         end
         
@@ -257,23 +249,28 @@ module [HASIM_MODULE] mkWriteBuffer ();
         end
 
         // Continue to the next stage.
-        stage3Q.enq(cpu_iid);
+        stage3Ctrl.ready(cpu_iid, stall_for_store_rsp);
 
     endrule
 
-    
-    (* conservative_implicit_conditions *)
-    rule stage3_storeRsp (stallForStoreRspPool.getRegWithWritePort(stage3Q.first(), 0)._read() == False);
+
+    rule stage3_storeRsp (True);
     
         // Get our context from the previous stage.
-        let cpu_iid = stage3Q.first();
-        stage3Q.deq();
+        match {.cpu_iid, .get_rsp} <- stage3Ctrl.nextReadyInstance();
     
         // Get our local state based on the current context.
         Reg#(WB_INDEX) head = headPool.getReg(cpu_iid);
         Reg#(Vector#(`WB_NUM_ENTRIES, Maybe#(WB_ENTRY))) buff = buffPool.getRegWithWritePort(cpu_iid, 1);
         Reg#(Bool) stalled = stalledPool.getReg(cpu_iid);
 
+        if (get_rsp)
+        begin
+        
+            let rsp = commitStores.getResp();
+            commitStores.deq();
+
+        end
 
         // Get the responses from the DCache.
         let m_imm_rsp <- immediateRspFromDCache.receive(cpu_iid);
@@ -328,20 +325,6 @@ module [HASIM_MODULE] mkWriteBuffer ();
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
 
-    endrule
-    
-    (* conservative_implicit_conditions *)
-    rule storeRsp (True);
-    
-        let rsp = commitStores.getResp();
-        commitStores.deq();
-        let st_tok = rsp.storeToken;
-        
-        let cpu_iid = storeTokCpuInstanceId(st_tok);
-
-        Reg#(Bool) stallForStoreRsp = stallForStoreRspPool.getRegWithWritePort(cpu_iid, 1);
-        stallForStoreRsp <= False;
-    
     endrule
 
 endmodule

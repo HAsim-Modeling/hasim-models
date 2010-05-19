@@ -4273,3 +4273,25 @@ Directory modules/hasim/timing-models/caches/last-level-caches/alg
 Michael P.
 
   
+
+----------
+pellauer    Date: Wed May 19 00:24:12 EDT 2010  CSN: CSN-hasim-models-139
+                  Wed May 19 04:24:12 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          138 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          138 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          138 
+
+
+* Move branch predictor valid bits to LUTRAM. This cuts down on scratchpad
+  accesses a lot.
+  
+* Bring write/store buffer up to recent coding styles and reduce conflicts.
+
+Michael P.
