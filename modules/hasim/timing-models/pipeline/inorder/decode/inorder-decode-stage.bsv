@@ -112,8 +112,12 @@ module [HASIM_MODULE] mkDecode ();
 
     // ****** Local Controller ******
 
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbExeCtrl  <- mkDependenceController();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbHitCtrl  <- mkDependenceController();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
+
     Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleToIssueQ.ctrl.in;
     inports[1]  = creditFromSB.ctrl;
@@ -124,6 +128,9 @@ module [HASIM_MODULE] mkDecode ();
     depports[0] = writebackFromExe.ctrl;
     depports[1] = writebackFromMemHit.ctrl;
     depports[2] = writebackFromMemMiss.ctrl;
+    depports[3] = wbExeCtrl.ctrl;
+    depports[4] = wbHitCtrl.ctrl;
+    depports[5] = wbMissCtrl.ctrl;
     outports[0] = bundleToIssueQ.ctrl.out;
     outports[1] = deqToInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
@@ -149,10 +156,6 @@ module [HASIM_MODULE] mkDecode ();
 
 
     MULTIPLEXED_REG#(NUM_CPUS, TOKEN_EPOCH) epochPool <- mkMultiplexedReg(initEpoch(0, 0));
-
-    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbExeCtrl  <- mkDependenceController();
-    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbHitCtrl  <- mkDependenceController();
-    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
 
 
     // ***** Helper Functions ******

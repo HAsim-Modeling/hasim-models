@@ -78,8 +78,16 @@ module [HASIM_MODULE] mkMemoryController();
     DEPENDENCE_CONTROLLER#(1) stage2Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage3Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage4Ctrl <- mkDependenceController();
+    Reg#(Bool) initialized <- mkReg(False);
+    
+    rule initialize (!initialized && runCtrl.running);
+        stage2Ctrl.ctrl.setMaxRunningInstance(1);
+        stage3Ctrl.ctrl.setMaxRunningInstance(1);
+        stage4Ctrl.ctrl.setMaxRunningInstance(1);
+        initialized <= True;
+    endrule
 
-    rule stage1_updateCredit (runCtrl.running() && stage2Ctrl.producerCanStart());
+    rule stage1_updateCredit (initialized && stage2Ctrl.producerCanStart());
     
         stage2Ctrl.producerStart();
         debugLog.nextModelCycle();

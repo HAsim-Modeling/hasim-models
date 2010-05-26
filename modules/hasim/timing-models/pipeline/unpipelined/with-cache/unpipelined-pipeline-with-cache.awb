@@ -14,6 +14,7 @@
 # %attributes unpipelined cpu
 #
 # %public  unpipelined-pipeline-with-cache.bsv
+# %public unpipelined-pipeline-with-cache.h
 # %private unpipelined-pipeline-with-cache.dic
 #
 #

@@ -7,5 +7,5 @@
 %public  llc-set-associative.bsv 
 %public  llc-set-associative.dic 
 
-%param LLC_ALG_INDEX_SIZE 12 "Number of bits to use as Last Level Cache index."
+%param LLC_ALG_INDEX_SIZE 9 "Number of bits to use as Last Level Cache index."
 %param LLC_ALG_NUM_WAYS   4  "Number of ways in set associative cache."

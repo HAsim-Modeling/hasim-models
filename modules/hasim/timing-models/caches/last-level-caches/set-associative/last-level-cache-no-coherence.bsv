@@ -766,7 +766,10 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
             enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_REQ, vc_idx, msg));
             rspFromLLC.noDeq(cpu_iid);
             reqFromLLC.doDeq(cpu_iid);
-            physAddr.upd(req.opaque, req.physicalAddress);
+            if (!req.isStore)
+            begin
+                physAddr.upd(req.opaque, req.physicalAddress);
+            end
 
         end
         else

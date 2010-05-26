@@ -4295,3 +4295,35 @@ Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
 * Bring write/store buffer up to recent coding styles and reduce conflicts.
 
 Michael P.
+
+----------
+pellauer    Date: Tue May 25 23:16:33 EDT 2010  CSN: CSN-hasim-models-140
+                  Wed May 26 03:16:33 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          139 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.awb Locally Modified          139 
+ unpipelined-pipeline-with-cache.bsv Locally Modified          139 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          139 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.awb   Locally Modified          139 
+ llc-set-associative.bsv   Locally Modified          139 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          139 
+
+
+* Bugfix: Decode stage controllers were not setting dynamic number of instances
+  correctly.
+
+* Reduce L2 index to 9 bits = 512x4 entries
+
+* Unpipelined with cache model is up to speed and can work with interconnects.
+
+Michael P.
