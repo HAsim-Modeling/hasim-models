@@ -4327,3 +4327,30 @@ Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
 * Unpipelined with cache model is up to speed and can work with interconnects.
 
 Michael P.
+
+----------
+pellauer    Date: Tue Jun  1 17:46:55 EDT 2010  CSN: CSN-hasim-models-141
+                  Tue Jun  1 21:46:55 UTC 2010
+
+
+Directory config/pm/hasim-models/l1-caches
+ l1_caches_no_tlbs.apm     Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.h Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches-no-tlbs.h       Locally Added               0 
+ l1-caches-no-tlbs.awb     Locally Added               0 
+ l1-caches-no-tlbs.bsv     Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.bsv   Locally Modified          140 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          140 
+
+
+* Unpipelined model with caches is closer to working. Uses caches with no TLBs.
+
+* Bugfix in memory controller.

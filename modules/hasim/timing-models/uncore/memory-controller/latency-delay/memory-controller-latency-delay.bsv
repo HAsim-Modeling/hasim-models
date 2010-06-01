@@ -81,9 +81,9 @@ module [HASIM_MODULE] mkMemoryController();
     Reg#(Bool) initialized <- mkReg(False);
     
     rule initialize (!initialized && runCtrl.running);
-        stage2Ctrl.ctrl.setMaxRunningInstance(1);
-        stage3Ctrl.ctrl.setMaxRunningInstance(1);
-        stage4Ctrl.ctrl.setMaxRunningInstance(1);
+        stage2Ctrl.ctrl.setMaxRunningInstance(0);
+        stage3Ctrl.ctrl.setMaxRunningInstance(0);
+        stage4Ctrl.ctrl.setMaxRunningInstance(0);
         initialized <= True;
     endrule
 
