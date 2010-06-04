@@ -4354,3 +4354,25 @@ Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
 * Unpipelined model with caches is closer to working. Uses caches with no TLBs.
 
 * Bugfix in memory controller.
+
+----------
+pellauer    Date: Thu Jun  3 23:00:49 EDT 2010  CSN: CSN-hasim-models-142
+                  Fri Jun  4 03:00:49 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          141 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches-no-tlbs.bsv     Locally Modified          141 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          141 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.bsv   Locally Modified          141 
+
+
+* Unpipelined with cache fixes. Should now run benchmarks to completion.
+
+Michael P.

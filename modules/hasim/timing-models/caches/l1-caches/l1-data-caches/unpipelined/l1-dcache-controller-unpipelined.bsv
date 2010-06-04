@@ -155,21 +155,22 @@ module [HASIM_MODULE] mkL1DCache ();
 
     // ****** Local Controller ******
 
-    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
     Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
-    inports[1] = storeReqFromCPU.ctrl;
-    inports[2] = fillFromMemory.ctrl.in;
-    inports[3] = reqToMemQ.ctrl.in;
+    inports[1] = fillFromMemory.ctrl.in;
+    inports[2] = reqToMemQ.ctrl.in;
     outports[0] = loadRspImmToCPU.ctrl;
     outports[1] = loadRspDelToCPU.ctrl;
     outports[2] = storeRspImmToCPU.ctrl;
     outports[3] = storeRspDelToCPU.ctrl;
     outports[4] = reqToMemQ.ctrl.out;
     outports[5] = fillFromMemory.ctrl.out;
+    depports[0] = storeReqFromCPU.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage3Ctrl <- mkStageController();
