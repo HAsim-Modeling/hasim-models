@@ -4376,3 +4376,36 @@ Directory modules/hasim/timing-models/caches/last-level-caches/alg
 * Unpipelined with cache fixes. Should now run benchmarks to completion.
 
 Michael P.
+
+----------
+pellauer    Date: Wed Jun 16 14:36:17 EDT 2010  CSN: CSN-hasim-models-143
+                  Wed Jun 16 18:36:17 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          142 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          142 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          142 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          142 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          142 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          142 
+
+
+* Fetch, instq, now use STATE_POOL approach to avoid multiplexors.
+
+* Miss tracker, SB, WB only have multiplexors on valid bits, 
+  rather than on all bits.
+
+* ICN mesh uses "functional FIFOs" to store virtual channels.
+
+Michael P.

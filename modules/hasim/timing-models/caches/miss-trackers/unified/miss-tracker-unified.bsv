@@ -139,7 +139,8 @@ module [HASIM_MODULE] mkCacheMissTracker
     
     // A LUTRAM to store which other miss IDs a fill should be returned to,
     // represented as a linked list.
-    MULTIPLEXED_LUTRAM_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillListPool <- mkMultiplexedLUTRAMMultiWrite(tagged Invalid);
+    MULTIPLEXED_LUTRAM#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillListPool <- mkMultiplexedLUTRAM(?);
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValidsPool <- mkMultiplexedLUTRAMMultiWrite(False);
     
     // A register to store the current token that we are returning a fill to, beyond the first.
     MULTIPLEXED_REG#(t_NUM_INSTANCES, Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFillsPool <- mkMultiplexedReg(tagged Invalid);
@@ -148,7 +149,8 @@ module [HASIM_MODULE] mkCacheMissTracker
     MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTailPool <- mkMultiplexedReg(0);
 
     // A register to store the last load we served. No more loads will be made to this address.
-    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, Maybe#(LINE_ADDRESS)) lastServedAddrPool <- mkMultiplexedRegMultiWrite(tagged Invalid);
+    MULTIPLEXED_REG#(t_NUM_INSTANCES, LINE_ADDRESS) lastServedAddrPool <- mkMultiplexedReg(?);
+    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, Bool) lastServedAddrValidPool <- mkMultiplexedRegMultiWrite(False);
 
     // Track the state of the freelist. Initially the freelist is full and
     // every ID is on the list.
@@ -209,11 +211,10 @@ module [HASIM_MODULE] mkCacheMissTracker
 
     method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
 
-        Reg#(Maybe#(LINE_ADDRESS)) lastServedAddr = lastServedAddrPool.getRegWithWritePort(iid, 0);
-        if (lastServedAddr matches tagged Valid .a)
-            return (a == addr);
-        else
-            return False;
+        Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
+        Reg#(Bool)    lastServedAddrValid = lastServedAddrValidPool.getRegWithWritePort(iid, 0);
+        
+        return (lastServedAddrValid) ? (lastServedAddr == addr) : False;
 
     endmethod
     
@@ -239,20 +240,24 @@ module [HASIM_MODULE] mkCacheMissTracker
 
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTail = runTailPool.getReg(iid);
-        Reg#(Maybe#(LINE_ADDRESS)) lastServedAddr = lastServedAddrPool.getRegWithWritePort(iid, 0);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillList = multipleFillListPool.getRAMWithWritePort(iid, 0);
+        Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
+        Reg#(Bool) lastServedAddrValid = lastServedAddrValidPool.getRegWithWritePort(iid, 0);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillList = multipleFillListPool.getRAM(iid);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 0);
 
         let idx = freelist.getRAM(iid).sub(headPtr);
 
         headPtr <= headPtr + 1;
 
-        if (lastServedAddr matches tagged Valid .a &&& a == addr)
+        if (lastServedAddrValid && lastServedAddr == addr)
         begin
-            multipleFillList.upd(runTail, tagged Valid idx);
+            multipleFillList.upd(runTail, idx);
+            multipleFillListValids.upd(runTail, True);
         end
 
         runTail <= idx;
-        lastServedAddr <= tagged Valid addr;
+        lastServedAddr <= addr;
+        lastServedAddrValid <= True;
 
         return initMissTokLoad(idx);
     
@@ -260,10 +265,12 @@ module [HASIM_MODULE] mkCacheMissTracker
     
     method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
         
-        Reg#(Maybe#(LINE_ADDRESS)) lastServedAddr = lastServedAddrPool.getRegWithWritePort(iid, 1);
-        if (lastServedAddr matches tagged Valid .a &&& a == addr)
+        Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
+        Reg#(Bool) lastServedAddrValid = lastServedAddrValidPool.getRegWithWritePort(iid, 1);
+
+        if (lastServedAddrValid && lastServedAddr == addr)
         begin
-            lastServedAddr <= tagged Invalid;
+            lastServedAddrValid <= False;
         end
 
     endmethod
@@ -290,14 +297,15 @@ module [HASIM_MODULE] mkCacheMissTracker
     
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
         Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillList = multipleFillListPool.getRAMWithWritePort(iid, 1);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillList = multipleFillListPool.getRAM(iid);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 1);
 
         freelist.getRAM(iid).upd(tailPtr, missTokIndex(miss_tok));
 
         tailPtr <= tailPtr + 1;
         
-        servingMultipleFills <= multipleFillList.sub(missTokIndex(miss_tok));
-        multipleFillList.upd(missTokIndex(miss_tok), tagged Invalid);
+        servingMultipleFills <= multipleFillListValids.sub(missTokIndex(miss_tok)) ? tagged Valid multipleFillList.sub(missTokIndex(miss_tok)) : tagged Invalid;
+        multipleFillListValids.upd(missTokIndex(miss_tok), tagged False);
     
     endmethod
 
@@ -311,16 +319,16 @@ module [HASIM_MODULE] mkCacheMissTracker
 
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
         Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) multipleFillList = multipleFillListPool.getRAMWithWritePort(iid, 1);
-
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillList = multipleFillListPool.getRAM(iid);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 1);
 
         let cur = validValue(servingMultipleFills);
 
         freelist.getRAM(iid).upd(tailPtr, cur);
         tailPtr <= tailPtr + 1;        
 
-        servingMultipleFills <= multipleFillList.sub(cur);
-        multipleFillList.upd(cur, tagged Invalid);
+        servingMultipleFills <= multipleFillListValids.sub(cur) ? tagged Valid multipleFillList.sub(cur) : tagged Invalid;
+        multipleFillListValids.upd(cur, False);
 
         return initMissTokLoad(cur);
 

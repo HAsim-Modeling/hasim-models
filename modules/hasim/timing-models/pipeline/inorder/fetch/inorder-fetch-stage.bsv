@@ -49,6 +49,21 @@ import Vector::*;
 
 // ****** Modules ******
 
+typedef struct
+{
+    ISA_ADDRESS pc;
+    IMEM_EPOCH epoch;
+    INSTQ_CREDIT_COUNT credits;
+}
+FETCH_STATE deriving (Eq, Bits);
+
+FETCH_STATE initFetchState = 
+    FETCH_STATE
+    {
+        pc: `PROGRAM_START_ADDR,
+        epoch: initialIMemEpoch,
+        credits: fromInteger(valueof(NUM_INSTQ_CREDITS))
+    };
 
 // mkFetch
 
@@ -59,9 +74,7 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, ISA_ADDRESS)              pcPool <- mkMultiplexedRegMultiWrite(`PROGRAM_START_ADDR);
-    MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)                           epochPool <- mkMultiplexedReg(initialIMemEpoch);
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_CREDIT_COUNT)  creditsPool <- mkMultiplexedRegMultiWrite(fromInteger(valueof(NUM_INSTQ_CREDITS)));
+    MULTIPLEXED_STATE_POOL#(NUM_CPUS, FETCH_STATE) statePool <- mkMultiplexedStatePool(initFetchState);
 
     // ****** Soft Connections ******
 
@@ -82,11 +95,12 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Local Controller ******
         
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports  = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = creditFromInstQ.ctrl;
     inports[1]  = newPCFromPCCalc.ctrl;
+    inports[2]  = statePool.ctrl;
     depports[0] = newPCFromLP.ctrl;
     outports[0] = pcToITLB.ctrl;
     outports[1] = pcToBP.ctrl;
@@ -94,7 +108,7 @@ module [HASIM_MODULE] mkFetch ();
     
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, FETCH_STATE) stage2Ctrl <- mkStageController();
 
 
     // ****** Events and Stats ******
@@ -133,16 +147,11 @@ module [HASIM_MODULE] mkFetch ();
         modelCycle.send(cpu_iid);
         
         // Get our local state using the instance.
-        Reg#(ISA_ADDRESS)             pc = pcPool.getRegWithWritePort(cpu_iid, 0);
-        Reg#(IMEM_EPOCH)           epoch = epochPool.getReg(cpu_iid);
-        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool.getRegWithWritePort(cpu_iid, 0);
-
+        let local_state <- statePool.extractState(cpu_iid);
+        
         // Get credits from the instruction queue and update our count of them.
         let m_creditFromInstQ <- creditFromInstQ.receive(cpu_iid);
-        credits <= credits + fromMaybe(0, m_creditFromInstQ);
-
-        
-        let pc_for_line_prediction = pc;
+        local_state.credits = local_state.credits + fromMaybe(0, m_creditFromInstQ);
 
         // Get the next PC from PCCalc for redirects
         let m_pcFromPCCalc <- newPCFromPCCalc.receive(cpu_iid);
@@ -152,17 +161,17 @@ module [HASIM_MODULE] mkFetch ();
         begin
             debugLog.record_next_cycle(cpu_iid, $format("REDIRECT TO PC:0x%h", new_pc) + $format(" EPOCH:0x%0h", new_epoch));
 
-            pc_for_line_prediction = new_pc;
-            pc <= new_pc;
-            epoch <= new_epoch;
+            local_state.pc = new_pc;
+            local_state.epoch = new_epoch;
         end
 
         // Send the pc to the line predictor
         // We always request a line prediction, even if we don't have a credit
         // in the instruction queue. (Is this OKAY?)
-        pcToLP.send(cpu_iid, tagged Valid pc_for_line_prediction);
+        pcToLP.send(cpu_iid, tagged Valid local_state.pc);
 
-        stage2Ctrl.ready(cpu_iid);
+        stage2Ctrl.ready(cpu_iid, local_state);
+
     endrule
 
     // stage2_fetchReq
@@ -178,12 +187,8 @@ module [HASIM_MODULE] mkFetch ();
 
     (* conservative_implicit_conditions *)
     rule stage2_fetchReq (True);
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
-        // Get our local state using the instance.
-        Reg#(ISA_ADDRESS)             pc = pcPool.getRegWithWritePort(cpu_iid, 1);
-        Reg#(IMEM_EPOCH)           epoch = epochPool.getReg(cpu_iid);
-        Reg#(INSTQ_CREDIT_COUNT) credits = creditsPool.getRegWithWritePort(cpu_iid, 1);
+        match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
 
         // Get the line prediction
         // assert isValid(m_line_prediction)
@@ -191,25 +196,25 @@ module [HASIM_MODULE] mkFetch ();
         let line_prediction = validValue(m_line_prediction);
         
         // See if we have any credits for the instruction queue.
-        if (credits != 0)
+        if (local_state.credits != 0)
         begin
         
             // The instructionQ still has room...
             // Send the current PC to the ITLB and Branch predictor and line
             // predictor
-            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(epoch, pc, line_prediction, cpu_iid));
-            pcToBP.send(cpu_iid, tagged Valid pc);
+            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(local_state.epoch, local_state.pc, line_prediction, cpu_iid));
+            pcToBP.send(cpu_iid, tagged Valid local_state.pc);
 
             // Set the pc as predicted
-            pc <= line_prediction;
+            local_state.pc = line_prediction;
 
             // Use the credit
-            credits <= credits - 1;
+            local_state.credits = local_state.credits - 1;
         
             // End of model cycle. (Path 1)
-            eventFet.recordEvent(cpu_iid, tagged Valid truncate(pc));
+            eventFet.recordEvent(cpu_iid, tagged Valid truncate(local_state.pc));
             statFet.incr(cpu_iid);
-            debugLog.record(cpu_iid, $format("FETCH ADDR:0x%h", pc));
+            debugLog.record(cpu_iid, $format("FETCH ADDR:0x%h", local_state.pc));
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
@@ -231,6 +236,8 @@ module [HASIM_MODULE] mkFetch ();
             localCtrl.endModelCycle(cpu_iid, 2);
 
         end
+        
+        statePool.insertState(cpu_iid, local_state);
         
     endrule
 

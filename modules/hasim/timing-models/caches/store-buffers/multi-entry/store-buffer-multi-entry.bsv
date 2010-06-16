@@ -21,6 +21,7 @@
 import Vector::*;
 import FShow::*;
 import FIFO::*;
+import FIFOF::*;
 
 
 // ****** Project imports ******
@@ -57,6 +58,27 @@ typedef Bit#(TLog#(`SB_NUM_ENTRIES)) SB_INDEX;
 
 // There is only one way that a model cycle can end.
 
+typedef struct
+{
+    Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)) tokID;
+    Vector#(`SB_NUM_ENTRIES, STORE_TOKEN) storeToken;
+    Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS)) physAddress;
+    SB_INDEX oldestCommitted;
+    SB_INDEX numToCommit;
+    SB_INDEX nextFreeSlot;
+}
+STORE_BUFF_STATE deriving (Eq, Bits);
+
+STORE_BUFF_STATE initStoreBuffState = 
+    STORE_BUFF_STATE
+    {
+        tokID: replicate(Invalid),
+        storeToken: newVector(),
+        physAddress: replicate(Invalid),
+        oldestCommitted: 0,
+        numToCommit: 0,
+        nextFreeSlot: 0
+    };
 
 module [HASIM_MODULE] mkStoreBuffer ();
 
@@ -65,17 +87,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Model State (per Context) ******
     
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 3, Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokIDPool <- mkMultiplexedRegMultiWrite(replicate(Invalid));
-    MULTIPLEXED_REG#(NUM_CPUS, Vector#(`SB_NUM_ENTRIES, STORE_TOKEN))                         storeTokenPool <- mkMultiplexedReg(?);
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddressPool <- mkMultiplexedRegMultiWrite(replicate(Invalid));
-
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, SB_INDEX) oldestCommittedPool   <- mkMultiplexedRegMultiWrite(0);
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, SB_INDEX) numToCommitPool       <- mkMultiplexedRegMultiWrite(0);
-    MULTIPLEXED_REG#(NUM_CPUS, SB_INDEX)                nextFreeSlotPool      <- mkMultiplexedReg(0);
-
-    // function Bool empty(CPU_INSTANCE_ID cpu_iid) = nextFreeSlotPool[cpu_iid] == oldestCommittedPool[cpu_iid];
-    // function Bool full(CPU_INSTANCE_ID cpu_iid)  = oldestCommittedPool[cpu_iid] == nextFreeSlotPool[cpu_iid] + 1;
-
+    MULTIPLEXED_STATE_POOL#(NUM_CPUS, STORE_BUFF_STATE) statePool <- mkMultiplexedStatePool(initStoreBuffState);
+    
     // ****** Ports ******
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             allocFromDec    <- mkPortRecv_Multiplexed("Dec_to_SB_alloc", 1);
@@ -93,21 +106,22 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(5, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = reqFromDMem.ctrl;
     inports[1]  = allocFromDec.ctrl;
     inports[2]  = deallocFromCom.ctrl;
     inports[3]  = creditFromWriteQ.ctrl;
+    inports[4]  = statePool.ctrl;
     outports[0] = rspToDMem.ctrl;
     outports[1] = creditToDecode.ctrl;
     outports[2] = storeToWriteQ.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
     
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, STORE_BUFF_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(STORE_BUFF_STATE, Bool)) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, STORE_BUFF_STATE) stage4Ctrl <- mkStageController();
 
 
 
@@ -119,36 +133,29 @@ module [HASIM_MODULE] mkStoreBuffer ();
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
-
-        // Get our local state based on the current context.
-        Reg#(SB_INDEX) nextFreeSlot = nextFreeSlotPool.getReg(cpu_iid);
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool.getRegWithWritePort(cpu_iid, 0);
-
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool.getRegWithWritePort(cpu_iid, 0);
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool.getRegWithWritePort(cpu_iid, 0);
+        
+        let local_state <- statePool.extractState(cpu_iid);
 
         // Check if the decode is allocating a new slot.
         let m_alloc <- allocFromDec.receive(cpu_iid);
-        
-        let new_free = nextFreeSlot;
         
         if (m_alloc matches tagged Valid .tok)
         begin
         
             // Allocate a new slot.
             // assert !full(cpu_iid)
-                        debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
-            tokID[nextFreeSlot] <= tagged Valid tok;
+            debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
+            local_state.tokID[local_state.nextFreeSlot] = tagged Valid tok;
 
             // We don't know its effective address yet.
-            physAddress[nextFreeSlot] <= tagged Invalid;
+            local_state.physAddress[local_state.nextFreeSlot] = tagged Invalid;
 
-            new_free = new_free + 1;
+            local_state.nextFreeSlot = local_state.nextFreeSlot + 1;
         
         end
         
         // Calculate the credit for decode.
-        if (((new_free + 2) == oldestCommitted) || ((new_free + 1) == oldestCommitted)) // Plus 2 because we assume it takes a cycle for the credit to arrive. Should really be +L+1 where L is latency of credit.
+        if (((local_state.nextFreeSlot + 2) == local_state.oldestCommitted) || ((local_state.nextFreeSlot + 1) == local_state.oldestCommitted)) // Plus 2 because we assume it takes a cycle for the credit to arrive. Should really be +L+1 where L is latency of credit.
         begin
 
             // Tell decode we're full.
@@ -164,14 +171,9 @@ module [HASIM_MODULE] mkStoreBuffer ();
             creditToDecode.send(cpu_iid, tagged Valid (?));
         
         end
-        
-        
-        // Update the tail.        
-        nextFreeSlot <= new_free;
-
 
         // Continue to the next stage.
-        stage2Ctrl.ready(cpu_iid);
+        stage2Ctrl.ready(cpu_iid, local_state);
 
     endrule
 
@@ -181,11 +183,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     (* conservative_implicit_conditions *)
     rule stage2_search (True);
 
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
-
-        // Get our local state based on the current context.
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))             tokID = tokIDPool.getRegWithWritePort(cpu_iid, 0);
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool.getRegWithWritePort(cpu_iid, 1);
+        match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
 
         // See if the DMem is completing or searching.
         let m_req <- reqFromDMem.receive(cpu_iid);
@@ -196,7 +194,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
             case (req.reqType) matches
                 tagged SB_search:
                 begin
-
 
                     let target_addr = req.bundle.physicalAddress;
 
@@ -211,12 +208,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
 
                         // It's a hit if it's a store to the same address which is older than the load.
-                        let addr_match = case (physAddress[x]) matches 
+                        let addr_match = case (local_state.physAddress[x]) matches 
                                             tagged Valid .addr: return addr == target_addr;
                                             tagged Invalid: return False;
                                          endcase;
 
-                        let older_store = case (tokID[x]) matches 
+                        let older_store = case (local_state.tokID[x]) matches 
                                                 tagged Valid .tok: return tokenIsOlderOrEq(tok.index.token_id, req.bundle.token.index.token_id);
                                                 tagged Invalid: return False;
                                             endcase;
@@ -243,7 +240,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     end
                     
                     // Continue in the next stage.
-                    stage3Ctrl.ready(cpu_iid, False);
+                    stage3Ctrl.ready(cpu_iid, tuple2(local_state, False));
 
                 end
                 tagged SB_complete:
@@ -263,12 +260,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     for (Integer x = 0; x < `SB_NUM_ENTRIES; x = x + 1)
                     begin
                     
-                        if (tokID[x] matches tagged Valid .tok &&& tokTokenId(tok) == tok_id)
+                        if (local_state.tokID[x] matches tagged Valid .tok &&& tokTokenId(tok) == tok_id)
                             sb_idx = fromInteger(x);
                     
                     end
                     
-                    physAddress[sb_idx] <= tagged Valid req.bundle.physicalAddress;
+                    local_state.physAddress[sb_idx] = tagged Valid req.bundle.physicalAddress;
 
                     // Tell the functional partition to make the store locally visible.
                     doStores.makeReq(initFuncpReqDoStores(req.bundle.token));
@@ -277,7 +274,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     rspToDMem.send(cpu_iid, tagged Invalid);
 
                     // Get the store respone in the next stage.
-                    stage3Ctrl.ready(cpu_iid, True);
+                    stage3Ctrl.ready(cpu_iid, tuple2(local_state, True));
 
                 end
 
@@ -289,7 +286,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
             // Propogate the bubble.
             debugLog.record(cpu_iid, fshow("NO SEARCH"));
             rspToDMem.send(cpu_iid, Invalid);
-            stage3Ctrl.ready(cpu_iid, False);
+            stage3Ctrl.ready(cpu_iid, tuple2(local_state, False));
 
         end
 
@@ -298,14 +295,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     rule stage3_dealloc (True);
     
         // Get our context from the previous stage.
-        match {.cpu_iid, .get_rsp} <- stage3Ctrl.nextReadyInstance();
-    
-        // Get our local state based on the current context.
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool.getRegWithWritePort(cpu_iid, 0);
-        Reg#(SB_INDEX) numToCommit = numToCommitPool.getRegWithWritePort(cpu_iid, 0);
-
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))) tokID = tokIDPool.getRegWithWritePort(cpu_iid, 1);
-        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool.getReg(cpu_iid);
+        match {.cpu_iid, {.local_state, .get_rsp}} <- stage3Ctrl.nextReadyInstance();
 
         // See if we need to get a store response.
         if (get_rsp)
@@ -324,10 +314,10 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
             // Invalidate the requested entry. We assume drop/dealloc requests come in allocation order.
             debugLog.record(cpu_iid, fshow("DROP REQ ") + fshow(req.token));
-            tokID[oldestCommitted + numToCommit] <= tagged Invalid;
+            local_state.tokID[local_state.oldestCommitted + local_state.numToCommit] = tagged Invalid;
 
             // Record that the commit path has work to do.
-            numToCommit <= numToCommit + 1;
+            local_state.numToCommit = local_state.numToCommit + 1;
         
         end
         else if (m_dealloc matches tagged Valid .req &&& req.reqType == SB_writeback)
@@ -335,16 +325,16 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
             // Update the token with the latest value.
             debugLog.record(cpu_iid, fshow("DEALLOC REQ ") + fshow(req.token));
-            tokID[oldestCommitted + numToCommit] <= tagged Valid req.token;
-            storeToken[oldestCommitted + numToCommit] <= req.storeToken;
+            local_state.tokID[local_state.oldestCommitted + local_state.numToCommit] = tagged Valid req.token;
+            local_state.storeToken[local_state.oldestCommitted + local_state.numToCommit] = req.storeToken;
 
             // Record that the commit path has work to do.
-            numToCommit <= numToCommit + 1;
+            local_state.numToCommit = local_state.numToCommit + 1;
         
         end
         
         // Finish up in the next stage.
-        stage4Ctrl.ready(cpu_iid);
+        stage4Ctrl.ready(cpu_iid, local_state);
         
     endrule
     
@@ -352,31 +342,23 @@ module [HASIM_MODULE] mkStoreBuffer ();
     rule stage4_commit (True);
     
         // Get our context from the previous stage.
-        let cpu_iid <- stage4Ctrl.nextReadyInstance();
-    
-        // Get our local state based on the current context.
-        Reg#(SB_INDEX) oldestCommitted = oldestCommittedPool.getRegWithWritePort(cpu_iid, 1);
-        Reg#(SB_INDEX) numToCommit = numToCommitPool.getRegWithWritePort(cpu_iid, 1);
-
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN)))       tokID = tokIDPool.getRegWithWritePort(cpu_iid, 2);
-        Reg#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))) physAddress = physAddressPool.getRegWithWritePort(cpu_iid, 1);
-        Reg#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN)) storeToken = storeTokenPool.getReg(cpu_iid);
+        match {.cpu_iid, .local_state} <- stage4Ctrl.nextReadyInstance();
 
         // See if the Write Buffer has room.
         let m_credit <- creditFromWriteQ.receive(cpu_iid);
         let write_buff_has_credit = isValid(m_credit);
 
         // We need to dealloc if we have pending commmits.
-        if (numToCommit != 0)
+        if (local_state.numToCommit != 0)
         begin
-            case (tokID[oldestCommitted]) matches
+            case (local_state.tokID[local_state.oldestCommitted]) matches
                 tagged Invalid:
                 begin
                 
                     // If the oldest committed token is invalid then it was dropped. Just move over it.
                     debugLog.record(cpu_iid, fshow("JUNK DROPPED"));
-                    oldestCommitted <= oldestCommitted + 1;
-                    numToCommit <= numToCommit - 1;
+                    local_state.oldestCommitted = local_state.oldestCommitted + 1;
+                    local_state.numToCommit = local_state.numToCommit - 1;
                     
                     // No guys to commit.
                     storeToWriteQ.send(cpu_iid, tagged Invalid);
@@ -385,20 +367,20 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 tagged Valid .tok:
                 begin
                     // The oldest token has been committed. Let's see if we can send it to the write buffer.
-                    if (physAddress[oldestCommitted] matches tagged Valid .phys_addr &&& write_buff_has_credit)
+                    if (local_state.physAddress[local_state.oldestCommitted] matches tagged Valid .phys_addr &&& write_buff_has_credit)
                     begin
 
                         // It's got room. Let's send the oldest store.
                         debugLog.record(cpu_iid, fshow("DEALLOC ") + fshow(tok));
 
-                        // Dequeue the old entry.
-                        tokID[oldestCommitted] <= tagged Invalid;
-                        oldestCommitted <= oldestCommitted + 1;
-                        numToCommit <= numToCommit - 1;
-
                         // Send it to the writeBuffer.
-                        let store_tok = storeToken[oldestCommitted];
+                        let store_tok = local_state.storeToken[local_state.oldestCommitted];
                         storeToWriteQ.send(cpu_iid, tagged Valid tuple2(store_tok, phys_addr));
+
+                        // Dequeue the old entry.
+                        local_state.tokID[local_state.oldestCommitted] = tagged Invalid;
+                        local_state.oldestCommitted = local_state.oldestCommitted + 1;
+                        local_state.numToCommit = local_state.numToCommit - 1;
 
                     end
                     else
@@ -425,6 +407,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         end
         
         localCtrl.endModelCycle(cpu_iid, 1);
+        statePool.insertState(cpu_iid, local_state);
 
     endrule
 

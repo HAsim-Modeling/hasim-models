@@ -84,10 +84,6 @@ import Vector::*;
 
 typedef Bit#(TLog#(NUM_INSTQ_SLOTS)) INSTQ_SLOT_ID;
 
-typedef struct {
-    FETCH_BUNDLE bundle;
-    Bool complete;
-} INSTQ_SLOT_DATA deriving(Bits, Eq);
 
 typedef Vector#(NUM_ICACHE_MISS_IDS, Bool) MISS_DROP_MAP;
 
@@ -101,7 +97,8 @@ module [HASIM_MODULE] mkInstructionQueue
     // ****** Model State (per instance) ******
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slotsPool <- mkMultiplexedLUTRAMMultiWrite(?);
+    MULTIPLEXED_LUTRAM#(NUM_CPUS, INSTQ_SLOT_ID, FETCH_BUNDLE) slotsPool <- mkMultiplexedLUTRAM(?);
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_SLOT_ID, Bool) completePool <- mkMultiplexedLUTRAMMultiWrite(False);
 
     // Record of which expected icache miss delayed updates we should ignore.
     MULTIPLEXED_REG#(NUM_CPUS, MISS_DROP_MAP) shouldDropPool <- mkMultiplexedReg(replicate(False));
@@ -167,18 +164,19 @@ module [HASIM_MODULE] mkInstructionQueue
         debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool.getRAMWithWritePort(cpu_iid, 0);
+        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) slots = slotsPool.getRAM(cpu_iid);
+        LUTRAM#(INSTQ_SLOT_ID, Bool) complete = completePool.getRAMWithWritePort(cpu_iid, 0);
         Reg#(INSTQ_SLOT_ID) head_ptr = headPtrPool.getReg(cpu_iid);
         Reg#(INSTQ_SLOT_ID) tail_ptr = tailPtrPool.getReg(cpu_iid);
 
         // Send the head bundle to decode if ready.
         let empty = (head_ptr == tail_ptr);
         let first = slots.sub(head_ptr);
-        if (!empty && first.complete)
+        if (!empty && complete.sub(head_ptr))
         begin
             // It's ready to go.
-            debugLog.record_next_cycle(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", head_ptr, first.bundle.pc));
-            bundleToDec.send(cpu_iid, tagged Valid first.bundle);
+            debugLog.record_next_cycle(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", head_ptr, first.pc));
+            bundleToDec.send(cpu_iid, tagged Valid first);
         end
         else
         begin
@@ -205,7 +203,7 @@ module [HASIM_MODULE] mkInstructionQueue
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool.getRAMWithWritePort(cpu_iid, 0);
+        LUTRAM#(INSTQ_SLOT_ID, Bool) complete = completePool.getRAMWithWritePort(cpu_iid, 0);
         Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool.getReg(cpu_iid);
         MISS_DROP_MAP should_drop = shouldDrop;
         LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
@@ -222,12 +220,10 @@ module [HASIM_MODULE] mkInstructionQueue
             begin
                 INSTQ_SLOT_ID slot = maf.sub(rsp.missID);
 
-                let slot_data = slots.sub(slot);
                 // A real instQ would update the instruction here.
                 // However we already have the actual instruction, so we just mark
                 // it as ready to go.
-                slot_data.complete = True;
-                slots.upd(slot, slot_data);
+                complete.upd(slot, True);
 
                 debugLog.record(cpu_iid, fshow("COMPLETE. MISS ID = ") + fshow(rsp.missID));
             end
@@ -253,7 +249,8 @@ module [HASIM_MODULE] mkInstructionQueue
         let cpu_iid <- stage3Ctrl.nextReadyInstance();
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, INSTQ_SLOT_DATA) slots = slotsPool.getRAMWithWritePort(cpu_iid, 1);
+        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) slots = slotsPool.getRAM(cpu_iid);
+        LUTRAM#(INSTQ_SLOT_ID, Bool) complete = completePool.getRAMWithWritePort(cpu_iid, 1);
         Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool.getReg(cpu_iid);
         MISS_DROP_MAP should_drop = shouldDrop;
         LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
@@ -295,12 +292,9 @@ module [HASIM_MODULE] mkInstructionQueue
             if (enq.bundle matches tagged Valid .bundle)
             begin
                 // Enqueue a bundle
-                let slot_data = INSTQ_SLOT_DATA {
-                    bundle: bundle,
-                    complete: !isValid(enq.missID)
-                };
-        
-                slots.upd(tailPtr, slot_data);
+
+                slots.upd(tailPtr, bundle);
+                complete.upd(tailPtr, !isValid(enq.missID));
                 tailPtr <= tailPtr + 1;
 
                 debugLog.record(cpu_iid, $format("ENQ pc = 0x%0h", bundle.pc));

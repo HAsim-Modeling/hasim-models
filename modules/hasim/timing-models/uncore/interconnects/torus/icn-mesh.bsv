@@ -145,7 +145,18 @@ module [HASIM_MODULE] mkInterconnect
     creditTo[portLocal]   <- mkPortSend_Multiplexed_Split(creditToCores, creditToMemCtrl, paramMemCtrlLoc);
     creditFrom[portLocal] <- mkPortRecv_Multiplexed_Join(creditFromCores, creditFromMemCtrl, paramMemCtrlLoc);
 
-    // NOTE: The module does not use a local controller, as it has two sets of ports,
+    // This module simulates by reading/writing it's multiplexed ports once for every CPU,
+    // and reading/writing the (non-multiplexed) memory controller port once.
+
+    // The actual virtual channels. Stored as logical FIFOs in a single Distributed RAM FIFO.
+    MULTIPLEXED_STATE_POOL#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) virtualChannelsPool <- mkMultiplexedStatePool(replicate(replicate(replicate(funcFIFO_Init))));
+    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(PORT_IDX))) routesPool             <- mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
+    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(VC_IDX)))   outputVCsPool          <- mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
+    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             usedVCsPool            <- mkMultiplexedReg(replicate(replicate(replicate(False))));
+    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             outputCreditsPool      <- mkMultiplexedReg(replicate(replicate(replicate(False))));
+    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             outputNotFullsPool     <- mkMultiplexedReg(replicate(replicate(replicate(False))));
+
+    // NOTE: The module uses a special local controller, as it has two sets of ports,
     // one set is NUM_CPUS multiplexed, the other is NUM_STATIONS multiplexed.
     // This local controller variant handles that.
 
@@ -153,7 +164,7 @@ module [HASIM_MODULE] mkInterconnect
     inports[0] = enqFromCores.ctrl;
     inports[1] = creditFromCores.ctrl;
 
-    Vector#(10, INSTANCE_CONTROL_IN#(NUM_STATIONS)) inportsR = newVector();
+    Vector#(11, INSTANCE_CONTROL_IN#(NUM_STATIONS)) inportsR = newVector();
     inportsR[0] = enqFrom[portNorth].ctrl;
     inportsR[1] = enqFrom[portSouth].ctrl;
     inportsR[2] = enqFrom[portEast].ctrl;
@@ -164,6 +175,7 @@ module [HASIM_MODULE] mkInterconnect
     inportsR[7] = creditFrom[portEast].ctrl;
     inportsR[8] = creditFrom[portWest].ctrl;
     inportsR[9] = creditFrom[portLocal].ctrl;
+    inportsR[10] = virtualChannelsPool.ctrl;
 
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_STATIONS)) outportsR = newVector();
     outportsR[0] = enqTo[portLocal].ctrl;
@@ -171,23 +183,11 @@ module [HASIM_MODULE] mkInterconnect
 
     LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <- mkLocalControllerPlusN(inports, inportsR, outportsR);
     
-    // This module simulates by reading/writing it's multiplexed ports once for every CPU,
-    // and reading/writing the (non-multiplexed) memory controller port once.
-
-    // The actual virtual channels. Currently actual FIFOs, but could be implemented
-    // in BlockRAM or whatever.
-    MULTIPLEXED#(NUM_STATIONS, VC_STATE#(FIFOF#(MESH_FLIT)))    virtualChannelsPool    <- mkMultiplexed(replicateM(replicateM(replicateM(mkUGSizedFIFOF(4)))));
-    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(PORT_IDX))) routesPool             <- mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
-    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(VC_IDX)))   outputVCsPool          <- mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
-    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             usedVCsPool            <- mkMultiplexedReg(replicate(replicate(replicate(False))));
-    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             outputCreditsPool      <- mkMultiplexedReg(replicate(replicate(replicate(False))));
-    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             outputNotFullsPool     <- mkMultiplexedReg(replicate(replicate(replicate(False))));
-
     STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER#(NUM_STATIONS, Vector#(NUM_PORTS, Maybe#(WINNER_INFO))) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage4Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage5Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage6Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_STATIONS, Tuple2#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)), VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)))) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage5Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage6Ctrl <- mkStageController();
 
     // ******** Helper Functions *********
     
@@ -320,7 +320,7 @@ module [HASIM_MODULE] mkInterconnect
         let iid <- stage2Ctrl.nextReadyInstance();
         
         // Read our local state from the pools.
-        VC_STATE#(FIFOF#(MESH_FLIT)) virtualChannels = virtualChannelsPool[iid];
+        VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)) virtualChannels <- virtualChannelsPool.extractState(iid);
         Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes         = routesPool.getReg(iid);
         Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs      = outputVCsPool.getReg(iid);
 
@@ -341,7 +341,7 @@ module [HASIM_MODULE] mkInterconnect
                 for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
                 begin
 
-                    if (virtualChannels[p][ln][vc].notEmpty())
+                    if (funcFIFO_notEmpty(virtualChannels[p][ln][vc]))
                     begin
 
                         if (routes[p][ln][vc] matches tagged Valid .rt)
@@ -357,7 +357,7 @@ module [HASIM_MODULE] mkInterconnect
                                                                 inputVC: fromInteger(vc), 
                                                                 outputPort: rt, 
                                                                 outputVC: out_vc, 
-                                                                message: virtualChannels[p][ln][vc].first()
+                                                                message: funcFIFO_UGfirst(virtualChannels[p][ln][vc])
                                                             };
                             end
                         end
@@ -366,7 +366,7 @@ module [HASIM_MODULE] mkInterconnect
             end
         end
 
-        stage3Ctrl.ready(iid, vc_winners);
+        stage3Ctrl.ready(iid, tuple2(vc_winners, virtualChannels));
 
     endrule
 
@@ -374,10 +374,9 @@ module [HASIM_MODULE] mkInterconnect
     rule stage3_crossbar (True);
         
         // Get the info from the previous stage.
-        match {.iid, .vc_winners} <- stage3Ctrl.nextReadyInstance();
+        match {.iid, {.vc_winners, .virtualChannels}} <- stage3Ctrl.nextReadyInstance();
         
         // Read our local state from the pools.
-        VC_STATE#(FIFOF#(MESH_FLIT))      virtualChannels = virtualChannelsPool[iid];
         Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes          = routesPool.getReg(iid);
         Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs       = outputVCsPool.getReg(iid);
         Reg#(VC_STATE#(Bool))             usedVCs         = usedVCsPool.getReg(iid);
@@ -388,6 +387,7 @@ module [HASIM_MODULE] mkInterconnect
         Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msg_to = replicate(tagged Invalid);
         
         // Vectors to update our registers with.
+        VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)) new_vcs = virtualChannels;
         VC_STATE#(Maybe#(PORT_IDX))   new_routes = routes;
         VC_STATE#(Bool)             new_used_vcs = usedVCs;
         VC_STATE#(Maybe#(VC_IDX)) new_output_vcs = outputVCs;
@@ -405,7 +405,7 @@ module [HASIM_MODULE] mkInterconnect
 
                     debugLog.record(iid, $format("3: SA: Gave crossbar %s output port to %s input port, lane %0d, virtual channel %0d", portShow(info.outputPort), portShow(fromInteger(p)), info.lane, info.inputVC));
                     msg_to[info.outputPort] = tagged Valid tuple3(info.lane, info.outputVC, info.message);
-                    virtualChannels[p][info.lane][info.inputVC].deq();
+                    new_vcs[p][info.lane][info.inputVC] = funcFIFO_UGdeq(virtualChannels[p][info.lane][info.inputVC]);
 
                     if (info.message matches tagged FLIT_BODY .body_info &&& body_info.isTail)
                     begin
@@ -441,11 +441,12 @@ module [HASIM_MODULE] mkInterconnect
         usedVCs   <= new_used_vcs;
         outputVCs <= new_output_vcs;
 
-        stage4Ctrl.ready(iid);
+        stage4Ctrl.ready(iid, new_vcs);
     
     endrule
 
     Wire#(STATION_IID) stage4IID <- mkWire();
+    Wire#(VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage4_virtualChannels <- mkWire();
     PulseWire stage4Running <- mkPulseWire();
     VC_STATE#(RWire#(PORT_IDX)) newRoutesW <- replicateM(replicateM(replicateM(mkRWire())));
     RWire#(Tuple5#(PORT_IDX, LANE_IDX, VC_IDX, PORT_IDX, VC_IDX))   newOutputVCW <- mkRWire();
@@ -453,16 +454,16 @@ module [HASIM_MODULE] mkInterconnect
     rule beginStage4 (True);
 
         // Get the info from the previous stage.
-        let iid <- stage4Ctrl.nextReadyInstance();
+        match {.iid, .virtualChannels} <- stage4Ctrl.nextReadyInstance();
         debugLog.record(iid, $format("4: Begin."));
         stage4IID <= iid;
+        stage4_virtualChannels <= virtualChannels;
         stage4Running.send();
-        stage5Ctrl.ready(iid);
+        stage5Ctrl.ready(iid, virtualChannels);
         
     endrule
 
     // Read our local state from the pools.
-    VC_STATE#(FIFOF#(MESH_FLIT)) stage4_virtualChannels = virtualChannelsPool[stage4IID];
     Reg#(VC_STATE#(Maybe#(PORT_IDX))) stage4_routes     = routesPool.getReg(stage4IID);
     Reg#(VC_STATE#(Maybe#(VC_IDX)))   stage4_outputVCs  = outputVCsPool.getReg(stage4IID);
     Reg#(VC_STATE#(Bool))             stage4_usedVCs       = usedVCsPool.getReg(stage4IID);
@@ -478,8 +479,8 @@ module [HASIM_MODULE] mkInterconnect
             begin
 
                 (* conservative_implicit_conditions *)
-                rule stage4_routeVCs (stage4_virtualChannels[p][ln][vc].first() matches tagged FLIT_HEAD .info &&&
-                                      stage4_virtualChannels[p][ln][vc].notEmpty() &&&
+                rule stage4_routeVCs (funcFIFO_UGfirst(stage4_virtualChannels[p][ln][vc]) matches tagged FLIT_HEAD .info &&&
+                                      funcFIFO_notEmpty(stage4_virtualChannels[p][ln][vc]) &&&
                                       !isValid(stage4_routes[p][ln][vc]) &&& stage4Running);
 
                     // Need to obtain a route.
@@ -493,9 +494,9 @@ module [HASIM_MODULE] mkInterconnect
                 begin
     
                     (* conservative_implicit_conditions *)
-                    rule stage4_getOuputVCs (stage4_virtualChannels[p][ln][vc].first() matches tagged FLIT_HEAD .info &&&
+                    rule stage4_getOuputVCs (funcFIFO_UGfirst(stage4_virtualChannels[p][ln][vc]) matches tagged FLIT_HEAD .info &&&
+                                             funcFIFO_notEmpty(stage4_virtualChannels[p][ln][vc]) &&&
                                              stage4_routes[p][ln][vc] matches tagged Valid .rt &&&
-                                             stage4_virtualChannels[p][ln][vc].notEmpty() &&&
                                              !isValid(stage4_outputVCs[p][ln][vc]) &&&
                                              !stage4_usedVCs[rt][ln][vcx] &&& 
                                              stage4_outputCredits[rt][ln][vcx] &&&
@@ -549,10 +550,9 @@ module [HASIM_MODULE] mkInterconnect
     rule stage5_enqs (True);
 
         // Get the current IID from the previous stage.    
-        let iid <- stage5Ctrl.nextReadyInstance();
+        match {.iid, .virtualChannels} <- stage5Ctrl.nextReadyInstance();
        
-        // Read our local state from the pools.
-        VC_STATE#(FIFOF#(MESH_FLIT))      virtualChannels = virtualChannelsPool[iid];
+        VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)) new_vcs = virtualChannels;
 
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
@@ -579,7 +579,7 @@ module [HASIM_MODULE] mkInterconnect
                 begin
                     debugLog.record(iid, $format("5: BW: Enqueuing into %s input port, lane %0d, virtual channel %0d", portShow(fromInteger(p)), ln, vc));
                 end
-                virtualChannels[p][ln][vc].enq(new_flit);
+                new_vcs[p][ln][vc] = funcFIFO_UGenq(virtualChannels[p][ln][vc], new_flit);
 
             end
             else
@@ -591,18 +591,17 @@ module [HASIM_MODULE] mkInterconnect
 
         end
 
-        stage6Ctrl.ready(iid);
+        stage6Ctrl.ready(iid, new_vcs);
 
     endrule
 
     (* conservative_implicit_conditions, descending_urgency="endStage4, beginStage4, stage6_creditsOut, stage5_enqs, stage3_crossbar, stage2_multiplexVCs, stage1_updateCreditsIn" *)
     rule stage6_creditsOut (True);
     
-        let iid <- stage6Ctrl.nextReadyInstance();
+        match {.iid, .virtualChannels} <- stage6Ctrl.nextReadyInstance();
 
         debugLog.record(iid, $format("6: Calculating output credits."));
 
-        VC_STATE#(FIFOF#(MESH_FLIT)) virtualChannels = virtualChannelsPool[iid];
         
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
@@ -617,8 +616,8 @@ module [HASIM_MODULE] mkInterconnect
                 for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
                 begin
 
-                    let have_credit = !virtualChannels[p][ln][vc].notEmpty(); // XXX capacity - occupancy > round-trip latency.
-                    let not_full = !virtualChannels[p][ln][vc].notEmpty(); // virtualChannels[p][ln][vc].notFull();
+                    let have_credit = !funcFIFO_notEmpty(virtualChannels[p][ln][vc]); // XXX capacity - occupancy > round-trip latency.
+                    let not_full = !funcFIFO_notEmpty(virtualChannels[p][ln][vc]); // virtualChannels[p][ln][vc].notFull();
                     creds[ln][vc] = tuple2(have_credit, not_full);
 
                 end
@@ -631,6 +630,7 @@ module [HASIM_MODULE] mkInterconnect
         
         // End of model cycle (path 1)
         localCtrl.endModelCycle(iid, 0);
+        virtualChannelsPool.insertState(iid, virtualChannels);
         
     endrule
 
