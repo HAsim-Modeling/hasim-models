@@ -63,7 +63,7 @@ module [HASIM_MODULE] mkFetch (SMTFetch);
     // ****** Model State (per instance) ******
 
     MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(ISA_ADDRESS)))    pcsPool <- mkMultiplexed(mkReg(multithreaded(`PROGRAM_START_ADDR)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initIMemEpoch(0, 0, 0, 0))));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initialIMemEpoch)));
     MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_CREDIT_COUNT))) creditsPool <- mkMultiplexed(mkReg(multithreaded(fromInteger(valueof(NUM_INSTQ_CREDITS)))));
 
     MULTIPLEXED#(NUM_CPUS, Reg#(THREAD_ID)) curThreadPool <- mkMultiplexed(mkReg(0));

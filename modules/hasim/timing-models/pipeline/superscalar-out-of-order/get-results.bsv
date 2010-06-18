@@ -6,7 +6,7 @@ import FShow::*;
 `include "soft_connections.bsh"
 `include "funcp_interface.bsh"
 
-`include "hasim_pipeline_types.bsh"
+`include "pipeline_base_types.bsh"
 
 typedef enum {ALU_REQ, MEM_REQ} GET_RESULTS_STATE deriving (Bits, Eq);
 

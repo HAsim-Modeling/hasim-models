@@ -45,19 +45,19 @@ import FIFO::*;
 typedef union tagged
 {
     void         STAGE3_bubble;
-    void         STAGE3_flush;
-    FETCH_BUNDLE STAGE3_depsReady;
+    void         STAGE3_rewindRsp;
+    void         STAGE3_depsReady;
     FETCH_BUNDLE STAGE3_depsRsp;
 }
 DEC_STAGE3_STATE deriving (Bits, Eq);
 
 typedef union tagged
 {
-    void         STAGE4_bubble;
-    void         STAGE4_flush;
-    FETCH_BUNDLE STAGE4_depsCheck;
+    void  STAGE4_bubble;
+    void  STAGE4_depsCheck;
 }
 DEC_STAGE4_STATE deriving (Bits, Eq);
+ 
 
 
 // mkDecode
@@ -106,27 +106,36 @@ module [HASIM_MODULE] mkDecode ();
     Connection_Client#(FUNCP_REQ_GET_DEPENDENCIES,
                        FUNCP_RSP_GET_DEPENDENCIES) getDependencies <- mkConnection_Client("funcp_getDependencies");
 
+    Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
+                       FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
  
     // ****** Local Controller ******
 
-    Vector#(9, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbExeCtrl  <- mkDependenceController();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbHitCtrl  <- mkDependenceController();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
+
+    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
-    inports[0]  = writebackFromExe.ctrl;
-    inports[1]  = writebackFromMemHit.ctrl;
-    inports[2]  = writebackFromMemMiss.ctrl;
-    inports[3]  = writebackFromCom.ctrl;
-    inports[4]  = bundleToIssueQ.ctrl.in;
-    inports[5]  = creditFromSB.ctrl;
-    inports[6]  = mispredictFromExe.ctrl;
-    inports[7]  = faultFromCom.ctrl;
-    inports[8]  = bundleFromInstQ.ctrl;
+    inports[0]  = bundleToIssueQ.ctrl.in;
+    inports[1]  = creditFromSB.ctrl;
+    inports[2]  = mispredictFromExe.ctrl;
+    inports[3]  = faultFromCom.ctrl;
+    inports[4]  = bundleFromInstQ.ctrl;
+    inports[5]  = writebackFromCom.ctrl;
+    depports[0] = writebackFromExe.ctrl;
+    depports[1] = writebackFromMemHit.ctrl;
+    depports[2] = writebackFromMemMiss.ctrl;
+    depports[3] = wbExeCtrl.ctrl;
+    depports[4] = wbHitCtrl.ctrl;
+    depports[5] = wbMissCtrl.ctrl;
     outports[0] = bundleToIssueQ.ctrl.out;
     outports[1] = deqToInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS)              stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE3_STATE) stage3Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE4_STATE) stage4Ctrl <- mkStageController();
 
@@ -135,25 +144,18 @@ module [HASIM_MODULE] mkDecode ();
 
     // ****** Model State (per Instance) ******
 
-    Integer numIsaArchRegisters  = valueof(TExp#(SizeOf#(ISA_REG_INDEX)));
-    Integer numFuncpPhyRegisters = valueof(FUNCP_NUM_PHYSICAL_REGS);
-
-    Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prfValidInit = newVector();
-
-    let maxInitReg = numIsaArchRegisters * valueOf(NUM_CONTEXTS);
-
-    for (Integer i = 0; i < maxInitReg; i = i + 1)
-        prfValidInit[i] = True;
-
-    for (Integer i = maxInitReg; i < numFuncpPhyRegisters; i = i + 1)
-        prfValidInit[i] = False;
-    
     MULTIPLEXED#(NUM_CPUS, COUNTER#(TOKEN_INDEX_SIZE))              numInstrsInFlightPool <- mkMultiplexed(mkLCounter(0));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Bool))                                  drainingAfterPool <- mkMultiplexed(mkReg(False));
-    MULTIPLEXED#(NUM_CPUS, Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES))) memoDependenciesPool <- mkMultiplexed(mkReg(Invalid));
-    Reg#(Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool))      prfValid <- mkReg(prfValidInit);
+    MULTIPLEXED_REG#(NUM_CPUS, Bool)                                  drainingAfterPool <- mkMultiplexedReg(False);
+    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssuePool <- mkMultiplexedRegMultiWrite(Invalid);
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(TOKEN_EPOCH))) epochsPool <- mkMultiplexed(mkReg(multithreaded(initEpoch(0, 0))));
+    // PRF valid bits.
+
+    DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardLUTRAM();
+    // DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardMultiWrite(); // Can be switched for expensive version.
+
+
+    MULTIPLEXED_REG#(NUM_CPUS, MULTITHREADED#(TOKEN_EPOCH)) epochsPool <- mkMultiplexedReg(initEpoch(0, 0));
+
 
     // ***** Helper Functions ******
 
@@ -221,34 +223,6 @@ module [HASIM_MODULE] mkDecode ();
     
     endfunction
 
-    // markPRFInvalid
-
-    // When we issue an instruction we mark its destinations as unready.
-
-    function Action markPRFInvalid(TOKEN tok, ISA_DST_MAPPING dstmap);
-    action
-        
-        // Extract local state from the context.
-        let cpu_iid = tokCpuInstanceId(tok);
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
-
-        // Update the scoreboard.
-        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
-
-        for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
-        begin
-            if (dstmap[i] matches tagged Valid { .ar, .pr })
-            begin
-                prf_valid[pr] = False;
-                debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
-            end
-        end
-        prfValid <= prf_valid;
-        numInstrsInFlight.up();
-
-    endaction
-    endfunction
-
     // makeBundle
     
     // Marshall up a bundle of useful information to send to the rest of the pipeline.
@@ -291,88 +265,83 @@ module [HASIM_MODULE] mkDecode ();
     // * None
 
     (* conservative_implicit_conditions *)
-    rule stage1_writebacks (True);
-
-        // Begin model cycle.
-        let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
-        
-        // Extract our local state from the context.
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
-
-        // Record how many registers have been written or instructions killed.
-        Integer instrs_removed = 0;
-        Vector#(FUNCP_NUM_PHYSICAL_REGS,Bool) prf_valid = prfValid;
-
-
+    rule stage1_writebackExe (writebackFromExe.ctrl.nextReadyInstance() matches tagged Valid .iid 
+                                &&& wbExeCtrl.producerCanStart());
+    
         // Process writes from EXE
-        let bus_exe <- writebackFromExe.receive(cpu_iid);
+        let bus_exe <- writebackFromExe.receive(iid);
+        wbExeCtrl.producerStart();
+        wbExeCtrl.producerDone();
+
         if (bus_exe matches tagged Valid .msg)
         begin
-            for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
+        
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
             begin
-
-                if (msg.destRegs[i] matches tagged Valid .pr)
+            
+                if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
-
-                    prf_valid[pr] = True;
-                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
-
-                end
-            end
-        end
-
-        // Process writes from MEM hits
-        let bus_memh <- writebackFromMemHit.receive(cpu_iid);
-        if (bus_memh matches tagged Valid .msg)
-        begin
-            for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
-            begin
-
-                if (msg.destRegs[i] matches tagged Valid .pr)
-                begin
-
-                    prf_valid[pr] = True;
-                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
-
+                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
+                    prfScoreboard.wbExe[x].ready(pr);
                 end
 
             end
-        end
-
-        // Process writes from MEM misses.
-        let bus_memm <- writebackFromMemMiss.receive(cpu_iid);
-        if (bus_memm matches tagged Valid .msg)
-        begin
-            for (Integer i = 0; i < valueof(ISA_MAX_DSTS); i = i + 1)
-            begin
-
-                if (msg.destRegs[i] matches tagged Valid .pr)
-                begin
-
-                    prf_valid[pr] = True;
-                    debugLog.record_next_cycle(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- MEM", pr));
-
-                end
-
-            end
-        end
-    
-        // Process writes from Com. These can't have been retired.
-        let commit <- writebackFromCom.receive(cpu_iid);
-        if (commit matches tagged Valid .commit_tok)
-        begin
-
-            debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
-            numInstrsInFlight.down();
-
+        
         end
         
-        // Update the scoreboard.
-        prfValid <= prf_valid;
+    endrule
+    
+    (* conservative_implicit_conditions *)
+    rule stage1_writebackMemHit (writebackFromMemHit.ctrl.nextReadyInstance() matches tagged Valid .iid
+                                &&& wbHitCtrl.producerCanStart());
+    
+        // Process writes from MEM Hit
+        let bus_hit <- writebackFromMemHit.receive(iid);
+        wbHitCtrl.producerStart();
+        wbHitCtrl.producerDone();
 
-        // Pass to the next stage.
-        stage2Ctrl.ready(cpu_iid);
+        if (bus_hit matches tagged Valid .msg)
+        begin
+        
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+            begin
+            
+                if (msg.destRegs[x] matches tagged Valid .pr)
+                begin
+                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
+                    prfScoreboard.wbHit[x].ready(pr);
+                end
+
+            end
+        
+        end
+        
+    endrule
+
+    (* conservative_implicit_conditions *)
+    rule stage1_writebackMemMiss (writebackFromMemMiss.ctrl.nextReadyInstance() matches tagged Valid .iid
+                                &&& wbMissCtrl.producerCanStart());
+    
+        // Process writes from MEM Miss
+        let bus_miss <- writebackFromMemMiss.receive(iid);
+        wbMissCtrl.producerStart();
+        wbMissCtrl.producerDone();
+
+        if (bus_miss matches tagged Valid .msg)
+        begin
+        
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+            begin
+            
+                if (msg.destRegs[x] matches tagged Valid .pr)
+                begin
+                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
+                    prfScoreboard.wbMiss[x].ready(pr);
+                end
+
+            end
+        
+        end
         
     endrule
 
@@ -390,102 +359,108 @@ module [HASIM_MODULE] mkDecode ();
     
     // Ports written:
     // * None
-    
     (* conservative_implicit_conditions *)
     rule stage2_dependencies (True);
 
-        // Get the cpu instance from the previous stage.
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+        // Begin model cycle.
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
         
         // Extract local state from the cpu instance.
-        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependenciesReg = memoDependenciesPool[cpu_iid];
-        let memoDependencies = memoDependenciesReg;
-        Reg#(MULTITHREADED#(TOKEN_EPOCH)) epochsReg = epochsPool[cpu_iid];
-        MULTITHREADED#(TOKEN_EPOCH) epochs = epochsReg;
+        Reg#(Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssue = instToIssuePool.getRegWithWritePort(cpu_iid, 0);
+        Reg#(MULTITHREADED#(TOKEN_EPOCH)) epochsReg = epochsPool.getReg(cpu_iid);
+        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
         
         let m_mispred <- mispredictFromExe.receive(cpu_iid);
         let m_fault   <- faultFromCom.receive(cpu_iid);
         let m_bundle  <- bundleFromInstQ.receive(cpu_iid);
-        let can_enq <- bundleToIssueQ.canEnq(cpu_iid);
+    
+        // Process retired instructions from Com.
+        let commit <- writebackFromCom.receive(cpu_iid);
+        if (commit matches tagged Valid .commit_tok)
+        begin
 
-        DEC_STAGE3_STATE stage3State = tagged STAGE3_bubble;
+            debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
+            numInstrsInFlight.down();
 
-        if (m_fault matches tagged Valid .thread)
+        end
+
+        if (m_fault matches tagged Valid .tok)
         begin
             
             // A fault occurred.
-            debugLog.record(cpu_iid, fshow("2: FAULT"));
+            let thread = tokThreadId(tok);
+            debugLog.record_next_cycle(cpu_iid, $format("2: FAULT: THREAD %0d: ", thread) + fshow(tok));
             
+            rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
+
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
             epochs[thread].fault = epochs[thread].fault + 1;
-            memoDependencies = Invalid;
+            
+            // Don't dequeue the instQ.
+            deqToInstQ.send(cpu_iid, tagged Invalid);
+            
+            // Tell the following stages it's a rewind.
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_rewindRsp);
         
         end
-
-        if (m_mispred matches tagged Valid {.fault_epoch, .thread} &&& fault_epoch == epochs[thread].fault)
+        else if (m_mispred matches tagged Valid {.tok, .fault_epoch} &&& fault_epoch == epochs[tokThreadId(tok)].fault)
         begin
 
             // A mispredict occurred.
-            debugLog.record(cpu_iid, fshow("2: MISPREDICT"));
+            let thread = tokThreadId(tok);
+            debugLog.record_next_cycle(cpu_iid, fshow("2: MISPREDICT"));
+            rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
-            epochs[thread].branch = epochs[thread].branch + 1;
-            memoDependencies = Invalid;
+            epochs[thread].branch <= epochs[thread].branch + 1;
         
-        end
+            // Don't dequeue the instQ.
+            deqToInstQ.send(cpu_iid, tagged Invalid);
+            
+            // Tell the following stages it's a bubble.
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_rewindRsp);
 
-        if (m_bundle matches tagged Valid .bundle)
+        end
+        else if (isValid(instToIssue))
+        begin
+        
+            // We have an instruction to issue, tell the next stage to just proceed.
+            debugLog.record_next_cycle(cpu_iid, fshow("2: Deps ready."));
+
+            // Don't dequeue the instQ.
+            deqToInstQ.send(cpu_iid, tagged Invalid);
+
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_depsReady);
+            
+        end
+        else if (m_bundle matches tagged Valid .bundle)
         begin
             
-            // There's an instruction waiting. Is if of the correct epoch?
-            if (bundle.branchEpoch == epochs[bundle.thread].branch && bundle.faultEpoch == epochs[bundle.thread].fault)
+            // There's a new instruction, and we're not stalled.
+            // Dequeue the instQ.
+            deqToInstQ.send(cpu_iid, tagged Valid (?));
+            
+            //Is it of the correct epoch?
+            if (bundle.branchEpoch == epoch.branch && bundle.faultEpoch == epochs[bundle.thread].fault)
             begin
 
-                // Check if the issueQ has space.
-                if (can_enq)
-                begin
+                // We need to retrieve dependencies from the functional partition.
+                debugLog.record_next_cycle(cpu_iid, fshow("2: Request Deps."));
+                getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
 
-                    // Let's get the dependencies, if we haven't already.                
-                    if (memoDependencies matches tagged Valid .deps)
-                    begin
+                // Tell the next stage to get the response.
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_depsRsp bundle);
 
-                       // We have the dependencies, tell the next stage to just proceed.
-                        debugLog.record(cpu_iid, fshow("2: Deps ready."));
-                        stage3State = tagged STAGE3_depsReady bundle;
-
-                    end
-                    else
-                    begin
-
-                        // We need to retrieve dependencies from the functional partition.
-                        debugLog.record(cpu_iid, fshow("2: Request Deps."));
-                        getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid, bundle.thread), bundle.inst, bundle.pc));
-
-                       // Tell the next stage to get the response.
-                        stage3State = tagged STAGE3_depsRsp bundle;
-
-                    end
-
-                end
-                else
-                begin
-                
-                    // There's a bubble. Just propogate it.
-                    debugLog.record(cpu_iid, fshow("2: BUBBLE"));
-
-                end
-            
             end
             else
             begin
             
-                // The instruction is from an old epoch. Tell the following stages to drop it.
-                debugLog.record(cpu_iid, fshow("2: FLUSH"));
-                
-                // Drop any dependencies we may have gotten.
-                memoDependencies = tagged Invalid;
-                
-                stage3State = tagged STAGE3_flush;
+                // The instruction is from an old epoch, and we haven't gotten
+                // a token yet. Tell the following stages to drop it.
+                debugLog.record_next_cycle(cpu_iid, fshow("2: SILENT DROP"));
+
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
             
             end
         
@@ -494,14 +469,12 @@ module [HASIM_MODULE] mkDecode ();
         begin
         
             // There's a bubble. Just propogate it.
-            debugLog.record(cpu_iid, fshow("2: BUBBLE"));
+            // Don't dequeue the instQ.
+            deqToInstQ.send(cpu_iid, tagged Invalid);
+            debugLog.record_next_cycle(cpu_iid, fshow("2: BUBBLE"));
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
 
         end
-
-        memoDependenciesReg <= memoDependencies;
-        epochsReg <= epochs;
-
-        stage3Ctrl.ready(cpu_iid, stage3State);
  
     endrule
 
@@ -527,20 +500,25 @@ module [HASIM_MODULE] mkDecode ();
             stage4Ctrl.ready(cpu_iid, tagged STAGE4_bubble);
         
         end
-        else if (state matches tagged STAGE3_flush)
+        else if (state matches tagged STAGE3_rewindRsp)
         begin
-
-            // Just tell the final stage it should finish the flush.
-            stage4Ctrl.ready(cpu_iid, tagged STAGE4_flush);
-
+        
+            // Get the rewind response.
+            let rsp = rewindToToken.getResp();
+            rewindToToken.deq();
+            debugLog.record(cpu_iid, $format("3: REWIND RSP"));
+        
+            // Propogate the bubble to the next stage.
+            stage4Ctrl.ready(cpu_iid, tagged STAGE4_bubble);
+        
         end
-        else if (state matches tagged STAGE3_depsReady .bundle)
+        else if (state matches tagged STAGE3_depsReady)
         begin
 
-            // memoDependencies is already up to date.
+            // instToIssue is already up to date.
 
             // Pass it to the next stage to do the checking.
-            stage4Ctrl.ready(cpu_iid, tagged STAGE4_depsCheck bundle);
+            stage4Ctrl.ready(cpu_iid, tagged STAGE4_depsCheck);
         
         end
         else if (state matches tagged STAGE3_depsRsp .bundle)
@@ -551,13 +529,13 @@ module [HASIM_MODULE] mkDecode ();
             getDependencies.deq();
 
             // Extract local state from the context.
-            Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
+            Reg#(Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssue = instToIssuePool.getRegWithWritePort(cpu_iid, 0);
 
             // Update dependencies.
-            memoDependencies <= tagged Valid rsp;
+            instToIssue <= tagged Valid tuple2(bundle, rsp);
 
             // Pass it to the next stage to do the checking.
-            stage4Ctrl.ready(cpu_iid, tagged STAGE4_depsCheck bundle);
+            stage4Ctrl.ready(cpu_iid, tagged STAGE4_depsCheck);
         
         end
 
@@ -575,25 +553,39 @@ module [HASIM_MODULE] mkDecode ();
     // * deqToInstQ
     // * allocToSB
 
-    (* conservative_implicit_conditions *)
-    rule stage4_attemptIssue (True);
+    let writebacksFinished = wbExeCtrl.consumerCanStart() && wbHitCtrl.consumerCanStart() && wbMissCtrl.consumerCanStart();
+
+    // Specify a rule urgency so that if the Scoreboard has less parallelism there are no
+    // compiler warnings.
+
+    (* conservative_implicit_conditions, descending_urgency = "stage1_writebackMemMiss, stage1_writebackMemHit, stage1_writebackExe, stage4_attemptIssue" *)
+    rule stage4_attemptIssue (writebacksFinished);
     
         // Extract the next active instance.
         match {.cpu_iid, .state} <- stage4Ctrl.nextReadyInstance();
 
         // Get the state for this instance.
-        Reg#(Maybe#(FUNCP_RSP_GET_DEPENDENCIES)) memoDependencies = memoDependenciesPool[cpu_iid];
-        Reg#(Bool)                                  drainingAfter = drainingAfterPool[cpu_iid];
+        Reg#(Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssue = instToIssuePool.getRegWithWritePort(cpu_iid, 1);
+        Reg#(Bool) drainingAfter = drainingAfterPool.getReg(cpu_iid);
+        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
+        Reg#(MULTITHREADED#(TOKEN_EPOCH)) epochs = epochsPool.getReg(cpu_iid);
         
+        wbExeCtrl.consumerStart();
+        wbExeCtrl.consumerDone();
+        wbHitCtrl.consumerStart();
+        wbHitCtrl.consumerDone();
+        wbMissCtrl.consumerStart();
+        wbMissCtrl.consumerDone();
+
         // Get the store buffer credit in case we're dealing with a store...
         let m_credit <- creditFromSB.receive(cpu_iid);
         let credits = validValue(m_credit);
         
+        // See if the issueQ has any room.
+        let can_enq <- bundleToIssueQ.canEnq(cpu_iid);
+
         if (state matches tagged STAGE4_bubble)
         begin
-        
-            // No dequeue to the instruction queue.
-            deqToInstQ.send(cpu_iid, tagged Invalid);
 
             // No allocation to the store buffer.
             allocToSB.send(cpu_iid, tagged Invalid);
@@ -606,85 +598,122 @@ module [HASIM_MODULE] mkDecode ();
             localCtrl.endModelCycle(cpu_iid, 1);
                 
         end
-        else if (state matches tagged STAGE4_flush)
+        else if (state matches tagged STAGE4_depsCheck)
         begin
 
-            // Drop the instruction from the instruction queue.
-            deqToInstQ.send(cpu_iid, tagged Valid (?));
-
-            // No allocation to the store buffer.
-            allocToSB.send(cpu_iid, tagged Invalid);
-
-            // Don't enqueue anything to the IssueQ. 
-            bundleToIssueQ.noEnq(cpu_iid);
-            eventDec.recordEvent(cpu_iid, tagged Invalid);
-
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
-
-        end
-        else if (state matches tagged STAGE4_depsCheck .fetchbundle)
-        begin
-
-            // assert memoDependencies == Valid
-            let rsp = validValue(memoDependencies);
+            // assert instToIssue == Valid
+            match {.fetchbundle, .rsp} = validValue(instToIssue);
             let tok = rsp.token;
-
-            // If it's a store, we need to be able to allocate a slot in the store buffer.
-            let inst_is_store = isaIsStore(fetchbundle.inst);
-            let store_ready =  inst_is_store ? credits[tokThreadId(tok)] : True;
-
-            // Check if we can issue.
-            let data_ready <- readyToGo(tok, rsp.srcMap);
-
-            if (data_ready && store_ready && readyDrainAfter(cpu_iid) && readyDrainBefore(cpu_iid, fetchbundle.inst))
+            
+            if (can_enq)
             begin
+            
+                // Check if we can issue.
+                let data_ready <- readyToGo(tok, rsp.srcMap);
 
-                // Yep... we're ready to send it. Make sure to send the newer token from the FP.
-                let bundle = makeBundle(rsp.token, fetchbundle, rsp.dstMap);
-                debugLog.record(cpu_iid, fshow(tok) + fshow(": SEND INST:") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
-                eventDec.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
+                // If it's a store, we need to be able to allocate a slot in the store buffer.
+                let inst_is_store = isaIsStore(fetchbundle.inst);
+                let store_ready =  inst_is_store ? credits[tokThreadId(tok)] : True;
 
-                // If it's a store, reserve a slot in the store buffer.
-                if (inst_is_store)
+                if (fetchbundle.branchEpoch != epochs[thread].branch || fetchbundle.faultEpoch != epoch[thread].fault)
                 begin
-                    allocToSB.send(cpu_iid, tagged Valid tok);
+
+                    // It's from an old epoch, so we must issue it as a "dummy" that 
+                    // will not be executed, but simply reclaimed.
+                    tok.dummy = True;
+                    let bundle = makeBundle(tok, fetchbundle, replicate(Invalid));
+                    bundle.isLoad = False;
+                    bundle.isStore = False;
+                    debugLog.record(cpu_iid, fshow(tok) + fshow(": SEND DUMMY."));
+                    eventDec.recordEvent(cpu_iid, tagged Invalid);
+                    allocToSB.send(cpu_iid, tagged Invalid);
+                    instToIssue <= tagged Invalid;
+
+                    // For general sanity dummy instructions count as being in flight
+                    // for the purposes of drainBefore.
+                    numInstrsInFlight.up();
+
+                    // Enqueue the decoded instruction in the IssueQ.
+                    bundleToIssueQ.doEnq(cpu_iid, bundle);
+
+                    // End of model cycle. (Path 3)
+                    localCtrl.endModelCycle(cpu_iid, 3);
+
+                end
+                else if (data_ready && store_ready && readyDrainAfter(cpu_iid) && readyDrainBefore(cpu_iid, fetchbundle.inst))
+                begin
+
+                    // Yep... we're ready to send it. 
+                    let bundle = makeBundle(tok, fetchbundle, rsp.dstMap);
+                    debugLog.record(cpu_iid, fshow(tok) + fshow(": SEND INST: ") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
+                    eventDec.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
+
+                    // If it's a store, reserve a slot in the store buffer.
+                    if (inst_is_store)
+                    begin
+                        allocToSB.send(cpu_iid, tagged Valid tok);
+                    end
+                    else
+                    begin
+                        allocToSB.send(cpu_iid, tagged Invalid);
+                    end
+
+                    // Update the scoreboard to reflect this instruction issuing.
+                    // Mark its destination registers as unready until it commits.
+
+                    for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+                    begin
+
+                        if (rsp.dstMap[x] matches tagged Valid { .ar, .pr })
+                        begin
+                            prfScoreboard.issue[x].unready(pr);
+                            debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
+                        end
+
+                    end
+
+                    // Update the number of instructions in flight.
+                    numInstrsInFlight.up();
+
+                    instToIssue <= Invalid;
+                    drainingAfter <= isaDrainAfter(fetchbundle.inst);
+
+                    // Enqueue the decoded instruction in the IssueQ.
+                    bundleToIssueQ.doEnq(cpu_iid, bundle);
+
+                    // End of model cycle. (Path 4)
+                    localCtrl.endModelCycle(cpu_iid, 4);
+
                 end
                 else
                 begin
+
+                    // Nope, we're waiting on an older instruction to write its results.
+                    debugLog.record(cpu_iid, fshow(tok) + fshow(": STALL ON DEPENDENCY"));
+                    eventDec.recordEvent(cpu_iid, tagged Invalid);
+
+                    // Propogate the bubble.
+                    bundleToIssueQ.noEnq(cpu_iid);
                     allocToSB.send(cpu_iid, tagged Invalid);
+
+                    // End of model cycle. (Path 5)
+                    localCtrl.endModelCycle(cpu_iid, 5);
+
                 end
-
-                // Update the scoreboard to reflect this instruction issuing.
-                // Mark its destination registers as unready until it commits.
-                markPRFInvalid(tok, rsp.dstMap);
-                memoDependencies <= Invalid;
-                drainingAfter <= isaDrainAfter(fetchbundle.inst);
-
-                // Dequeue the InstQ.
-                deqToInstQ.send(cpu_iid, tagged Valid (?));
-
-                // Enqueue the decoded instruction in the IssueQ.
-                bundleToIssueQ.doEnq(cpu_iid, bundle);
-
-                // End of model cycle. (Path 3)
-                localCtrl.endModelCycle(cpu_iid, 3);
-
             end
             else
             begin
-
-                // Nope, we're waiting on an older instruction to write its results.
-                debugLog.record(cpu_iid, fshow(tok) + fshow(": STALL ON DEPENDENCY"));
+            
+                // Nope, the issueQ is full.
+                debugLog.record(cpu_iid, fshow(tok) + fshow(": STALL ON ISSUEQ"));
                 eventDec.recordEvent(cpu_iid, tagged Invalid);
 
                 // Propogate the bubble.
-                deqToInstQ.send(cpu_iid, tagged Invalid);
                 bundleToIssueQ.noEnq(cpu_iid);
                 allocToSB.send(cpu_iid, tagged Invalid);
 
-                // End of model cycle. (Path 4)
-                localCtrl.endModelCycle(cpu_iid, 4);
+                // End of model cycle. (Path 6)
+                localCtrl.endModelCycle(cpu_iid, 6);
 
             end
 

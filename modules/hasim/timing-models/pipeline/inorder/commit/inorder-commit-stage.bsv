@@ -183,12 +183,9 @@ module [HASIM_MODULE] mkCommit ();
             else
             begin
 
-                // This token followed a branch mispredict or fault. We just need to undo its effects
-                // and reclaim its registers. This looks like a normal commit req, but is handled
-                // differently by the functional partition.
+                // This token followed a branch mispredict or fault. It was actually already rewound.
+                // Therefore we just silently drop it.
                 debugLog.record_next_cycle(cpu_iid, fshow("1: RECLAIM DUMMY: ") + fshow(tok) + fshow(" ") + fshow(bundle));
-                //tok.dummy = True;
-                //commitResults.makeReq(initFuncpReqCommitResults(tok));
 
                 // The response will be handled by the next stage.
                 stage2Ctrl.ready(cpu_iid, tagged STAGE2_dummyRsp tuple2(tok, bundle.isStore));
@@ -248,13 +245,6 @@ module [HASIM_MODULE] mkCommit ();
         end
         else if (state matches tagged STAGE2_dummyRsp {.tok, .is_store})
         begin
-    
-            // Get the commit response from the functional partition.
-            //let rsp = commitResults.getResp();
-            //commitResults.deq();
-        
-            // Get our context from the token.
-            //let tok = rsp.token;
 
             // Instruction is no longer in flight.
 

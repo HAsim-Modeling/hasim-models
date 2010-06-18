@@ -83,20 +83,11 @@ module [HASIM_MODULE] mkPCCalc
 
     MULTIPLEXED_REG#(NUM_CPUS, IMEM_EPOCH)  epochPool <- mkMultiplexedReg(initialIMemEpoch);
 
-    // ****** Soft Connections ******
-/*
-    Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
-                       FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
- 
-    Connection_Client#(FUNCP_REQ_HANDLE_FAULT,
-                       FUNCP_RSP_HANDLE_FAULT)       handleFault <- mkConnection_Client("funcp_handleFault");
- */
-
     // ****** Ports ******
 
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)                  enqToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_enq");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                              clearToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_clear");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)                        enqToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_enq");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                               clearToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_clear");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS))                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);

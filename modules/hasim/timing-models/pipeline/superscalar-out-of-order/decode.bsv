@@ -8,7 +8,7 @@ import FShow::*;
 `include "soft_connections.bsh"
 `include "funcp_interface.bsh"
 
-`include "hasim_pipeline_types.bsh"
+`include "pipeline_base_types.bsh"
 
 // This should not exist, but the ROB seems to be making assumptions about the number of credits.
 // Changing the ROB to interact with the fetchBuffer directly was unsuccesful.

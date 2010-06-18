@@ -8,7 +8,7 @@ import FIFO::*;
 `include "funcp_interface.bsh"
 `include "hasim_model_services.bsh"
 
-`include "hasim_pipeline_types.bsh"
+`include "pipeline_base_types.bsh"
 
 module [HASIM_MODULE] mkCommit();
     TIMEP_DEBUG_FILE                                                            debugLog <- mkTIMEPDebugFile("pipe_com.out");

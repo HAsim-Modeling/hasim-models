@@ -4409,3 +4409,84 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 * ICN mesh uses "functional FIFOs" to store virtual channels.
 
 Michael P.
+
+----------
+pellauer    Date: Fri Jun 18 17:22:55 EDT 2010  CSN: CSN-hasim-models-144
+                  Fri Jun 18 21:22:55 UTC 2010
+
+
+Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
+ superscalar-out-of-order.apm Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/smt/decode
+ smt-decode-stage.bsv      Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/smt/pccalc
+ smt-pccalc-stage.bsv      Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.bsv      Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.bsv       Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/smt/base-types
+ smt-pipeline-base-types.bsv Locally Modified          143 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ commit.bsv                Locally Modified          143 
+ pipeline-6-stage.awb      Locally Modified          143 
+ fetch.bsv                 Locally Modified          143 
+ pipeline-6-stage-types.awb Locally Modified          143 
+ mem.bsv                   Locally Modified          143 
+ get-results.bsv           Locally Modified          143 
+ alu.bsv                   Locally Modified          143 
+ rob.bsv                   Locally Modified          143 
+ decode.bsv                Locally Modified          143 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          143 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          143 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          143 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-always-hit.bsv Locally Modified          143 
+ cache-algorithm-set-associative.bsv Locally Modified          143 
+ cache-algorithm-pseudorandom.bsv Locally Modified          143 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          143 
+
+
+* Cleanup OOO and SMT models. Both will build again, though they don't run 
+  succesfully.
+
+* Remove even more MUXes from the inorder model, particularly decode, imem, 
+  execute, branch predictor.
+  
+* Cleanup "multiple fills" in the L1 Caches, where 1 fill goes to multiple 
+  dests. This also allows us to remove a rule conflict.
+  
+Michael P.

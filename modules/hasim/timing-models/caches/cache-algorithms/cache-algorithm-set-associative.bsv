@@ -46,7 +46,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
          t_TAG_SIZE))))), 64))), 32));
 
 
-    let buffering = valueof(t_NUM_INSTANCES) + 1;
+    let buffering = 2;
     Integer numWays = valueof(t_NUM_WAYS);
 
     FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);

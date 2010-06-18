@@ -28,7 +28,7 @@ import FShow::*;
 `include "asim/provides/fpga_components.bsh"
 `include "asim/provides/hasim_model_services.bsh"
 
-`include "asim/provides/hasim_pipeline_types.bsh"
+`include "asim/provides/pipeline_base_types.bsh"
 `include "asim/provides/hasim_issue.bsh"
 
 typedef union tagged 

@@ -9,7 +9,7 @@
 %requires hasim_mem
 %requires hasim_commit
 %requires hasim_branch_pred_alg
-%requires hasim_pipeline_types
+%requires pipeline_base_types
 %provides hasim_pipeline
 
 %attributes hasim

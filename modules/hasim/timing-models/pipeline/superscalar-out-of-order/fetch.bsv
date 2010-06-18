@@ -28,7 +28,7 @@ import Vector::*;
 `include "asim/provides/hasim_branch_pred_alg.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
 
-`include "asim/provides/hasim_pipeline_types.bsh"
+`include "asim/provides/pipeline_base_types.bsh"
 
 typedef enum
 {
@@ -96,7 +96,7 @@ module [HASIM_MODULE] mkFetch();
             if(bundle.predType == PRED_TYPE_BRANCH_IMM)
             begin
                 debugLog.record($format("Branch Imm upd ") + fshow(bundle));
-                branchPred.upd(bundle.pc, bundle.pred, bundle.actual);
+                branchPred.upd(0, bundle.pc, bundle.pred, bundle.actual);
             end
         end
         else
@@ -177,7 +177,7 @@ module [HASIM_MODULE] mkFetch();
         debugLog.record($format("inst resp"));
         if(isBranchImm(resp.instruction))
         begin
-            branchPred.getPredReq(pc);
+            branchPred.getPredReq(0, pc);
             debugLog.record($format("Branch Imm"));
             state <= FETCH_STATE_BRANCH_IMM;
         end
@@ -193,7 +193,7 @@ module [HASIM_MODULE] mkFetch();
     rule branchImm(state == FETCH_STATE_BRANCH_IMM);
         debugLog.record($format("branch imm resp"));
         let resp = getInstruction.getResp;
-        let pred <- branchPred.getPredResp;
+        let pred <- branchPred.getPredRsp(0);
         let predPc = pred? predPcBranchImm(pc, resp.instruction): pc + 4;
         makeFetchBundle(resp.instruction, pc, PRED_TYPE_BRANCH_IMM, pred, predPc);
     endrule

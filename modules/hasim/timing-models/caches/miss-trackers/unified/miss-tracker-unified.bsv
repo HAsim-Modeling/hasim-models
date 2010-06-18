@@ -110,8 +110,7 @@ interface CACHE_MISS_TRACKER#(parameter type t_NUM_INSTANCES, parameter type t_M
 
     method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid, CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok_to_free);
     
-    method Bool fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) freeNextDelivery(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Maybe#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
 endinterface
 
@@ -300,40 +299,27 @@ module [HASIM_MODULE] mkCacheMissTracker
         LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillList = multipleFillListPool.getRAM(iid);
         LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 1);
 
-        freelist.getRAM(iid).upd(tailPtr, missTokIndex(miss_tok));
+        let miss_idx = missTokIndex(miss_tok);
+        freelist.getRAM(iid).upd(tailPtr, miss_idx);
 
         tailPtr <= tailPtr + 1;
         
-        servingMultipleFills <= multipleFillListValids.sub(missTokIndex(miss_tok)) ? tagged Valid multipleFillList.sub(missTokIndex(miss_tok)) : tagged Invalid;
-        multipleFillListValids.upd(missTokIndex(miss_tok), tagged False);
+        servingMultipleFills <= multipleFillListValids.sub(miss_idx) ? tagged Valid multipleFillList.sub(miss_idx) : tagged Invalid;
+        multipleFillListValids.upd(miss_idx, False);
     
     endmethod
 
-
-    method Bool fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Maybe#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
-        return isValid(servingMultipleFills);
+        if (servingMultipleFills matches tagged Valid .idx)
+        begin
+            return tagged Valid initMissTokLoad(idx);
+        end
+        else
+        begin
+            return tagged Invalid;
+        end
     endmethod
-
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) freeNextDelivery(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
-        Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillList = multipleFillListPool.getRAM(iid);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 1);
-
-        let cur = validValue(servingMultipleFills);
-
-        freelist.getRAM(iid).upd(tailPtr, cur);
-        tailPtr <= tailPtr + 1;        
-
-        servingMultipleFills <= multipleFillListValids.sub(cur) ? tagged Valid multipleFillList.sub(cur) : tagged Invalid;
-        multipleFillListValids.upd(cur, False);
-
-        return initMissTokLoad(cur);
-
-    endmethod
-
 
 endmodule
 

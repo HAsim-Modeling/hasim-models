@@ -75,8 +75,7 @@ module [HASIM_MODULE] mkExecute ();
 
     // ****** Model State (per Context) ******
 
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, TOKEN_EPOCH) epochPool <- mkMultiplexedRegMultiWrite(initEpoch(0, 0));
-
+    MULTIPLEXED_STATE_POOL#(NUM_CPUS, TOKEN_EPOCH) statePool <- mkMultiplexedStatePool(initEpoch(0, 0));
 
     // ****** Ports ******
 
@@ -98,10 +97,11 @@ module [HASIM_MODULE] mkExecute ();
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
     Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromIssueQ.ctrl.in;
     inports[1]  = bundleToMemQ.ctrl.in;
+    inports[2]  = statePool.ctrl;
     outports[0] = bundleToMemQ.ctrl.out;
     outports[1] = rewindToFet.ctrl;
     outports[2] = writebackToDec.ctrl;
@@ -111,7 +111,7 @@ module [HASIM_MODULE] mkExecute ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, EXE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(EXE_STAGE2_STATE, TOKEN_EPOCH)) stage2Ctrl <- mkStageController();
 
 
     // ****** Events and Stats ******
@@ -140,16 +140,14 @@ module [HASIM_MODULE] mkExecute ();
     // Used for handling branch prediction / rewind feedback
     // processing for all non-branch instructions.
 
-    function Action nonBranchPred(BUNDLE bundle,
-                                  FUNCP_RSP_GET_RESULTS rsp,
-                                  BRANCH_ATTR branchAttr);
-    action
+    function ActionValue#(TOKEN_EPOCH) nonBranchPred(BUNDLE bundle, FUNCP_RSP_GET_RESULTS rsp, BRANCH_ATTR branchAttr, TOKEN_EPOCH epoch);
+    actionvalue
     
         let tok = bundle.token;
+        let new_epoch = epoch;
         
         // Get our local state from the context.
         let cpu_iid = tokCpuInstanceId(tok);
-        Reg#(TOKEN_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 1);
         
         // Calculate the next PC.
         let tgt = rsp.instructionAddress + zeroExtend(rsp.instructionSize);
@@ -186,7 +184,7 @@ module [HASIM_MODULE] mkExecute ();
             debugLog.record(cpu_iid, fshow("NON-BRANCH PREDICTED BRANCH: ") + fshow(tok));
             statMispred.incr(cpu_iid);
 
-            epoch.branch <= epoch.branch + 1;
+            new_epoch.branch = new_epoch.branch + 1;
 
             // Rewind the PC and train the BP.
             rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, tgt));
@@ -195,7 +193,9 @@ module [HASIM_MODULE] mkExecute ();
             trainingToBP.send(cpu_iid, tagged Valid train);
 
         end
-    endaction
+        
+        return new_epoch;
+    endactionvalue
     endfunction
 
     // stage1_begin
@@ -210,7 +210,7 @@ module [HASIM_MODULE] mkExecute ();
         // Get our local state from the context.
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
-        Reg#(TOKEN_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 0);
+        TOKEN_EPOCH epoch <- statePool.extractState(cpu_iid);
 
         // Do we have an instruction to execute, and a place to put it?
         
@@ -232,7 +232,7 @@ module [HASIM_MODULE] mkExecute ();
                 let dmem_bundle = initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests);
                     
                 // In the next stages we'll pass the junk instruction on, and mark its destinations ready.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_junk dmem_bundle);
+                stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_junk dmem_bundle, epoch));
 
             end
             else if (goodEpoch(bundle, epoch))
@@ -245,7 +245,7 @@ module [HASIM_MODULE] mkExecute ();
                 getResults.makeReq(initFuncpReqGetResults(tok));
                 
                 // In the next stage we'll get the response and deal with it.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_exeRsp bundle);
+                stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_exeRsp bundle, epoch));
 
             end
             else
@@ -269,10 +269,10 @@ module [HASIM_MODULE] mkExecute ();
                     // The incoming token remains in decode and will be executed next
                     // cycle, now that it will appear to be on the good path.
                     //
-                    epoch <= initEpoch(bundle.branchEpoch, bundle.faultEpoch);
+                    epoch = initEpoch(bundle.branchEpoch, bundle.faultEpoch);
                     
                     // Handle it exactly like there was a bubble.
-                    stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
+                    stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_bubble, epoch));
 
                 end
                 else
@@ -283,7 +283,7 @@ module [HASIM_MODULE] mkExecute ();
                     let dmem_bundle = initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests);
                     
                     // In the next stage we'll pass the junk instruction on, and mark its destinations ready.
-                    stage2Ctrl.ready(cpu_iid, tagged STAGE2_junk dmem_bundle);
+                    stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_junk dmem_bundle, epoch));
 
                 end
                 
@@ -297,7 +297,7 @@ module [HASIM_MODULE] mkExecute ();
             debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
             
             // Tell the next stage to propogate the bubble.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
+            stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_bubble, epoch));
 
         end
     
@@ -312,7 +312,7 @@ module [HASIM_MODULE] mkExecute ();
 
     rule stage2_results (True);
     
-        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+        match {.cpu_iid, {.state, .epoch}} <- stage2Ctrl.nextReadyInstance();
     
         // Handle writing our output ports based on what the previous stage decided.
 
@@ -331,6 +331,7 @@ module [HASIM_MODULE] mkExecute ();
 
             // End the model cycle. (Path 1)
             eventExe.recordEvent(cpu_iid, tagged Invalid);
+            statePool.insertState(cpu_iid, epoch);
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
@@ -353,6 +354,7 @@ module [HASIM_MODULE] mkExecute ();
 
             // End the model cycle. (Path 2)
             eventExe.recordEvent(cpu_iid, tagged Invalid);
+            statePool.insertState(cpu_iid, epoch);
             localCtrl.endModelCycle(cpu_iid, 2);
 
         end
@@ -368,7 +370,6 @@ module [HASIM_MODULE] mkExecute ();
             // Get our local state from the context.
             let tok = rsp.token;
             let res = rsp.result;
-            Reg#(TOKEN_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 1);
 
             // Dequeue the IssueQ.
             bundleFromIssueQ.doDeq(cpu_iid);
@@ -405,7 +406,7 @@ module [HASIM_MODULE] mkExecute ();
                         // The branch predictor predicted NotTaken.
                         debugLog.record(cpu_iid, fshow("(MIS PREDICTED)"));
                         statMispred.incr(cpu_iid);
-                        epoch.branch <= epoch.branch + 1;
+                        epoch.branch = epoch.branch + 1;
 
                         // Rewind the PC to the actual target and train the BP.
                         rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
@@ -438,7 +439,7 @@ module [HASIM_MODULE] mkExecute ();
 
                             // The predictor got it wrong.
                             statMispred.incr(cpu_iid);
-                            epoch.branch <= epoch.branch + 1;
+                            epoch.branch = epoch.branch + 1;
 
                             // Resteer the PC to the actual destination and train.
                             rewindToFet.send(cpu_iid, tagged Valid tuple3(tok, bundle.faultEpoch, addr));
@@ -472,14 +473,14 @@ module [HASIM_MODULE] mkExecute ();
                     new_bundle.effAddr = ea;
 
                     // Use the standard branch prediction for non-branches.
-                    nonBranchPred(new_bundle, rsp, bundle.branchAttr);
+                    epoch <- nonBranchPred(new_bundle, rsp, bundle.branchAttr, epoch);
 
                 end
                 tagged RNop:
                 begin
 
                     // The instruction was some kind of instruction we don't care about.
-                    nonBranchPred(bundle, rsp, bundle.branchAttr);
+                    epoch <- nonBranchPred(bundle, rsp, bundle.branchAttr, epoch);
 
                 end
                 tagged RTerminate .pf:
@@ -523,6 +524,7 @@ module [HASIM_MODULE] mkExecute ();
 
             // End the model cycle. (Path 3)
             eventExe.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
+            statePool.insertState(cpu_iid, epoch);
             localCtrl.endModelCycle(cpu_iid, 3);
 
         end

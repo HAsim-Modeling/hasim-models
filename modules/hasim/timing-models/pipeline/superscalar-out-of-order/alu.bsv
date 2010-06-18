@@ -7,7 +7,7 @@ import FShow::*;
 `include "soft_connections.bsh"
 `include "funcp_interface.bsh"
 
-`include "hasim_pipeline_types.bsh"
+`include "pipeline_base_types.bsh"
 
 typedef enum {ALU_STATE_WRITEBACK_REQ, ALU_STATE_WRITEBACK_RESP} ALU_STATE deriving (Bits, Eq);
 

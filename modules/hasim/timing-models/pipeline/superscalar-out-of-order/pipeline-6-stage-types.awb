@@ -1,8 +1,8 @@
 %AWB_START
 
-%name Hasim pipeline types
-%desc Hasim pipeline types
-%provides hasim_pipeline_types
+%name OOO pipeline types
+%desc OOO pipeline types
+%provides pipeline_base_types
 
 %attributes hasim
 

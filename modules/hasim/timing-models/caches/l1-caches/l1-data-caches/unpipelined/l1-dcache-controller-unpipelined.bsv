@@ -221,11 +221,11 @@ module [HASIM_MODULE] mkL1DCache ();
         let m_fill <- fillFromMemory.receive(cpu_iid);
 
         // Check if there are any previously returned fills that are going to multiple loads.
-        if (outstandingMisses.fillToDeliver(cpu_iid))
+        if (outstandingMisses.fillToDeliver(cpu_iid) matches tagged Valid .miss_tok)
         begin
 
             // A fill that came in previously is going to multiple miss tokens.
-            let miss_tok <- outstandingMisses.freeNextDelivery(cpu_iid);
+            local_state.missTokToFree = tagged Valid miss_tok;
             
             // Return it to the CPU.
             debugLog.record_next_cycle(cpu_iid, $format("1: FILL MULTIPLE RSP: %0d", miss_tok.index));

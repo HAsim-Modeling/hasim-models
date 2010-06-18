@@ -62,7 +62,7 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, IMEM_EPOCH)     epochPool <- mkMultiplexedRegMultiWrite(initialIMemEpoch);
+    MULTIPLEXED_STATE_POOL#(NUM_CPUS, IMEM_EPOCH) statePool <- mkMultiplexedStatePool(initialIMemEpoch);
 
     // ****** Ports ******
 
@@ -81,9 +81,10 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Local Controller ******
         
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls  = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls  = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
     inctrls[0]  = rspFromITLB.ctrl;
+    inctrls[1]  = statePool.ctrl;
     outctrls[0] = physAddrToICache.ctrl;
     outctrls[1] = iMemToPCCalc.ctrl;
     
@@ -93,7 +94,7 @@ module [HASIM_MODULE] mkIMem
     // If Invalid, means there was a bubble input to this stage.
     // Otherwise contains output that should be sent to pccalc if icache
     // responds with a bubble.
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(IMEM_OUTPUT)) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Maybe#(IMEM_OUTPUT), IMEM_EPOCH)) stage2Ctrl <- mkStageController();
 
     // ****** Rules ******
 
@@ -117,7 +118,7 @@ module [HASIM_MODULE] mkIMem
         let cpu_iid <- localCtrl.startModelCycle();
         
         // Get our local state using the current context.
-        Reg#(IMEM_EPOCH)     epoch = epochPool.getRegWithWritePort(cpu_iid, 0);
+        IMEM_EPOCH epoch <- statePool.extractState(cpu_iid);
         Maybe#(IMEM_OUTPUT) stage_data = Invalid;
         
         // See if there's a response from the ITLB.
@@ -133,7 +134,7 @@ module [HASIM_MODULE] mkIMem
                 rsp.bundle.epoch.fault != epoch.fault)
             begin
                 good_epoch = True;
-                epoch <= rsp.bundle.epoch;
+                epoch = rsp.bundle.epoch;
             end
             else
             begin
@@ -193,7 +194,7 @@ module [HASIM_MODULE] mkIMem
             stage_data = Invalid;
         end
 
-        stage2Ctrl.ready(cpu_iid, stage_data);
+        stage2Ctrl.ready(cpu_iid, tuple2(stage_data, epoch));
     endrule
 
     // Ports read:
@@ -204,11 +205,7 @@ module [HASIM_MODULE] mkIMem
     //
 
     rule stage2_iCacheRsp;
-        match {.cpu_iid, .m_stage_data} <- stage2Ctrl.nextReadyInstance();
-
-        Reg#(IMEM_EPOCH) epoch = epochPool.getRegWithWritePort(cpu_iid, 1);
-        IMEM_EPOCH new_epoch = epoch;
-        
+        match {.cpu_iid, {.m_stage_data, .epoch}} <- stage2Ctrl.nextReadyInstance();
 
         let m_icache_rsp <- immRspFromICache.receive(cpu_iid); 
 
@@ -237,7 +234,7 @@ module [HASIM_MODULE] mkIMem
 
                     if (icache_rsp.rspType matches tagged ICACHE_retry)
                     begin
-                        new_epoch.iCache = new_epoch.iCache + 1;
+                        epoch.iCache = epoch.iCache + 1;
                     end
 
                     iMemToPCCalc.send(cpu_iid, tagged Valid IMEM_OUTPUT {
@@ -247,7 +244,7 @@ module [HASIM_MODULE] mkIMem
                 end
                 tagged IMEM_itlb_fault:
                 begin
-                    new_epoch.iTLB = new_epoch.iTLB + 1;
+                    epoch.iTLB = epoch.iTLB + 1;
                 end
                 default:
                 begin
@@ -262,9 +259,9 @@ module [HASIM_MODULE] mkIMem
             iMemToPCCalc.send(cpu_iid, Invalid);
         end
         
-        epoch <= new_epoch;
 
         // End the model cycle.
+        statePool.insertState(cpu_iid, epoch);
         localCtrl.endModelCycle(cpu_iid, 1);
     endrule
 

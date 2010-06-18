@@ -48,7 +48,7 @@ typedef union tagged
     void         STAGE3_bubble;
     void         STAGE3_rewindRsp;
     void         STAGE3_depsReady;
-    FETCH_BUNDLE STAGE3_depsRsp;
+    void         STAGE3_depsRsp;
 }
 DEC_STAGE3_STATE deriving (Bits, Eq);
 
@@ -59,6 +59,26 @@ typedef union tagged
 }
 DEC_STAGE4_STATE deriving (Bits, Eq);
  
+typedef struct
+{
+    TOKEN_INDEX numInstrsInFlight;
+    Bool drainingAfter;
+    FETCH_BUNDLE currentBundle;
+    Maybe#(FUNCP_RSP_GET_DEPENDENCIES) instToIssue;
+    TOKEN_EPOCH epoch;
+}
+DECODE_STATE deriving (Eq, Bits);
+
+DECODE_STATE initialDecodeState =
+    DECODE_STATE
+    {
+        numInstrsInFlight: 0,
+        drainingAfter: False,
+        currentBundle: ?,
+        instToIssue: Invalid,
+        epoch: initEpoch(0, 0)
+    };
+
 
 // mkDecode
 
@@ -110,13 +130,21 @@ module [HASIM_MODULE] mkDecode ();
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN,
                        FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
+    // ****** Model State (per Instance) ******
+
+    MULTIPLEXED_STATE_POOL#(NUM_CPUS, DECODE_STATE) statePool <- mkMultiplexedStatePool(initialDecodeState);
+
+    // PRF valid bits.
+    DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardLUTRAM();
+    // DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardMultiWrite(); // Can be switched for expensive version.
+
     // ****** Local Controller ******
 
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbExeCtrl  <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbHitCtrl  <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
 
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
+    Vector#(7, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
     Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleToIssueQ.ctrl.in;
@@ -125,6 +153,7 @@ module [HASIM_MODULE] mkDecode ();
     inports[3]  = faultFromCom.ctrl;
     inports[4]  = bundleFromInstQ.ctrl;
     inports[5]  = writebackFromCom.ctrl;
+    inports[6]  = statePool.ctrl;
     depports[0] = writebackFromExe.ctrl;
     depports[1] = writebackFromMemHit.ctrl;
     depports[2] = writebackFromMemMiss.ctrl;
@@ -137,25 +166,11 @@ module [HASIM_MODULE] mkDecode ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE3_STATE) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE4_STATE) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(DEC_STAGE3_STATE, DECODE_STATE)) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(DEC_STAGE4_STATE, DECODE_STATE)) stage4Ctrl <- mkStageController();
 
     // ****** Events ******
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventDec <- mkEventRecorder_Multiplexed(`EVENTS_DECODE_INSTRUCTION_DECODE);
-
-    // ****** Model State (per Instance) ******
-
-    MULTIPLEXED#(NUM_CPUS, COUNTER#(TOKEN_INDEX_SIZE))              numInstrsInFlightPool <- mkMultiplexed(mkLCounter(0));
-    MULTIPLEXED_REG#(NUM_CPUS, Bool)                                  drainingAfterPool <- mkMultiplexedReg(False);
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssuePool <- mkMultiplexedRegMultiWrite(Invalid);
-
-    // PRF valid bits.
-
-    DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardLUTRAM();
-    // DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardMultiWrite(); // Can be switched for expensive version.
-
-
-    MULTIPLEXED_REG#(NUM_CPUS, TOKEN_EPOCH) epochPool <- mkMultiplexedReg(initEpoch(0, 0));
 
 
     // ***** Helper Functions ******
@@ -196,12 +211,10 @@ module [HASIM_MODULE] mkDecode ();
     // If an instruction is marked drainBefore, then we must wait until
     // the instructions older than it have committed.
 
-    function Bool readyDrainBefore(CPU_INSTANCE_ID cpu_iid, ISA_INSTRUCTION inst);
-    
-        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
+    function Bool readyDrainBefore(DECODE_STATE local_state, ISA_INSTRUCTION inst);
     
         if (isaDrainBefore(inst))
-            return numInstrsInFlight.value() == 0;
+            return local_state.numInstrsInFlight == 0;
         else
             return True;
     
@@ -213,13 +226,10 @@ module [HASIM_MODULE] mkDecode ();
     // then we must wait until instructions older than the next instruction
     // have committed.
     
-    function Bool readyDrainAfter(CPU_INSTANCE_ID cpu_iid);
+    function Bool readyDrainAfter(DECODE_STATE local_state);
     
-        Reg#(Bool)                     drainingAfter = drainingAfterPool.getReg(cpu_iid);
-        COUNTER#(TOKEN_INDEX_SIZE) numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
-    
-        if (drainingAfter)
-            return numInstrsInFlight.value() == 0;
+        if (local_state.drainingAfter)
+            return local_state.numInstrsInFlight == 0;
         else
             return True;
     
@@ -372,9 +382,7 @@ module [HASIM_MODULE] mkDecode ();
         debugLog.nextModelCycle(cpu_iid);
         
         // Extract local state from the cpu instance.
-        Reg#(Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssue = instToIssuePool.getRegWithWritePort(cpu_iid, 0);
-        Reg#(TOKEN_EPOCH) epoch = epochPool.getReg(cpu_iid);
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
+        let local_state <- statePool.extractState(cpu_iid);
         
         let m_mispred <- mispredictFromExe.receive(cpu_iid);
         let m_fault   <- faultFromCom.receive(cpu_iid);
@@ -386,7 +394,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
 
             debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
-            numInstrsInFlight.down();
+            local_state.numInstrsInFlight = local_state.numInstrsInFlight - 1;
 
         end
 
@@ -399,16 +407,16 @@ module [HASIM_MODULE] mkDecode ();
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
-            epoch.fault <= epoch.fault + 1;
+            local_state.epoch.fault = local_state.epoch.fault + 1;
             
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
             
             // Tell the following stages it's a rewind.
-            stage3Ctrl.ready(cpu_iid, tagged STAGE3_rewindRsp);
+            stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_rewindRsp, local_state));
         
         end
-        else if (m_mispred matches tagged Valid {.tok, .fault_epoch} &&& fault_epoch == epoch.fault)
+        else if (m_mispred matches tagged Valid {.tok, .fault_epoch} &&& fault_epoch == local_state.epoch.fault)
         begin
 
             // A mispredict occurred.
@@ -416,16 +424,16 @@ module [HASIM_MODULE] mkDecode ();
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
-            epoch.branch <= epoch.branch + 1;
+            local_state.epoch.branch = local_state.epoch.branch + 1;
         
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
             
             // Tell the following stages it's a bubble.
-            stage3Ctrl.ready(cpu_iid, tagged STAGE3_rewindRsp);
+            stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_rewindRsp, local_state));
 
         end
-        else if (isValid(instToIssue))
+        else if (isValid(local_state.instToIssue))
         begin
         
             // We have an instruction to issue, tell the next stage to just proceed.
@@ -434,7 +442,7 @@ module [HASIM_MODULE] mkDecode ();
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
 
-            stage3Ctrl.ready(cpu_iid, tagged STAGE3_depsReady);
+            stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_depsReady, local_state));
             
         end
         else if (m_bundle matches tagged Valid .bundle)
@@ -445,15 +453,18 @@ module [HASIM_MODULE] mkDecode ();
             deqToInstQ.send(cpu_iid, tagged Valid (?));
             
             //Is it of the correct epoch?
-            if (bundle.branchEpoch == epoch.branch && bundle.faultEpoch == epoch.fault)
+            if (bundle.branchEpoch == local_state.epoch.branch && bundle.faultEpoch == local_state.epoch.fault)
             begin
 
                 // We need to retrieve dependencies from the functional partition.
                 debugLog.record_next_cycle(cpu_iid, fshow("2: Request Deps."));
                 getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
+                
+                // Update the bundle in the local state.
+                local_state.currentBundle = bundle;
 
                 // Tell the next stage to get the response.
-                stage3Ctrl.ready(cpu_iid, tagged STAGE3_depsRsp bundle);
+                stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_depsRsp, local_state));
 
             end
             else
@@ -463,7 +474,7 @@ module [HASIM_MODULE] mkDecode ();
                 // a token yet. Tell the following stages to drop it.
                 debugLog.record_next_cycle(cpu_iid, fshow("2: SILENT DROP"));
 
-                stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
+                stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_bubble, local_state));
             
             end
         
@@ -475,7 +486,7 @@ module [HASIM_MODULE] mkDecode ();
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
             debugLog.record_next_cycle(cpu_iid, fshow("2: BUBBLE"));
-            stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
+            stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_bubble, local_state));
 
         end
  
@@ -494,53 +505,55 @@ module [HASIM_MODULE] mkDecode ();
     rule stage3_dependenciesRsp (True);
     
         // Get the next instance id.
-        match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, {.stage3state, .local_state}} <- stage3Ctrl.nextReadyInstance();
 
-        if (state matches tagged STAGE3_bubble)
-        begin
-        
-            // Just propogate the bubble to the next stage.
-            stage4Ctrl.ready(cpu_iid, tagged STAGE4_bubble);
-        
-        end
-        else if (state matches tagged STAGE3_rewindRsp)
-        begin
-        
-            // Get the rewind response.
-            let rsp = rewindToToken.getResp();
-            rewindToToken.deq();
-            debugLog.record(cpu_iid, $format("3: REWIND RSP"));
-        
-            // Propogate the bubble to the next stage.
-            stage4Ctrl.ready(cpu_iid, tagged STAGE4_bubble);
-        
-        end
-        else if (state matches tagged STAGE3_depsReady)
-        begin
+        case (stage3state) matches 
+            tagged STAGE3_bubble:
+            begin
 
-            // instToIssue is already up to date.
+                // Just propogate the bubble to the next stage.
+                stage4Ctrl.ready(cpu_iid, tuple2(tagged STAGE4_bubble, local_state));
 
-            // Pass it to the next stage to do the checking.
-            stage4Ctrl.ready(cpu_iid, tagged STAGE4_depsCheck);
-        
-        end
-        else if (state matches tagged STAGE3_depsRsp .bundle)
-        begin
-        
-            // Get the response from the functional partition.
-            let rsp = getDependencies.getResp();
-            getDependencies.deq();
+            end
+            tagged STAGE3_rewindRsp:
+            begin
 
-            // Extract local state from the context.
-            Reg#(Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssue = instToIssuePool.getRegWithWritePort(cpu_iid, 0);
+                // Get the rewind response.
+                let rsp = rewindToToken.getResp();
+                rewindToToken.deq();
+                debugLog.record(cpu_iid, $format("3: REWIND RSP"));
+                
+                // Any tokens we had were rewound, so drop them.
+                local_state.instToIssue = tagged Invalid;
 
-            // Update dependencies.
-            instToIssue <= tagged Valid tuple2(bundle, rsp);
+                // Propogate the bubble to the next stage.
+                stage4Ctrl.ready(cpu_iid, tuple2(tagged STAGE4_bubble, local_state));
 
-            // Pass it to the next stage to do the checking.
-            stage4Ctrl.ready(cpu_iid, tagged STAGE4_depsCheck);
-        
-        end
+            end
+            tagged STAGE3_depsReady:
+            begin
+
+                // instToIssue is already up to date.
+
+                // Pass it to the next stage to do the checking.
+                stage4Ctrl.ready(cpu_iid, tuple2(tagged STAGE4_depsCheck, local_state));
+
+            end
+            tagged STAGE3_depsRsp:
+            begin
+
+                // Get the response from the functional partition.
+                let rsp = getDependencies.getResp();
+                getDependencies.deq();
+
+                // Update dependencies.
+                local_state.instToIssue = tagged Valid rsp; 
+
+                // Pass it to the next stage to do the checking.
+                stage4Ctrl.ready(cpu_iid, tuple2(tagged STAGE4_depsCheck, local_state));
+
+            end
+        endcase
 
     endrule
 
@@ -565,14 +578,9 @@ module [HASIM_MODULE] mkDecode ();
     rule stage4_attemptIssue (writebacksFinished);
     
         // Extract the next active instance.
-        match {.cpu_iid, .state} <- stage4Ctrl.nextReadyInstance();
+        match {.cpu_iid, {.stage4state, .local_state}} <- stage4Ctrl.nextReadyInstance();
 
-        // Get the state for this instance.
-        Reg#(Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssue = instToIssuePool.getRegWithWritePort(cpu_iid, 1);
-        Reg#(Bool)                                  drainingAfter = drainingAfterPool.getReg(cpu_iid);
-        COUNTER#(TOKEN_INDEX_SIZE)         numInstrsInFlight = numInstrsInFlightPool[cpu_iid];
-        Reg#(TOKEN_EPOCH) epoch = epochPool.getReg(cpu_iid);
-        
+        // Make sure all previous dependencies are taken care of.        
         wbExeCtrl.consumerStart();
         wbExeCtrl.consumerDone();
         wbHitCtrl.consumerStart();
@@ -587,7 +595,7 @@ module [HASIM_MODULE] mkDecode ();
         // See if the issueQ has any room.
         let can_enq <- bundleToIssueQ.canEnq(cpu_iid);
 
-        if (state matches tagged STAGE4_bubble)
+        if (stage4state matches tagged STAGE4_bubble)
         begin
 
             // No allocation to the store buffer.
@@ -601,53 +609,29 @@ module [HASIM_MODULE] mkDecode ();
             localCtrl.endModelCycle(cpu_iid, 1);
                 
         end
-        else if (state matches tagged STAGE4_depsCheck)
+        else if (stage4state matches tagged STAGE4_depsCheck)
         begin
 
-            // assert instToIssue == Valid
-            match {.fetchbundle, .rsp} = validValue(instToIssue);
-            let tok = rsp.token;
+            // assert isValid(instToIssue)
+            let deps = validValue(local_state.instToIssue);
+            let fetchbundle = local_state.currentBundle;
+            let tok = deps.token;
             
             if (can_enq)
             begin
             
                 // Check if we can issue.
-                let data_ready <- readyToGo(tok, rsp.srcMap);
+                let data_ready <- readyToGo(tok, deps.srcMap);
 
                 // If it's a store, we need to be able to allocate a slot in the store buffer.
                 let inst_is_store = isaIsStore(fetchbundle.inst);
                 let store_ready =  inst_is_store ? sb_has_credit : True;
 
-                if (fetchbundle.branchEpoch != epoch.branch || fetchbundle.faultEpoch != epoch.fault)
-                begin
-
-                    // It's from an old epoch, so we must issue it as a "dummy" that 
-                    // will not be executed, but simply reclaimed.
-                    tok.dummy = True;
-                    let bundle = makeBundle(tok, fetchbundle, replicate(Invalid));
-                    bundle.isLoad = False;
-                    bundle.isStore = False;
-                    debugLog.record(cpu_iid, fshow(tok) + fshow(": SEND DUMMY."));
-                    eventDec.recordEvent(cpu_iid, tagged Invalid);
-                    allocToSB.send(cpu_iid, tagged Invalid);
-                    instToIssue <= tagged Invalid;
-
-                    // For general sanity dummy instructions count as being in flight
-                    // for the purposes of drainBefore.
-                    numInstrsInFlight.up();
-
-                    // Enqueue the decoded instruction in the IssueQ.
-                    bundleToIssueQ.doEnq(cpu_iid, bundle);
-
-                    // End of model cycle. (Path 3)
-                    localCtrl.endModelCycle(cpu_iid, 3);
-
-                end
-                else if (data_ready && store_ready && readyDrainAfter(cpu_iid) && readyDrainBefore(cpu_iid, fetchbundle.inst))
+                if (data_ready && store_ready && readyDrainAfter(local_state) && readyDrainBefore(local_state, fetchbundle.inst))
                 begin
 
                     // Yep... we're ready to send it. 
-                    let bundle = makeBundle(tok, fetchbundle, rsp.dstMap);
+                    let bundle = makeBundle(tok, fetchbundle, deps.dstMap);
                     debugLog.record(cpu_iid, fshow(tok) + fshow(": SEND INST: ") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
                     eventDec.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
 
@@ -667,7 +651,7 @@ module [HASIM_MODULE] mkDecode ();
                     for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
                     begin
 
-                        if (rsp.dstMap[x] matches tagged Valid { .ar, .pr })
+                        if (deps.dstMap[x] matches tagged Valid { .ar, .pr })
                         begin
                             prfScoreboard.issue[x].unready(pr);
                             debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
@@ -676,16 +660,16 @@ module [HASIM_MODULE] mkDecode ();
                     end
 
                     // Update the number of instructions in flight.
-                    numInstrsInFlight.up();
+                    local_state.numInstrsInFlight = local_state.numInstrsInFlight + 1;
 
-                    instToIssue <= Invalid;
-                    drainingAfter <= isaDrainAfter(fetchbundle.inst);
+                    local_state.instToIssue = tagged Invalid;
+                    local_state.drainingAfter = isaDrainAfter(fetchbundle.inst);
 
                     // Enqueue the decoded instruction in the IssueQ.
                     bundleToIssueQ.doEnq(cpu_iid, bundle);
 
-                    // End of model cycle. (Path 4)
-                    localCtrl.endModelCycle(cpu_iid, 4);
+                    // End of model cycle. (Path 3)
+                    localCtrl.endModelCycle(cpu_iid, 3);
 
                 end
                 else
@@ -699,8 +683,8 @@ module [HASIM_MODULE] mkDecode ();
                     bundleToIssueQ.noEnq(cpu_iid);
                     allocToSB.send(cpu_iid, tagged Invalid);
 
-                    // End of model cycle. (Path 5)
-                    localCtrl.endModelCycle(cpu_iid, 5);
+                    // End of model cycle. (Path 4)
+                    localCtrl.endModelCycle(cpu_iid, 4);
 
                 end
             end
@@ -715,12 +699,14 @@ module [HASIM_MODULE] mkDecode ();
                 bundleToIssueQ.noEnq(cpu_iid);
                 allocToSB.send(cpu_iid, tagged Invalid);
 
-                // End of model cycle. (Path 6)
-                localCtrl.endModelCycle(cpu_iid, 6);
+                // End of model cycle. (Path 5)
+                localCtrl.endModelCycle(cpu_iid, 5);
 
             end
 
         end
+        
+        statePool.insertState(cpu_iid, local_state);
 
     endrule
         

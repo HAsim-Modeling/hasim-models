@@ -66,7 +66,7 @@ import Vector::*;
 
 typedef union tagged
 {
-    Tuple2#(TOKEN, Bool) STAGE2_drop;
+    Tuple2#(TOKEN, Bool) STAGE2_dummyRsp;
     DMEM_BUNDLE STAGE2_commitRsp;
     void STAGE2_bubble;
 }
@@ -80,7 +80,7 @@ module [HASIM_MODULE] mkCommit ();
 
     // ****** Model State (per Context) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(TOKEN_FAULT_EPOCH))) faultEpochsPool <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED_REG#(NUM_CPUS, MULTITHREADED#(TOKEN_FAULT_EPOCH)) faultEpochsPool <- mkMultiplexedReg(multithreaded(0));
 
     // ****** Ports ******
 
@@ -152,7 +152,7 @@ module [HASIM_MODULE] mkCommit ();
         debugLog.nextModelCycle(cpu_iid);
         
         // Get our local state from the context.
-        Reg#(MULTITHREADED#(TOKEN_FAULT_EPOCH)) faultEpochs = faultEpochsPool[cpu_iid];
+        Reg#(MULTITHREADED#(TOKEN_FAULT_EPOCH)) faultEpochs = faultEpochsPool.getReg(cpu_iid);
         
         let m_bundle <- bundleFromCommitQ.receive(cpu_iid);
         
@@ -183,11 +183,15 @@ module [HASIM_MODULE] mkCommit ();
             else
             begin
 
-                // Just draining following an earlier fault or branch mispredict.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: DRAIN: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                // This token followed a branch mispredict or fault. We just need to undo its effects
+                // and reclaim its registers. This looks like a normal commit req, but is handled
+                // differently by the functional partition.
+                debugLog.record_next_cycle(cpu_iid, fshow("1: RECLAIM DUMMY: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                //tok.dummy = True;
+                //commitResults.makeReq(initFuncpReqCommitResults(tok));
 
-                // Finish dropping in the next stage.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_drop tuple2(tok, bundle.isStore));
+                // The response will be handled by the next stage.
+                stage2Ctrl.ready(cpu_iid, tagged STAGE2_dummyRsp tuple2(tok, bundle.isStore));
 
             end
 
@@ -242,9 +246,16 @@ module [HASIM_MODULE] mkCommit ();
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
-        else if (state matches tagged STAGE2_drop {.tok, .is_store})
+        else if (state matches tagged STAGE2_dummyRsp {.tok, .is_store})
         begin
+    
+            // Get the commit response from the functional partition.
+            //let rsp = commitResults.getResp();
+            //commitResults.deq();
         
+            // Get our context from the token.
+            //let tok = rsp.token;
+
             // Instruction is no longer in flight.
 
             if (is_store)
@@ -268,9 +279,9 @@ module [HASIM_MODULE] mkCommit ();
             // Instructions dependent on this guy should be allowed to proceed.
             writebackToDec.send(cpu_iid, tagged Valid tok);
 
-            // End of model cycle. (Path 2)
-            localCtrl.endModelCycle(cpu_iid, 2);
-        
+            // End of model cycle. (Path 3)
+            localCtrl.endModelCycle(cpu_iid, 3);
+
         end
         else if (state matches tagged STAGE2_commitRsp .bundle)
         begin
@@ -351,11 +362,11 @@ module [HASIM_MODULE] mkCommit ();
             end
 
 
-            // End of model cycle. (Path 3)
+            // End of model cycle. (Path 4)
             statCom.incr(cpu_iid);
             eventCom.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
             linkModelCommit.send(tuple2(tokContextId(tok), 1));
-            localCtrl.endModelCycle(cpu_iid, 3);
+            localCtrl.endModelCycle(cpu_iid, 4);
         
         end
 

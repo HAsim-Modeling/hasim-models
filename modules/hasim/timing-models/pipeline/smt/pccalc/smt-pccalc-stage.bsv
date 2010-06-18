@@ -69,7 +69,7 @@ module [HASIM_MODULE] mkPCCalc
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initIMemEpoch(0, 0, 0, 0))));
+    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initialIMemEpoch)));
 
     MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Maybe#(PCC_REDIRECT)))) redirectsPool <- mkMultiplexed(mkReg(multithreaded(Invalid)));
 

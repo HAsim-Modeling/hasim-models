@@ -46,7 +46,6 @@ typedef union tagged
 }
 BP_STAGE2_STATE deriving (Eq, Bits);
 
-
 module [HASIM_MODULE] mkBranchPredictor ();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_bp.out");
@@ -56,8 +55,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
     
     MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, BTB_INDEX, Tuple2#(BTB_TAG, ISA_ADDRESS)) btb <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_HASIM_BTB_SCRATCHPAD, SCRATCHPAD_CACHED);
     MULTIPLEXED_LUTRAM#(NUM_CPUS, BTB_INDEX, Bool) btbValidsPool <- mkMultiplexedLUTRAM(False);
-
-    MULTIPLEXED#(NUM_CPUS, FIFO#(ISA_ADDRESS)) pcQPool <- mkMultiplexed(mkFIFO());
 
     BRANCH_PREDICTOR_ALG bPAlg <- mkBranchPredAlg();
 
@@ -92,14 +89,14 @@ module [HASIM_MODULE] mkBranchPredictor ();
     // Split an address into an index/tag hash.
 
     function BTB_INDEX getIndex (ISA_ADDRESS a);
-        Tuple3#(BTB_TAG, BTB_INDEX, BTB_OFFSET) tup = unpack(hashBits_inv(a));
+        Tuple3#(BTB_TAG, BTB_INDEX, BTB_OFFSET) tup = unpack(hashBits(a));
         match { .tag, .idx, .off } = tup;
         // assert off = 0b00
         return idx;
     endfunction
 
     function BTB_TAG getTag (ISA_ADDRESS a);
-        Tuple3#(BTB_TAG, BTB_INDEX, BTB_OFFSET) tup = unpack(hashBits_inv(a));
+        Tuple3#(BTB_TAG, BTB_INDEX, BTB_OFFSET) tup = unpack(hashBits(a));
         match { .tag, .idx, .off } = tup;
         // assert off = 0b00
         return tag;
@@ -127,7 +124,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
         debugLog.nextModelCycle(cpu_iid);
 
         // Get the local state for the current instance.
-        let pcQ = pcQPool[cpu_iid];
         let btbValids = btbValidsPool.getRAM(cpu_iid);
 
         // Let's see if there was a prediction request.

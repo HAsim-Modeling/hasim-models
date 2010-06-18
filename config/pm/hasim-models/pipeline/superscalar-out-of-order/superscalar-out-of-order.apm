@@ -7,15 +7,13 @@ Version=2.1
 Name=Superscalar out-of-order pipeline
 Type=HAsim
 Class=Asim::Model
+DefaultBenchmark=
+DefaultRunOpts=
 
 [Model]
 DefaultAttributes=hasim
 model=Hasim 6-stage CPU
 
-
-[Hasim pipeline types]
-File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/pipeline-6-stage-types.awb
-Packagehint=hasim-models
 
 [Hasim commit]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/commit.awb
@@ -47,14 +45,18 @@ Packagehint=hasim-models
 
 [Hasim 6-stage CPU/Requires]
 hasim_commit=Hasim commit
-hasim_pipeline_types=Hasim pipeline types
 hasim_mem=Hasim mem
 hasim_issue=Hasim out-of-order issue
 hasim_fetch=Hasim fetch
 hasim_decode=Hasim decode
 hasim_alu=Hasim ALU
 hasim_branch_pred_alg=2 Bit
+pipeline_base_types=OOO pipeline types
 
 [2 Bit]
 File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
+Packagehint=hasim-models
+
+[OOO pipeline types]
+File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/pipeline-6-stage-types.awb
 Packagehint=hasim-models

@@ -16,7 +16,7 @@ module [HASIM_MODULE] mkCacheAlgPseudoRandom
         (Bits#(t_OPAQUE, t_OPAQUE_SIZE),
          Add#(t_OPAQUE_SIZE, t_TMP, 8));
 
-    let buffering = valueof(t_NUM_INSTANCES) + 1;
+    let buffering = 2;
 
     FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);
     FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);

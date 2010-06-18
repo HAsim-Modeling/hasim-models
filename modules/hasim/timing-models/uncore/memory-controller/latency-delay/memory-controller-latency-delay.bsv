@@ -69,7 +69,7 @@ module [HASIM_MODULE] mkMemoryController();
     PORT_SEND#(VC_CREDIT_INFO) creditToOCN   <- mkPortSend("memctrl_to_ocn_credit");
     PORT_RECV#(VC_CREDIT_INFO) creditFromOCN <- mkPortRecv("ocn_to_memctrl_credit", 1);
 
-    Vector#(NUM_LANES, Vector#(VCS_PER_LANE, FIFOF#(OCN_FLIT))) qs <- replicateM(replicateM(mkUGSizedFIFOF(16)));
+    Vector#(NUM_LANES, Vector#(VCS_PER_LANE, FIFOF#(OCN_FLIT))) qs <- replicateM(replicateM(mkUGSizedFIFOF(4)));
     Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) needLoadRsp <- mkReg(replicate(replicate(False)));
     Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) notFulls <- mkReg(replicate(replicate(False)));
     
