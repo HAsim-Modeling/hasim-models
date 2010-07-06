@@ -1,0 +1,12 @@
+%AWB_START
+
+%name Out-of-order Execute Stage
+%desc Out-of-order Execute Stage
+%provides execute_stage
+
+%attributes hasim model pipeline inorder
+
+%public  ooo-execute-stage.bsv
+%private execute.dic
+
+%AWB_END

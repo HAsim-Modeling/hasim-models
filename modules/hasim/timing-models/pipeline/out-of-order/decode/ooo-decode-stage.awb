@@ -1,0 +1,15 @@
+%AWB_START
+
+%name Out-of-order Decode/Issue Stage
+%desc Out-of-order Decode/Issue Stage
+%provides decode_stage
+
+%attributes hasim model pipeline ooo
+
+%public  ooo-decode-stage-sequential.bsv
+%public  ooo-decode-prf-scoreboard.bsv
+%private decode.dic
+
+%param SYNTH_BOUNDARY mkDecode "Name of synthesis boundary."
+
+%AWB_END

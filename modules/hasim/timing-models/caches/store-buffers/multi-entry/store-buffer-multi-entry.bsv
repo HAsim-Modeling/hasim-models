@@ -144,7 +144,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         
             // Allocate a new slot.
             // assert !full(cpu_iid)
-            debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok));
+            debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(tok) + $format(" SLOT: %0d", local_state.nextFreeSlot));
             local_state.tokID[local_state.nextFreeSlot] = tagged Valid tok;
 
             // We don't know its effective address yet.
@@ -246,9 +246,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 tagged SB_complete:
                 begin
 
-                    // A completion of a previously allocated store.
-                    debugLog.record(cpu_iid, fshow("COMPLETE STORE ") + fshow(req.bundle.token));
-
                     // Update with the actual physical address.
                     // (A real store buffer would also record the value.)
                     let tok_id = tokTokenId(req.bundle.token);
@@ -265,6 +262,9 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     
                     end
                     
+                    // A completion of a previously allocated store.
+                    debugLog.record(cpu_iid, fshow("COMPLETE STORE ") + fshow(req.bundle.token) + $format(" SLOT: %0d", sb_idx));
+
                     local_state.physAddress[sb_idx] = tagged Valid req.bundle.physicalAddress;
 
                     // Tell the functional partition to make the store locally visible.
@@ -356,7 +356,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 begin
                 
                     // If the oldest committed token is invalid then it was dropped. Just move over it.
-                    debugLog.record(cpu_iid, fshow("JUNK DROPPED"));
+                    debugLog.record(cpu_iid, $format("JUNK DROPPED, SLOT %0d", local_state.oldestCommitted));
                     local_state.oldestCommitted = local_state.oldestCommitted + 1;
                     local_state.numToCommit = local_state.numToCommit - 1;
                     
@@ -371,7 +371,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
 
                         // It's got room. Let's send the oldest store.
-                        debugLog.record(cpu_iid, fshow("DEALLOC ") + fshow(tok));
+                        debugLog.record(cpu_iid, fshow("DEALLOC ") + fshow(tok) + $format(" SLOT: %0d", local_state.oldestCommitted));
 
                         // Send it to the writeBuffer.
                         let store_tok = local_state.storeToken[local_state.oldestCommitted];
@@ -387,7 +387,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     begin
                     
                         // No room to commit this guy.
-                        debugLog.record(cpu_iid, fshow("DEALLOC STALL ") + fshow(tok));
+                        debugLog.record(cpu_iid, fshow("DEALLOC STALL ") + fshow(tok) + $format(" SLOT %0d", local_state.oldestCommitted));
                         storeToWriteQ.send(cpu_iid, tagged Invalid);
                     
                     end

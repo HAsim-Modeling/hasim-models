@@ -4490,3 +4490,62 @@ Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
   dests. This also allows us to remove a rule conflict.
   
 Michael P.
+
+----------
+pellauer    Date: Tue Jul  6 15:59:06 EDT 2010  CSN: CSN-hasim-models-145
+                  Tue Jul  6 19:59:06 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline
+ out-of-order/             Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order
+ execute/                  Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/execute
+ execute.dic               Locally Added               0 
+ ooo-execute-stage.awb     Locally Added               0 
+ ooo-execute-stage.bsv     Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order
+ decode/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/decode
+ ooo-decode-stage-sequential.bsv Locally Added               0 
+ decode.dic                Locally Added               0 
+ ooo-decode-stage.awb      Locally Added               0 
+ ooo-decode-prf-scoreboard.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order
+ commit/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/commit
+ commit.dic                Locally Added               0 
+ ooo-commit-stage.awb      Locally Added               0 
+ ooo-commit-stage.bsv      Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          144 
+
+
+* New OOO single-issue model works with inorder framework. Only the Decode, 
+  Execute, Commit stages are different.
+  ** Decode: Has ROB, OOO issue. Reads commitQ and sends things into a new
+             retireQ.
+  ** Execute: Handle epochs differently. You can't update epochs on any branch
+              mispredict because you may later see older instructions than that
+              branch.
+  ** Commit: Reads new "retireQ" rather than the completion buffer that reorders
+             load/store misses.
+             
+* Decode uses an ROB which it sequentially searches. FMR is therefore dependent on
+  occupancy, though there are many "short-cut" optimizations whereby we can stop
+  searching early.
+
+* ROB always stores in-flight instructions so that slot 0 is the oldest 
+  instruction. Entries are shifted on a dequeue. This means we only need a LUTRAM
+  with 2 read ports and one write port to simulate the ROB.
+  
+* Small debugging updates to store buffer.
+
+Michael P.
