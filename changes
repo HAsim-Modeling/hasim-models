@@ -4549,3 +4549,34 @@ Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
 * Small debugging updates to store buffer.
 
 Michael P.
+
+----------
+mcadler     Date: Sun Sep  5 09:26:21 EDT 2010  CSN: CSN-hasim-models-146
+                  Sun Sep  5 13:26:21 UTC 2010
+
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-direct-mapped.awb Locally Modified          145 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.awb Locally Modified          145 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          145 
+ cache-algorithm-direct-mapped.bsv Locally Modified          145 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.awb   Locally Modified          145 
+ llc-set-associative.bsv   Locally Modified          145 
+
+- LLC:
+  - Fix bug in evictionCheckRsp:  calculation of allValid used || instead of &&,
+    causing it always to be true.
+  - Remove now unnecessary ugly provisos (used to be caused by scratchpads)
+  - Tried to save the code so it could be used with caches of reasonable
+    size, but failed.  The valid/alloc bits are store in LUTRAM using an
+    access pattern that is too complicated.  Trying to use more than 4 ways
+    doesn't compile fast enough.  Caches larger than 64KB don't meet timing.
+
+- Change L1 cache size default to 128KB (was 8KB)
+- Make cache awb size config global

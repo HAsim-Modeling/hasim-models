@@ -32,14 +32,7 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name)
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SIZE),
          Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
-         Alias#(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY),
-         // The following is brought to you courtesy of proviso hell:
-         Add#(t_TMP, TAdd#(TSub#(TAdd#(TLog#(t_NUM_INSTANCES), t_IDX_SIZE),
-         TLog#(TDiv#(64, TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SIZE,
-         t_TAG_SIZE)))))))), TLog#(TDiv#(TExp#(TLog#(TAdd#(1, TAdd#(1,
-         TAdd#(t_OPAQUE_SIZE, t_TAG_SIZE))))), 64))), 32));
-
-
+         Alias#(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY));
 
     let buffering = valueof(t_NUM_INSTANCES) + 1;
 

@@ -37,14 +37,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SIZE),
          Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
-         Alias#(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY),
-         // The following is brought to you courtesy of proviso hell:
-         Add#(t_TMP, TAdd#(TSub#(TAdd#(TLog#(t_NUM_INSTANCES), t_IDX_SIZE),
-         TLog#(TDiv#(64, TExp#(TLog#(TMul#(t_NUM_WAYS, TAdd#(1,
-         TAdd#(t_OPAQUE_SIZE, t_TAG_SIZE)))))))),
-         TLog#(TDiv#(TExp#(TLog#(TMul#(t_NUM_WAYS, TAdd#(1, TAdd#(t_OPAQUE_SIZE,
-         t_TAG_SIZE))))), 64))), 32));
-
+         Alias#(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY));
 
     let buffering = 2;
     Integer numWays = valueof(t_NUM_WAYS);
@@ -105,35 +98,22 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) accessed = accessedPool.getRAMWithWritePort(iid, `PORT_ALLOC);
         LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) valids   = validsPool.getRAM(iid);
 
-        Bit#(TLog#(t_NUM_WAYS)) winner = 0;
+        UInt#(TLog#(t_NUM_WAYS)) winner = 0;
         let accessedvec = accessed.sub(idx);
         let validvec = valids.sub(idx);
-        Bool allValid = all(id, validvec);
 
-        if (!allValid)
+        if (findElem(False, validvec) matches tagged Valid .e)
         begin
         
             // Pick an invalid entry.
-            for (Integer x = 0; x < numWays; x = x + 1)
-            begin
-                if (!validvec[x])
-                begin
-                    winner = fromInteger(x);
-                end
-            end
+            winner = e;
 
         end
-        else
+        else if (findElem(False, accessedvec) matches tagged Valid .e)
         begin
 
             // Figure out which was (pseudo) LRU. Assert that at least one entry accessed == 0.
-            for (Integer x = 0; x < numWays; x = x + 1)
-            begin
-                if (!accessedvec[x])
-                begin
-                    winner = fromInteger(x);
-                end
-            end
+            winner = e;
 
         end
         
@@ -170,32 +150,29 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         loadLookupQ.deq();
         let idx = getCacheIndex(addr);
 
-        Maybe#(CACHE_ENTRY#(t_OPAQUE)) res = tagged Invalid;
+        Vector#(t_NUM_WAYS, Maybe#(CACHE_ENTRY#(t_OPAQUE))) res = newVector();
         let validvec = valids.sub(idx);
         
         let entryvec <- tagStoreBanks.readPorts[`PORT_LOAD].readRsp(iid);
 
-        Maybe#(Bit#(TLog#(t_NUM_WAYS))) winner = tagged Invalid;
-
         for (Integer x = 0; x < numWays; x = x + 1)
         begin
-        
-            if (entryTagCheck(addr, validvec[x], entryvec[x]) matches tagged Valid .entry)
-            begin
-                winner = tagged Valid fromInteger(x);
-                res = tagged Valid entry;
-            end
+            res[x] = entryTagCheck(addr, validvec[x], entryvec[x]);
         end
         
-        if (winner matches tagged Valid .way)
+        if (findIndex(isValid, res) matches tagged Valid .way)
         begin
             let new_accessed = accessed.sub(idx);
             new_accessed[way] = True;
             new_accessed = all(id, new_accessed) ? replicate(False) : new_accessed;
             accessed.upd(idx, new_accessed);
+
+            return res[way];
         end
-        
-        return res;
+        else
+        begin
+            return tagged Invalid;
+        end
 
     endmethod
     
@@ -286,9 +263,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
 
         for (Integer x = 0; x < numWays; x = x + 1)
         begin
-
-            allValid = allValid || validvec[x];
-
+            allValid = allValid && validvec[x];
         end
 
         if (!allValid)
@@ -299,18 +274,15 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         else
         begin
         
-            Maybe#(CACHE_ENTRY#(t_OPAQUE)) res = tagged Valid toCacheEntry(entryvec[0], idx);
-
             // Everyone's valid, so figure out which was (pseudo) LRU.
-            for (Integer x = 0; x < numWays; x = x + 1)
+            if (findElem(False, accessedvec) matches tagged Valid .x)
             begin
-                if (!accessedvec[x])
-                begin
-                    res = tagged Valid toCacheEntry(entryvec[x], idx);
-                end
+                return tagged Valid toCacheEntry(entryvec[x], idx);
             end
-
-            return res;
+            else
+            begin
+                return tagged Valid toCacheEntry(entryvec[0], idx);
+            end
 
         end
 

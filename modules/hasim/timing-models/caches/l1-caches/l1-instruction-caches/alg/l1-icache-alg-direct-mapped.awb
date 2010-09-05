@@ -7,4 +7,4 @@
 %public  l1-icache-alg-direct-mapped.bsv 
 %public  l1-icache-alg-direct-mapped.dic 
 
-%param L1_ICACHE_ALG_INDEX_SIZE 8 "Number of bits for ICache index."
+%param --global L1_ICACHE_ALG_INDEX_SIZE 12 "Number of bits for ICache index."
