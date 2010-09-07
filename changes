@@ -4580,3 +4580,13 @@ Directory modules/hasim/timing-models/caches/last-level-caches/alg
 
 - Change L1 cache size default to 128KB (was 8KB)
 - Make cache awb size config global
+
+----------
+mcadler     Date: Tue Sep  7 14:51:01 EDT 2010  CSN: CSN-hasim-models-147
+                  Tue Sep  7 18:51:01 UTC 2010
+
+
+Directory modules/hasim/timing-models/uncore
+ uncore-magic-memory.bsv   Locally Modified          146 
+
+Uncore magic memory didn't compile.  Now it works.

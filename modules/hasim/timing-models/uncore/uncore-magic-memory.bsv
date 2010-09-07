@@ -17,13 +17,6 @@ module [HASIM_MODULE] mkUncore
     // interface:
         ();
 
-    // Instantiate submodules
-    let ic <- mkInterconnect();
-   
-    let memCtrl <- mkMemoryController();
-    
-    let lastLevelCache <- mkLastLevelCache();
-
     // Queues to/from Cache hierarchy.
     PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("L1_Cache_OutQ");
     PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("L1_Cache_InQ");
@@ -59,7 +52,7 @@ module [HASIM_MODULE] mkUncore
             begin
 
                 reqFromCore.doDeq(cpu_iid);
-                let rsp = initMemoryRsp(req);
+                let rsp = initMemRsp(req.physicalAddress, req.opaque);
                 rspToCore.doEnq(cpu_iid, rsp);
 
             end
