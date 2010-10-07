@@ -239,6 +239,8 @@ module [HASIM_MODULE] mkCommit ();
             faultToFet.send(cpu_iid, tagged Invalid);
             rewindToDec.send(cpu_iid, tagged Invalid);
 
+            eventCom.recordEvent(cpu_iid, tagged Invalid);
+
             // End of model cycle. (Path 1)
             localCtrl.endModelCycle(cpu_iid, 1);
 
@@ -268,6 +270,8 @@ module [HASIM_MODULE] mkCommit ();
             
             // Instructions dependent on this guy should be allowed to proceed.
             writebackToDec.send(cpu_iid, tagged Valid tok);
+
+            eventCom.recordEvent(cpu_iid, tagged Invalid);
 
             // End of model cycle. (Path 3)
             localCtrl.endModelCycle(cpu_iid, 3);

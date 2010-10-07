@@ -4590,3 +4590,13 @@ Directory modules/hasim/timing-models/uncore
  uncore-magic-memory.bsv   Locally Modified          146 
 
 Uncore magic memory didn't compile.  Now it works.
+
+----------
+mcadler     Date: Thu Oct  7 07:10:18 EDT 2010  CSN: CSN-hasim-models-148
+                  Thu Oct  7 11:10:18 UTC 2010
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          147 
+
+Emit proper no-event when no instruction is committed in a cycle.
