@@ -3,12 +3,14 @@
 SaveParameters=0
 Description=SMT Pipeline, 2-bit Branch Predictor
 File=smt
-Version=2.1
+Version=2.2
 Name=SMT Pipeline, 2-bit branch predictor
 Type=HAsim
 Class=Asim::Model
 DefaultBenchmark=
 DefaultRunOpts=
+RootName=SMT Pipeline
+RootProvides=hasim_pipeline
 
 [Model]
 DefaultAttributes=hasim model smt
@@ -17,7 +19,6 @@ model=SMT Pipeline
 [SMT Pipeline]
 File=modules/hasim/timing-models/pipeline/smt/smt.awb
 Packagehint=hasim-models
-
 
 [SMT Decode/Issue Stage]
 File=modules/hasim/timing-models/pipeline/smt/decode/smt-decode-stage.awb
@@ -70,16 +71,13 @@ Packagehint=hasim-models
 File=modules/hasim/timing-models/pipeline/smt/instq/smt-instq-stage.awb
 Packagehint=hasim-models
 
-
 [SMT PCCalc Stage]
 File=modules/hasim/timing-models/pipeline/smt/pccalc/smt-pccalc-stage.awb
 Packagehint=hasim-models
 
-
 [Blocking Write Buffer]
 File=modules/hasim/timing-models/caches/write-buffers/blocking/write-buffer-blocking.awb
 Packagehint=hasim-models
-
 
 [No Branch Line Predictor]
 File=modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch/nobranch-line-predictor.awb

@@ -3,20 +3,18 @@
 SaveParameters=0
 Description=Direct Mapped, Writethrough L1 Caches, No TLBs
 File=l1_caches_no_tlbs
-Version=2.1
+Version=2.2
 Name=Direct Mapped, Writethrough, No TLBs
 Type=HAsim
 Class=Asim::Model
 DefaultBenchmark=
 DefaultRunOpts=
+RootName=Split (Instruction and Data) No TLBs
+RootProvides=hasim_l1_caches
 
 [Model]
 DefaultAttributes=hasim model caches l1
 model=Split (Instruction and Data) No TLBs
-
-
-
-
 
 [Unpipelined L1 DCache]
 File=modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined/l1-dcache-controller-unpipelined.awb

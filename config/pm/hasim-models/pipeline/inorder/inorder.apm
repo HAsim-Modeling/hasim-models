@@ -3,12 +3,14 @@
 SaveParameters=0
 Description=Inorder Pipeline, 2-bit Branch Predictor
 File=inorder
-Version=2.1
+Version=2.2
 Name=Inorder Pipeline, 2-bit branch predictor
 Type=HAsim
 Class=Asim::Model
 DefaultBenchmark=
 DefaultRunOpts=
+RootName=Inorder Pipeline
+RootProvides=hasim_pipeline
 
 [Model]
 DefaultAttributes=hasim model inorder

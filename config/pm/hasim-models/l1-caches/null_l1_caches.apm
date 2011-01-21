@@ -3,10 +3,14 @@
 SaveParameters=0
 Description=Null L1 caches (always hit)
 File=null_l1_caches
-Version=2.1
+Version=2.2
 Name=Null L1 caches
 Type=HAsim
 Class=Asim::Model
+DefaultBenchmark=
+RootName=Split (Instruction and Data)
+RootProvides=hasim_l1_caches
+DefaultRunOpts=
 
 [Model]
 DefaultAttributes=hasim model caches l1

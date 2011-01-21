@@ -4600,3 +4600,29 @@ Directory modules/hasim/timing-models/pipeline/inorder/commit
  inorder-commit-stage.bsv  Locally Modified          147 
 
 Emit proper no-event when no instruction is committed in a cycle.
+
+----------
+mpellaue    Date: Fri Jan 21 12:47:16 EST 2011  CSN: CSN-hasim-models-149
+                  Fri Jan 21 17:47:16 UTC 2011
+
+
+Directory config/pm/hasim-models/l1-caches
+ null_l1_caches.apm        Locally Modified          148 
+ l1_caches.apm             Locally Modified          148 
+ l1_caches_no_tlbs.apm     Locally Modified          148 
+ pseudorandom_l1_caches.apm Locally Modified          148 
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified          148 
+
+Directory config/pm/hasim-models/pipeline/smt
+ smt.apm                   Locally Modified          148 
+
+Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
+ superscalar-out-of-order.apm Locally Modified          148 
+ single-issue-out-of-order.apm Locally Modified          148 
+ superscalar-in-order.apm  Locally Modified          148 
+
+
+* Updating .apm files to v2.2 using "awb-shell update model"
+* Fixed broken OOO .apms.

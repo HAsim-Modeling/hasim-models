@@ -3,10 +3,14 @@
 SaveParameters=0
 Description=Pseudo-Random L1 caches (using LFSRs)
 File=pseudorandom_l1_caches
-Version=2.1
+Version=2.2
 Name=Pseudo-Random L1 caches
 Type=HAsim
 Class=Asim::Model
+DefaultBenchmark=
+RootName=Split (Instruction and Data)
+RootProvides=hasim_l1_caches
+DefaultRunOpts=
 
 [Model]
 DefaultAttributes=hasim model caches l1

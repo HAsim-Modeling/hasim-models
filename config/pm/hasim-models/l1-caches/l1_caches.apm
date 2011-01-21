@@ -3,10 +3,14 @@
 SaveParameters=0
 Description=Direct Mapped, Writethrough L1 Caches
 File=l1_caches
-Version=2.1
+Version=2.2
 Name=Direct Mapped, Writethrough
 Type=HAsim
 Class=Asim::Model
+DefaultBenchmark=
+RootName=Split (Instruction and Data)
+RootProvides=hasim_l1_caches
+DefaultRunOpts=
 
 [Model]
 DefaultAttributes=hasim model caches l1

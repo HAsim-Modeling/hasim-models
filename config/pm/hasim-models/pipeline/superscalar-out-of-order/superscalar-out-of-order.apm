@@ -3,17 +3,18 @@
 SaveParameters=0
 Description=Superscalar out-of-order pipeline
 File=superscalar-out-of-order
-Version=2.1
+Version=2.2
 Name=Superscalar out-of-order pipeline
 Type=HAsim
 Class=Asim::Model
 DefaultBenchmark=
 DefaultRunOpts=
+RootName=Hasim 6-stage CPU
+RootProvides=hasim_pipeline
 
 [Model]
 DefaultAttributes=hasim
 model=Hasim 6-stage CPU
-
 
 [Hasim commit]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/commit.awb

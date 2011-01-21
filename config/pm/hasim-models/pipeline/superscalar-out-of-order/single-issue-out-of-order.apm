@@ -3,17 +3,20 @@
 SaveParameters=0
 Description=Single ALU/fetch out-of-order pipeline
 File=single-issue-out-of-order
-Version=2.1
+Version=2.2
 Name=Single ALU/fetch out-of-order pipeline
 Type=HAsim
 Class=Asim::Model
+DefaultBenchmark=
+RootName=Hasim 6-stage CPU
+RootProvides=hasim_pipeline
+DefaultRunOpts=
 
 [Model]
 DefaultAttributes=hasim model ooo
 model=Hasim 6-stage CPU
 
-
-[Hasim pipeline types]
+[OOO pipeline types]
 File=modules/hasim/timing-models/pipeline/superscalar-out-of-order/pipeline-6-stage-types.awb
 Packagehint=hasim-models
 
@@ -47,7 +50,7 @@ Packagehint=hasim-models
 
 [Hasim 6-stage CPU/Requires]
 hasim_commit=Hasim commit
-hasim_pipeline_types=Hasim pipeline types
+pipeline_base_types=OOO pipeline types
 hasim_mem=Hasim mem
 hasim_issue=Hasim out-of-order issue
 hasim_fetch=Hasim fetch
@@ -55,7 +58,7 @@ hasim_decode=Hasim decode
 hasim_alu=Hasim ALU
 hasim_branch_pred_alg=2 Bit
 
-[Hasim pipeline types/Params]
+[OOO pipeline types/Params]
 ALU_NUM=1
 FETCH_NUM=1
 
