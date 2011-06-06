@@ -4626,3 +4626,16 @@ Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
 
 * Updating .apm files to v2.2 using "awb-shell update model"
 * Fixed broken OOO .apms.
+
+----------
+mcadler     Date: Mon Jun  6 15:55:43 EDT 2011  CSN: CSN-hasim-models-150
+                  Mon Jun  6 19:55:43 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          149 
+ unpipelined-pipeline.dic  Locally Modified          149 
+
+Add some streaming messages to the unpipelined model, useful for debugging
+on FPGAs.  By default, the messages are disabled by replacing the streams
+connectin with a NULL implementation.
