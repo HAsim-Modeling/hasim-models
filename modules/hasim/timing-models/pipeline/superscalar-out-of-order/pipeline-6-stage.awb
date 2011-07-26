@@ -16,7 +16,7 @@
 
 %public pipeline-6-stage.bsv
 %public pipeline-6-stage.h
-%private get-results.bsv
+%public get-results.bsv
 
 %param SYNTH_BOUNDARY mkPipeline "Name of synthesis boundary"
 

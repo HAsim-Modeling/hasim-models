@@ -4639,3 +4639,14 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
 Add some streaming messages to the unpipelined model, useful for debugging
 on FPGAs.  By default, the messages are disabled by replacing the streams
 connectin with a NULL implementation.
+
+----------
+mcadler     Date: Tue Jul 26 19:39:55 EDT 2011  CSN: CSN-hasim-models-151
+                  Tue Jul 26 23:39:55 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ pipeline-6-stage.awb      Locally Modified          150 
+ fetch.bsv                 Locally Modified          150 
+
+Add a debug message.

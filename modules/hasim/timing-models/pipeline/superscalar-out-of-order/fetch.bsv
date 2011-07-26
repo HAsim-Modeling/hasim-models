@@ -131,7 +131,10 @@ module [HASIM_MODULE] mkFetch();
                 state <= FETCH_STATE_REWIND_RESP;
             end
             else
+            begin
+                debugLog.record($format("no predict update or resteer"));
                 state <= FETCH_STATE_I_TRANSLATE_REQ;
+            end
         end
     endrule
 
