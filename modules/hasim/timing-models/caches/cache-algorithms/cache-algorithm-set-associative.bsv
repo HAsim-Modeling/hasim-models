@@ -141,7 +141,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
     endmethod
     
     method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    
+     
     
         LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) accessed = accessedPool.getRAMWithWritePort(iid, `PORT_LOAD);
         LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) valids   = validsPool.getRAM(iid);
@@ -150,16 +150,14 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         loadLookupQ.deq();
         let idx = getCacheIndex(addr);
 
-        Vector#(t_NUM_WAYS, Maybe#(CACHE_ENTRY#(t_OPAQUE))) res = newVector();
         let validvec = valids.sub(idx);
         
         let entryvec <- tagStoreBanks.readPorts[`PORT_LOAD].readRsp(iid);
 
-        for (Integer x = 0; x < numWays; x = x + 1)
-        begin
-            res[x] = entryTagCheck(addr, validvec[x], entryvec[x]);
-        end
-        
+        let entryAddr = entryTagCheck(addr);
+             
+        Vector#(t_NUM_WAYS, Maybe#(CACHE_ENTRY#(t_OPAQUE))) res = zipWith(entryAddr,validvec,entryvec);
+  
         if (findIndex(isValid, res) matches tagged Valid .way)
         begin
             let new_accessed = accessed.sub(idx);
@@ -243,7 +241,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
     endmethod
     
     method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    
+
         let idx = evictionQ.first();
         evictionQ.deq();
 

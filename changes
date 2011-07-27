@@ -4650,3 +4650,13 @@ Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
  fetch.bsv                 Locally Modified          150 
 
 Add a debug message.
+
+----------
+kfleming    Date: Wed Jul 27 10:32:30 EDT 2011  CSN: CSN-hasim-models-152
+                  Wed Jul 27 14:32:30 UTC 2011
+
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          151 
+
+Switched for loop to zipWith.  This enables bluespec to compile caches for more than 16 cores.
