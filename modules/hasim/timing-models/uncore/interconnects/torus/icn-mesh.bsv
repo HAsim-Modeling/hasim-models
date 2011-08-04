@@ -271,8 +271,8 @@ module [HASIM_MODULE] mkInterconnect
         Reg#(VC_STATE#(Bool)) outputNotFulls = outputNotFullsPool.getReg(iid);
         
         // Update our notions of our neighbor's credits.
-        VC_STATE#(Bool) new_credits = outputCredits;
-        VC_STATE#(Bool) new_not_fulls = outputNotFulls;
+        VC_STATE#(Bool) new_credits = newVector();
+        VC_STATE#(Bool) new_not_fulls = newVector();
         
         for (Integer p = 0 ; p < numPorts; p = p + 1)
         begin
@@ -282,24 +282,23 @@ module [HASIM_MODULE] mkInterconnect
 
             if (m_credits matches tagged Valid .vcinfo)
             begin
-                
+
                 // New credit info has arrived.
                 for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
                 begin
 
-                    for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
-                    begin
-
-                        match {.cred, .not_full} = vcinfo[ln][vc];
-                        new_credits[p][ln][vc] = cred;
-                        new_not_fulls[p][ln][vc] = not_full;
-
-                    end
+                    new_credits[p][ln] = map(tpl_1, vcinfo[ln]);
+                    new_not_fulls[p][ln] = map(tpl_2, vcinfo[ln]);
 
                 end
+            end
+            else
+            begin
+
+                new_credits[p] = outputCredits[p];
+                new_not_fulls[p] = outputNotFulls[p];
 
             end
-  
         end
         
         debugLog.record_next_cycle(iid, $format("1: Update input credits"));
@@ -394,46 +393,91 @@ module [HASIM_MODULE] mkInterconnect
 
         debugLog.record(iid, $format("3: SA Begin."));
 
-        for (Integer p = 0; p < numPorts; p = p + 1)
+
+        //
+        // Drop any "winners" for which no output space is available
+        //
+
+        function Maybe#(WINNER_INFO) withOutputSpace(Maybe#(WINNER_INFO) elem);
+            // Ignore valid bit since ultimately we'll just return the input, including its
+            // valid bit.
+            let w = validValue(elem);
+            return (outputNotFulls[w.outputPort][w.lane][w.outputVC]) ? elem : tagged Invalid;
+        endfunction
+            
+        vc_winners = map(withOutputSpace, vc_winners);
+
+
+        //
+        // Find unique winners.  (At most one consumer of a given output port.)
+        //
+
+        Vector#(NUM_PORTS, Bool) in_port_used = newVector();
+        for (Integer in_p = 0; in_p < numPorts; in_p = in_p + 1)
         begin
-
-            if (vc_winners[p] matches tagged Valid .info)
+            if (vc_winners[in_p] matches tagged Valid .info &&&
+                ! isValid(msg_to[info.outputPort]))
             begin
+                in_port_used[in_p] = True;
 
-                if (!isValid(msg_to[info.outputPort]) && outputNotFulls[info.outputPort][info.lane][info.outputVC])
-                begin
-
-                    debugLog.record(iid, $format("3: SA: Gave crossbar %s output port to %s input port, lane %0d, virtual channel %0d", portShow(info.outputPort), portShow(fromInteger(p)), info.lane, info.inputVC));
-                    msg_to[info.outputPort] = tagged Valid tuple3(info.lane, info.outputVC, info.message);
-                    new_vcs[p][info.lane][info.inputVC] = funcFIFO_UGdeq(virtualChannels[p][info.lane][info.inputVC]);
-
-                    if (info.message matches tagged FLIT_BODY .body_info &&& body_info.isTail)
-                    begin
-
-                        debugLog.record(iid, $format("3: SA: Detected tail flit. Tearing down routing info."));
-                        new_routes[p][info.lane][info.inputVC] = tagged Invalid;
-                        new_output_vcs[p][info.lane][info.inputVC] = tagged Invalid;
-                        new_used_vcs[info.outputPort][info.lane][info.outputVC] = False;
-
-                    end
-
-                end
-
+                // Built a structure of outbound messages, indexed by the
+                // output port.
+                debugLog.record(iid, $format("3: SA: Gave crossbar %s output port to %s input port, lane %0d, virtual channel %0d", portShow(info.outputPort), portShow(fromInteger(in_p)), info.lane, info.inputVC));
+                msg_to[info.outputPort] = tagged Valid tuple3(info.lane, info.outputVC, info.message);
             end
-
+            else
+            begin
+                in_port_used[in_p] = False;
+            end
         end
 
-        for (Integer p = 0; p < numPorts; p = p + 1)
-        begin
 
+        //
+        // Act on the routing crossbar decisions.  There are two loops here
+        // for simpler hardware: one indexed by the input port and one by the
+        // output port for.
+        //
+
+        for (Integer in_p = 0; in_p < numPorts; in_p = in_p + 1)
+        begin
+            if (in_port_used[in_p])
+            begin
+                let info = validValue(vc_winners[in_p]);
+
+                // Deq incoming flit
+                new_vcs[in_p][info.lane][info.inputVC] = funcFIFO_UGdeq(virtualChannels[in_p][info.lane][info.inputVC]);
+
+                // End of packet?
+                if (info.message matches tagged FLIT_BODY .body_info &&& body_info.isTail)
+                begin
+                    // Yes: tear down the route
+                    new_routes[in_p][info.lane][info.inputVC] = tagged Invalid;
+                    // Release virtual channel
+                    new_output_vcs[in_p][info.lane][info.inputVC] = tagged Invalid;
+                    debugLog.record(iid, $format("3: SA: Detected tail flit on incoming port %s. Tearing down routing info.", portShow(fromInteger(in_p))));
+                end
+            end
+        end
+
+        for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
+        begin
+            // End of packet?
+            if (msg_to[out_p] matches tagged Valid {.lane, .output_vc, .message} &&&
+                message matches tagged FLIT_BODY .body_info &&& body_info.isTail)
+            begin
+                // Release outbound virtual channel
+                new_used_vcs[out_p][lane][output_vc] = False;
+            end
+        end
+
+        for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
+        begin
             // Send out our output enqueues in each direction.
-            enqTo[p].send(iid, msg_to[p]);
-            
+            enqTo[out_p].send(iid, msg_to[out_p]);
         end
         
         if (msg_to[portLocal] matches tagged Valid {.ln, .vc, .msg} &&& msg matches tagged FLIT_HEAD .info)
         begin
-        
             debugLog.record(iid, $format("3: SA: MESSAGE EXIT: src %0d, dst %0d, isStore %0d, lane %0d, virtual channel %0d", info.src, info.dst, pack(info.isStore), ln, vc));
         end
 

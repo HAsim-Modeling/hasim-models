@@ -445,7 +445,8 @@ module [HASIM_MODULE] mkDecode ();
             stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_depsReady, local_state));
             
         end
-        else if (m_bundle matches tagged Valid .bundle)
+        else if (readyDrainAfter(local_state) &&&
+                 m_bundle matches tagged Valid .bundle)
         begin
             
             // There's a new instruction, and we're not stalled.

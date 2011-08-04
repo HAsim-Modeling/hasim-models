@@ -4660,3 +4660,19 @@ Directory modules/hasim/timing-models/caches/cache-algorithms
  cache-algorithm-set-associative.bsv Locally Modified          151 
 
 Switched for loop to zipWith.  This enables bluespec to compile caches for more than 16 cores.
+
+----------
+mcadler     Date: Wed Aug  3 20:48:08 EDT 2011  CSN: CSN-hasim-models-153
+                  Thu Aug  4 00:48:08 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          152 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          152 
+
+- Fix model deadlock in decode caused by failure to honor drain-after flag.
+
+- Fix compilation error (Bluespec hang) in the mesh model by restructuring
+  the crossbar stage.
