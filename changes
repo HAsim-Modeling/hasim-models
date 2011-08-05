@@ -4676,3 +4676,17 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 - Fix compilation error (Bluespec hang) in the mesh model by restructuring
   the crossbar stage.
+
+----------
+mcadler     Date: Fri Aug  5 16:14:16 EDT 2011  CSN: CSN-hasim-models-154
+                  Fri Aug  5 20:14:16 UTC 2011
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          153 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          153 
+
+Remove gratuitous reference to the network in the LLC, causing an unneeded
+rebuild.

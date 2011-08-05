@@ -13,7 +13,6 @@ import Vector::*;
 `include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/hasim_interconnect.bsh"
 `include "asim/provides/hasim_cache_algorithms.bsh"
 `include "asim/provides/hasim_last_level_cache_alg.bsh"
 `include "asim/provides/hasim_miss_tracker.bsh"
