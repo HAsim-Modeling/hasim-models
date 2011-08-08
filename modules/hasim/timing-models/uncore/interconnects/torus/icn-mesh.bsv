@@ -24,6 +24,7 @@ import Vector::*;
 import FIFO::*;
 import FIFOF::*;
 
+
 // TEMPORARY:
 `include "asim/dict/RINGID.bsh"
 
@@ -43,6 +44,7 @@ import FIFOF::*;
 `include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/hasim_memory_controller.bsh"
 
+
 typedef STATION_IID MESH_COORD; // Since coordinates can vary dynamically, we need to be able to hold the worst case in each direction, which is a ring network.
 typedef TLog#(NUM_STATIONS) MESH_COORD_SZ;
 
@@ -51,6 +53,8 @@ typedef OCN_MSG  MESH_MSG;
 
 typedef 5 NUM_PORTS;
 typedef Bit#(TLog#(NUM_PORTS)) PORT_IDX;
+
+typedef 4 NUM_VC_FIFO_ENTRIES;
 
 PORT_IDX portNorth  = 0;
 PORT_IDX portEast   = 1;
@@ -73,7 +77,8 @@ function String portShow(PORT_IDX p);
 
 endfunction
 
-typedef Vector#(NUM_PORTS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, t_DATA))) VC_STATE#(parameter type t_DATA);
+typedef Vector#(NUM_LANES, Vector#(VCS_PER_LANE, t_DATA)) LANE_STATE#(parameter type t_DATA);
+typedef Vector#(NUM_PORTS, LANE_STATE#(t_DATA)) VC_STATE#(parameter type t_DATA);
 
 typedef enum
 {
@@ -95,7 +100,8 @@ WINNER_INFO
 
 module [HASIM_MODULE] mkInterconnect
     // interface:
-        ();
+    ()
+    provisos (Alias#(FUNC_FIFO#(MESH_FLIT, NUM_VC_FIFO_ENTRIES), t_VC_FIFO));
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_STATIONS) debugLog <- mkTIMEPDebugFile_Multiplexed("interconnect_mesh.out");
 
@@ -167,7 +173,7 @@ module [HASIM_MODULE] mkInterconnect
     // and reading/writing the (non-multiplexed) memory controller port once.
 
     // The actual virtual channels. Stored as logical FIFOs in a single Distributed RAM FIFO.
-    MULTIPLEXED_STATE_POOL#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) virtualChannelsPool <- mkMultiplexedStatePool(replicate(replicate(replicate(funcFIFO_Init))));
+    MULTIPLEXED_STATE_POOL#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) virtualChannelsPool    <- mkMultiplexedStatePool(replicate(replicate(replicate(funcFIFO_Init))));
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(PORT_IDX))) routesPool             <- mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(VC_IDX)))   outputVCsPool          <- mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             usedVCsPool            <- mkMultiplexedReg(replicate(replicate(replicate(False))));
@@ -202,10 +208,10 @@ module [HASIM_MODULE] mkInterconnect
     LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <- mkLocalControllerPlusN(inports, inportsR, outportsR);
     
     STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER#(NUM_STATIONS, Tuple2#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)), VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)))) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage4Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage5Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage6Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, Tuple2#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)), VC_STATE#(t_VC_FIFO))) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage5Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage6Ctrl <- mkStageController();
 
     // ******** Helper Functions *********
     
@@ -300,22 +306,18 @@ module [HASIM_MODULE] mkInterconnect
 
             if (m_credits matches tagged Valid .vcinfo)
             begin
-
                 // New credit info has arrived.
                 for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
                 begin
-
-                    new_credits[p][ln] = map(tpl_1, vcinfo[ln]);
-                    new_not_fulls[p][ln] = map(tpl_2, vcinfo[ln]);
-
+                    match {.credits, .not_fulls} = unzip(vcinfo[ln]);
+                    new_credits[p][ln] = credits;
+                    new_not_fulls[p][ln] = not_fulls;
                 end
             end
             else
             begin
-
                 new_credits[p] = outputCredits[p];
                 new_not_fulls[p] = outputNotFulls[p];
-
             end
         end
         
@@ -330,6 +332,12 @@ module [HASIM_MODULE] mkInterconnect
     
     endrule
     
+
+    MULTIPLEXED#(NUM_STATIONS,
+                 Vector#(NUM_PORTS,
+                         LOCAL_ARBITER#(TMul#(NUM_LANES, VCS_PER_LANE)))) stage2Arbiters
+        <- mkMultiplexed(replicateM(mkLocalArbiter(False)));
+
     (* conservative_implicit_conditions *)
     rule stage2_multiplexVCs (True);
         
@@ -337,9 +345,13 @@ module [HASIM_MODULE] mkInterconnect
         let iid <- stage2Ctrl.nextReadyInstance();
         
         // Read our local state from the pools.
-        VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)) virtualChannels <- virtualChannelsPool.extractState(iid);
+        VC_STATE#(t_VC_FIFO) virtualChannels <- virtualChannelsPool.extractState(iid);
         Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes         = routesPool.getReg(iid);
         Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs      = outputVCsPool.getReg(iid);
+        Reg#(VC_STATE#(Bool))             outputNotFulls = outputNotFullsPool.getReg(iid);
+
+        // Arbiters for the current instance
+        Vector#(NUM_PORTS, LOCAL_ARBITER#(TMul#(NUM_LANES, VCS_PER_LANE))) arbiters = stage2Arbiters[iid];
 
         // This simulates the fact that the router only has one VC allocator.
         Bool vc_alloc_in_use = False;
@@ -347,45 +359,92 @@ module [HASIM_MODULE] mkInterconnect
         // This simulates the fact that only one VC from each port gets to even ATTEMPT
         // to send a message on the crossbar.
         Vector#(NUM_PORTS, Maybe#(WINNER_INFO)) vc_winners = replicate(tagged Invalid);
-        
-        debugLog.record(iid, $format("2: VCA Begin."));
-        for (Integer p = 0; p < numPorts; p = p + 1)
-        begin
 
-            for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
+
+        //
+        // isReadyVC --
+        //   Is the input channel ready to send a flit to an output port?
+        //   A ready incoming VC must:
+        //     - Have incoming data in the VC
+        //     - Have a valid outbound route (port)
+        //     - Have a valid outbound virtual channel
+        //     - Have space in the outbound virtual channel
+        //
+        function isReadyVC(Integer in_p, Integer ln, Integer vc);
+            if (funcFIFO_notEmpty(virtualChannels[in_p][ln][vc]) &&&
+                routes[in_p][ln][vc] matches tagged Valid .out_p &&&
+                outputVCs[in_p][ln][vc] matches tagged Valid .out_vc &&&
+                outputNotFulls[out_p][ln][out_vc])
             begin
+                return True;
+            end
+            else
+            begin
+                return False;
+            end
+        endfunction
 
-                for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
-                begin
 
-                    if (funcFIFO_notEmpty(virtualChannels[p][ln][vc]))
-                    begin
+        debugLog.record(iid, $format("2: VCA Begin."));
 
-                        if (routes[p][ln][vc] matches tagged Valid .rt)
-                        begin
+        LANE_STATE#(Tuple2#(Integer, Integer)) identity_map = newVector();
+        for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
+        begin
+            identity_map[ln] = genWith(tuple2(ln));
+        end
 
-                            if (outputVCs[p][ln][vc] matches tagged Valid .out_vc)
-                            begin
+        //
+        // Pick a set of winning incoming messages.  At most one winner per input
+        // port will be chosen.  In this loop, "winners" may share a conflicting
+        // output port.  Only one will proceed this simulated cycle, chosen in
+        // the next stage.
+        //
+        for (Integer in_p = 0; in_p < numPorts; in_p = in_p + 1)
+        begin
+            // Generate a linear bit vector across all lanes and channels within
+            // a single port.  The vector indicates whether a message is ready
+            // on each incoming channel.
+            //
+            // - concat(identity_map) linearizes the identity vectors.
+            // - map operates over the linearized index of lanes and channels.
+            // - uncurry() converts each lane/channel ID tuple to separate
+            //   arguments, passed to isReadyVC.
+            let ready_vcs = map(uncurry(isReadyVC(in_p)), concat(identity_map));
 
-                                debugLog.record(iid, $format("2: VCA: Multiplexor for port %s chose lane %0d, virtual channel %0d, destination %s.", portShow(fromInteger(p)), ln, vc, portShow(rt)));
-                                vc_winners[p] = tagged Valid WINNER_INFO 
-                                                            {
-                                                                lane: fromInteger(ln),
-                                                                inputVC: fromInteger(vc), 
-                                                                outputPort: rt, 
-                                                                outputVC: out_vc, 
-                                                                message: funcFIFO_UGfirst(virtualChannels[p][ln][vc])
-                                                            };
-                            end
-                        end
-                    end
-                end
+            // Pick a winner
+            let grant_idx <- arbiters[in_p].arbitrate(ready_vcs);
+            if (grant_idx matches tagged Valid .idx)
+            begin
+                // Reverse map the winning index to a lane and channel
+                match {.ln, .in_vc} = concat(identity_map)[idx];
+
+                // Look up the output port and channel.  The lane is the same.
+                let out_p = validValue(routes[in_p][ln][in_vc]);
+                let out_vc = validValue(outputVCs[in_p][ln][in_vc]);
+
+
+                debugLog.record(iid, $format("2: VCA: Multiplexor for port %s chose lane %0d, virtual channel %0d, destination %s.", portShow(fromInteger(in_p)), ln, in_vc, portShow(out_p)));
+
+                vc_winners[in_p] = tagged Valid WINNER_INFO 
+                                   {
+                                     lane: fromInteger(ln),
+                                     inputVC: fromInteger(in_vc),
+                                     outputPort: out_p, 
+                                     outputVC: out_vc,
+                                     message: funcFIFO_UGfirst(virtualChannels[in_p][ln][in_vc])
+                                   };
             end
         end
 
         stage3Ctrl.ready(iid, tuple2(vc_winners, virtualChannels));
 
     endrule
+
+
+    MULTIPLEXED#(NUM_STATIONS,
+                 Vector#(NUM_PORTS,
+                         LOCAL_ARBITER#(NUM_PORTS))) stage3Arbiters
+        <- mkMultiplexed(replicateM(mkLocalArbiter(False)));
 
     (* conservative_implicit_conditions *)
     rule stage3_crossbar (True);
@@ -398,54 +457,66 @@ module [HASIM_MODULE] mkInterconnect
         Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs       = outputVCsPool.getReg(iid);
         Reg#(VC_STATE#(Bool))             usedVCs         = usedVCsPool.getReg(iid);
         Reg#(VC_STATE#(Bool))             outputCredits   = outputCreditsPool.getReg(iid);
-        Reg#(VC_STATE#(Bool))             outputNotFulls  = outputNotFullsPool.getReg(iid);
 
         // This is the vector of output messages that the virtual channels contend for.
         Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msg_to = replicate(tagged Invalid);
         
         // Vectors to update our registers with.
-        VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)) new_vcs = virtualChannels;
+        VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
         VC_STATE#(Maybe#(PORT_IDX))   new_routes = routes;
         VC_STATE#(Bool)             new_used_vcs = usedVCs;
         VC_STATE#(Maybe#(VC_IDX)) new_output_vcs = outputVCs;
+
+        // Arbiters for the current instance
+        Vector#(NUM_PORTS, LOCAL_ARBITER#(NUM_PORTS)) arbiters = stage3Arbiters[iid];
 
         debugLog.record(iid, $format("3: SA Begin."));
 
 
         //
-        // Drop any "winners" for which no output space is available
+        // Generate a request vector for each output port.  The outer index
+        // is the output port.  Each output port has a request vector, indexed
+        // by input port, of flits requesting routing from the input port to
+        // the output port.
+        //
+        // Input port arbitration has already completed by this stage, so each
+        // input port has at most one request.
         //
 
-        function Maybe#(WINNER_INFO) withOutputSpace(Maybe#(WINNER_INFO) elem);
-            // Ignore valid bit since ultimately we'll just return the input, including its
-            // valid bit.
-            let w = validValue(elem);
-            return (outputNotFulls[w.outputPort][w.lane][w.outputVC]) ? elem : tagged Invalid;
+        Vector#(NUM_PORTS, Vector#(NUM_PORTS, Bool)) out_port_requests = newVector();
+
+        // Returns true if input port is requesting output port
+        function reqVecFromInPort(Integer out_p, Integer in_p);
+            return vc_winners[in_p] matches tagged Valid .info &&&
+                   info.outputPort == fromInteger(out_p) ? True : False;
         endfunction
-            
-        vc_winners = map(withOutputSpace, vc_winners);
+
+        for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
+        begin
+            out_port_requests[out_p] = genWith(reqVecFromInPort(out_p));
+        end
 
 
         //
         // Find unique winners.  (At most one consumer of a given output port.)
         //
 
-        Vector#(NUM_PORTS, Bool) in_port_used = newVector();
-        for (Integer in_p = 0; in_p < numPorts; in_p = in_p + 1)
+        Vector#(NUM_PORTS, Bool) in_port_used = replicate(False);
+
+        for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
         begin
-            if (vc_winners[in_p] matches tagged Valid .info &&&
-                ! isValid(msg_to[info.outputPort]))
+            let grant_idx <- arbiters[out_p].arbitrate(out_port_requests[out_p]);
+            if (grant_idx matches tagged Valid .in_p)
             begin
+                let info = validValue(vc_winners[in_p]);
+
                 in_port_used[in_p] = True;
 
                 // Built a structure of outbound messages, indexed by the
                 // output port.
-                debugLog.record(iid, $format("3: SA: Gave crossbar %s output port to %s input port, lane %0d, virtual channel %0d", portShow(info.outputPort), portShow(fromInteger(in_p)), info.lane, info.inputVC));
-                msg_to[info.outputPort] = tagged Valid tuple3(info.lane, info.outputVC, info.message);
-            end
-            else
-            begin
-                in_port_used[in_p] = False;
+                debugLog.record(iid, $format("3: SA: Arb %s req 0x%0x grant %0d", portShow(fromInteger(out_p)), pack(out_port_requests[out_p]), in_p));
+                debugLog.record(iid, $format("3: SA: Gave crossbar %s output port to %s input port, lane %0d, virtual channel %0d", portShow(fromInteger(out_p)), portShow(pack(in_p)), info.lane, info.inputVC));
+                msg_to[out_p] = tagged Valid tuple3(info.lane, info.outputVC, info.message);
             end
         end
 
@@ -508,7 +579,7 @@ module [HASIM_MODULE] mkInterconnect
     endrule
 
     Wire#(STATION_IID) stage4IID <- mkWire();
-    Wire#(VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4))) stage4_virtualChannels <- mkWire();
+    Wire#(VC_STATE#(t_VC_FIFO)) stage4_virtualChannels <- mkWire();
     PulseWire stage4Running <- mkPulseWire();
     VC_STATE#(RWire#(PORT_IDX)) newRoutesW <- replicateM(replicateM(replicateM(mkRWire())));
     RWire#(Tuple5#(PORT_IDX, LANE_IDX, VC_IDX, PORT_IDX, VC_IDX))   newOutputVCW <- mkRWire();
@@ -614,7 +685,7 @@ module [HASIM_MODULE] mkInterconnect
         // Get the current IID from the previous stage.    
         match {.iid, .virtualChannels} <- stage5Ctrl.nextReadyInstance();
        
-        VC_STATE#(FUNC_FIFO#(MESH_FLIT, 4)) new_vcs = virtualChannels;
+        VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
 
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
@@ -664,30 +735,35 @@ module [HASIM_MODULE] mkInterconnect
 
         debugLog.record(iid, $format("6: Calculating output credits."));
 
-        
+        //
+        // For now we do not have a true credit scheme.  Instead, available
+        // space in each virtual channel FIFO governs whether sending is
+        // permitted.  We reserve two slots: one for a send credit and one
+        // because the sending router may not have been updated for the
+        // current cycle and may still be preparing to use a current credit.
+        //
+
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
-
             VC_CREDIT_INFO creds = newVector();
             
             for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
             begin
+                // A FIFO with 2 free slots will be given a sender credit.
+                // One slot is for the data, one slot is for writes that may
+                // not yet have been processed for the current cycle due to
+                // the timing of the multiplexed model.
+                function Bool fifoHasFreeSlots(t_VC_FIFO fifo) =
+                    (funcFIFO_numBusySlots(fifo) < fromInteger((valueOf(NUM_VC_FIFO_ENTRIES) - 1)));
+
+                // For now, have_credit and not_full are the same thing...
+                let not_full = map(fifoHasFreeSlots, virtualChannels[p][ln]);
+                let have_credit = not_full;
             
-                creds[ln] = newVector();
-
-                for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
-                begin
-
-                    let have_credit = !funcFIFO_notEmpty(virtualChannels[p][ln][vc]); // XXX capacity - occupancy > round-trip latency.
-                    let not_full = !funcFIFO_notEmpty(virtualChannels[p][ln][vc]); // virtualChannels[p][ln][vc].notFull();
-                    creds[ln][vc] = tuple2(have_credit, not_full);
-
-                end
-            
+                creds[ln] = zip(have_credit, not_full);
             end
         
             creditTo[p].send(iid, tagged Valid creds);
-        
         end
         
         // End of model cycle (path 1)

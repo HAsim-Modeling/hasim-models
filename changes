@@ -4690,3 +4690,33 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 Remove gratuitous reference to the network in the LLC, causing an unneeded
 rebuild.
+
+----------
+mcadler     Date: Mon Aug  8 10:09:03 EDT 2011  CSN: CSN-hasim-models-155
+                  Mon Aug  8 14:09:03 UTC 2011
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          154 
+
+- Previous credit scheme was broken: senders were given credit only when a
+  virtual channel's FIFO was completely empty!  I didn't add a real credit
+  scheme, but modified the current one to allow sending in a virtual channel
+  whenever space is available.  This has a huge impact both on performance
+  and stability of the network.
+
+- Move the check for whether sender credit exists up to stage 2, thus limiting
+  input port winners to those for whom there is some chance of also winning
+  an output port.  The effect on performance is minimal but it simplifies
+  loops and balances simulator pipeline stages.
+
+- Add a round-robin arbiter to both the input port and output port arbitration
+  stages.  The previous arbiter was a fixed priority encoder.
+
+- The round-robin arbiters have no effect!  This is because we currently
+  configure only a single virtual channel per lane.  As a result, the real
+  arbitration happens when a virtual channel is chosen for a packet's head
+  flit at stage 4.  Next, I'll experiment with round-robin arbitration in
+  stage 4.
+
+- Add comments to routing rules.
