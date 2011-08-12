@@ -4720,3 +4720,28 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   stage 4.
 
 - Add comments to routing rules.
+
+----------
+mcadler     Date: Fri Aug 12 15:26:24 EDT 2011  CSN: CSN-hasim-models-156
+                  Fri Aug 12 19:26:24 UTC 2011
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          155 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          155 
+
+- Add standard debug printing FShow method for network flits.
+
+- Add an arbiter to the routing decisions (virtual output channel selection)
+  made in stage 4.  To meet timing this is now two stages (4 and 5).
+
+- Restructure the stage 4 mesh routing code, eliminating all wires and
+  parallel rules, replacing them with vector functions.  This was done to
+  enable arbitration.
+
+- Pass more data through the pipeline instead of writing to global storage,
+  eliminating but muxes and write/write scheduling hazards.
+
+- Make the debug output more regular.

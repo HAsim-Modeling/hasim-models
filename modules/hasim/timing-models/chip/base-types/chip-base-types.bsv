@@ -1,9 +1,28 @@
+//
+// Copyright (C) 2011 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
 
 import Vector::*;
+import FShow::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/memory_base_types.bsh"
+
 
 typedef `NUM_CPUS NUM_CPUS;
 typedef INSTANCE_ID#(NUM_CPUS) CPU_INSTANCE_ID;
@@ -34,3 +53,34 @@ typedef union tagged
 OCN_FLIT deriving (Eq, Bits);
 
 typedef Tuple3#(LANE_IDX, VC_IDX, OCN_FLIT) OCN_MSG;
+
+
+//
+// Debug formatting
+//
+
+instance FShow#(OCN_FLIT);
+    function Fmt fshow(OCN_FLIT ocnFlit);
+        if (ocnFlit matches tagged FLIT_HEAD .flit)
+        begin
+            return $format("{HEAD %s (%0d:%0d)}",
+                           flit.isStore ? "ST" : "LD",
+                           flit.src, flit.dst);
+        end
+        else if (ocnFlit matches tagged FLIT_BODY .flit)
+        begin
+            return flit.isTail ? fshow("{TAIL}") : fshow("{BODY}");
+        end
+        else
+        begin
+            return fshow("{ILLEGAL FLIT}");
+        end
+    endfunction
+endinstance
+
+instance FShow#(OCN_MSG);
+    function Fmt fshow(OCN_MSG msg);
+        match {.ln, .vc, .flit} = msg;
+        return fshow("[") + fshow(flit) + $format(" ln %0d vc %0d]", ln, vc);
+    endfunction
+endinstance
