@@ -45,6 +45,10 @@ import FShow::*;
 `include "asim/provides/memory_base_types.bsh"
 `include "asim/provides/hasim_memory_controller.bsh"
 
+// ****** Generated files ******
+
+`include "asim/dict/EVENTS_MESH.bsh"
+
 
 typedef STATION_IID MESH_COORD; // Since coordinates can vary dynamically, we need to be able to hold the worst case in each direction, which is a ring network.
 typedef TLog#(NUM_STATIONS) MESH_COORD_SZ;
@@ -226,6 +230,10 @@ module [HASIM_MODULE] mkInterconnect
 
     STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage6Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage7Ctrl <- mkStageController();
+
+    // ****** Events ******
+    EVENT_RECORDER_MULTIPLEXED#(NUM_STATIONS) eventGrant <- mkEventRecorder_Multiplexed(`EVENTS_MESH_GRANT_VC);
+    EVENT_RECORDER_MULTIPLEXED#(NUM_STATIONS) eventGrantArb <- mkEventRecorder_Multiplexed(`EVENTS_MESH_GRANT_VC_ARB);
 
     // ******** Helper Functions *********
     
@@ -752,7 +760,7 @@ module [HASIM_MODULE] mkInterconnect
     MULTIPLEXED#(NUM_STATIONS,
                  LOCAL_ARBITER#(TMul#(NUM_PORTS,
                                       TMul#(NUM_LANES, VCS_PER_LANE)))) stage5arbiter
-        <- mkMultiplexed(mkLocalArbiter(False));
+        <- mkMultiplexed(mkLocalRandomArbiter(False));
 
     (* conservative_implicit_conditions *)
     rule stage5_arbOutChannel (True);
@@ -782,10 +790,51 @@ module [HASIM_MODULE] mkInterconnect
             new_output_vcs[in_p][ln][in_vc] = tagged Valid out_vc;
             new_used_vcs[out_p][ln][out_vc] = True;
 
+            // Pack the event data into more readable chunks
+            Bit#(3) evt_in_p = zeroExtend(in_p);
+            Bit#(3) evt_ln = zeroExtend(ln);
+            Bit#(3) evt_in_vc = zeroExtend(in_vc);
+            Bit#(3) evt_out_p = zeroExtend(out_p);
+            Bit#(3) evt_out_vc = zeroExtend(out_vc);
+
+            // flit_src/dst are large enough for 128 node simulations.  If we
+            // grow larger some bits can be taken from lanes and channels above.
+            Bit#(7) flit_src = 0;
+            Bit#(7) flit_dst = 0;
+            Bit#(1) flit_isHead = 0;
+            Bit#(1) flit_isTail = 0;
+            Bit#(1) flit_isStore = 0;
+            let flit = funcFIFO_UGfirst(virtual_channels[in_p][ln][in_vc]);
+            if (flit matches tagged FLIT_HEAD .f)
+            begin
+                flit_isHead = 1;
+                flit_isStore = pack(f.isStore);
+                flit_src = zeroExtend(f.src);
+                flit_dst = zeroExtend(f.dst);
+            end
+            else if (flit matches tagged FLIT_BODY .f)
+            begin
+                flit_isTail = pack(f.isTail);
+            end
+
+            let evt_data = { flit_isStore, flit_isTail, flit_isHead, flit_src, flit_dst,
+                             evt_in_p, evt_ln, evt_in_vc, evt_out_p, evt_out_vc };
+            eventGrant.recordEvent(iid, tagged Valid zeroExtend(evt_data));
+
+            Bit#(8) evt_idx = zeroExtend(pack(idx));
+            Bit#(24) evt_req_vec = zeroExtend(pack(linear_vc_req_vec));
+            let evt_arb = { evt_idx, evt_req_vec };
+            eventGrantArb.recordEvent(iid, tagged Valid zeroExtend(evt_arb));
+
             debugLog.record(iid, $format("5: RC: ARB 0x%x grant %0d", pack(linear_vc_req_vec), idx));
             debugLog.record(iid, $format("5: RC: GRANT OUT VC in port %s ln %0d vc %0d, out port %s vc %0d:",
                                          portShow(in_p), ln, in_vc, portShow(out_p), out_vc) +
                                  fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][in_vc])));
+        end
+        else
+        begin
+            eventGrant.recordEvent(iid, tagged Invalid);
+            eventGrantArb.recordEvent(iid, tagged Invalid);
         end
 
 

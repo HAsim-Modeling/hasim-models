@@ -5,6 +5,7 @@
 %attributes hasim uncore
  
 %public icn-mesh.bsv
+%public icn-mesh.dic
 
 %param BUFFER_DEPTH  4  "Buffering per virtual channel."
 

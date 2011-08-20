@@ -4745,3 +4745,19 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   eliminating but muxes and write/write scheduling hazards.
 
 - Make the debug output more regular.
+
+----------
+mcadler     Date: Sat Aug 20 09:32:33 EDT 2011  CSN: CSN-hasim-models-157
+                  Sat Aug 20 13:32:33 UTC 2011
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.dic              Locally Added               0 
+ icn-mesh.awb              Locally Modified          156 
+ icn-mesh.bsv              Locally Modified          156 
+
+- Switch virtual channel grant to random arbiter.  The round-robin arbiter turned
+  out to be unfair due to harmonics with channel availability variations.
+
+- Add events for monitoring mesh model virtual channel grants, enabling more
+  debugging on FPGAs.
