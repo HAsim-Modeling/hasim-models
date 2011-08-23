@@ -103,8 +103,8 @@ module [HASIM_MODULE] mkPipeline
     Connection_Client#(FUNCP_REQ_COMMIT_STORES,
                        FUNCP_RSP_COMMIT_STORES)       linkToGCO <- mkConnection_Client("funcp_commitStores");
 
-    // For killing. UNUSED
-
+    // For killing. Used in this model only for poisoned instructions
+    // (functional model faults).
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, 
                        FUNCP_RSP_REWIND_TO_TOKEN)     linkToRewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
@@ -124,7 +124,7 @@ module [HASIM_MODULE] mkPipeline
     STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage6Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage7Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage8Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage10Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage10Ctrl <- mkStageController();
 
     //********* Rules *********//
 
@@ -504,7 +504,11 @@ module [HASIM_MODULE] mkPipeline
             // Next PC following fault
             pc <= new_addr;
 
-            stage10Ctrl.ready(cpu_iid, False);
+            // Trigger a rewind.  For the unpipelined model this isn't strictly
+            // necessary, but it is a useful test of the functional model.
+            linkToRewindToToken.makeReq(initFuncpReqRewindToToken(tok));
+
+            stage10Ctrl.ready(cpu_iid, tuple2(False, True));
 
         end
         else if (rsp.storeToken matches tagged Valid .st_tok)
@@ -513,13 +517,13 @@ module [HASIM_MODULE] mkPipeline
             // Request global commit of stores.
             linkToGCO.makeReq(initFuncpReqCommitStores(st_tok));
             debugLog.record(cpu_iid, $format("Globally committing stores for token: %0d (store token: %0d)", tokTokenId(tok), storeTokTokenId(st_tok)));
-            stage10Ctrl.ready(cpu_iid, True);
+            stage10Ctrl.ready(cpu_iid, tuple2(True, False));
 
         end
         else
         begin
 
-            stage10Ctrl.ready(cpu_iid, False);
+            stage10Ctrl.ready(cpu_iid, tuple2(False, False));
 
         end
 
@@ -528,9 +532,9 @@ module [HASIM_MODULE] mkPipeline
     (* descending_urgency = "stage10_gcoRsp, stage9_lcoRsp_gcoReq" *)
     rule stage10_gcoRsp (True);
 
-        match {.cpu_iid, .need_store_rsp} <- stage10Ctrl.nextReadyInstance();
+        match {.cpu_iid, .is_store, .is_rewind} <- stage10Ctrl.nextReadyInstance();
 
-        if (need_store_rsp)
+        if (is_store)
         begin
 
             // Get the global commit response
@@ -540,6 +544,17 @@ module [HASIM_MODULE] mkPipeline
             let st_tok = rsp.storeToken;
 
             debugLog.record(cpu_iid, fshow(st_tok.index) + $format("GCO Responded for store token: %0d", storeTokTokenId(st_tok)));
+
+        end
+        
+        if (is_rewind)
+        begin
+
+            // Get the rewind response
+            let rsp = linkToRewindToToken.getResp();
+            linkToRewindToToken.deq();
+
+            debugLog.record(cpu_iid, $format("Fault rewind complete for token: %0d", tokTokenId(rsp.token)));
 
         end
         

@@ -645,7 +645,7 @@ module [HASIM_MODULE] mkInterconnect
                     if (! isValid(routes[in_p][ln][vc]) &&&
                         new_routes[in_p][ln][vc] matches tagged Valid .out_p)
                     begin
-                        debugLog.record(iid, $format("4: RC: ROUTE in port %s ln %0d vc %0d, out port %s:",
+                        debugLog.record(iid, $format("4: RC: ROUTE in port %s ln %0d vc %0d, out port %s: ",
                                                      portShow(fromInteger(in_p)), ln, vc, portShow(out_p)) +
                                              fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][vc])));
                     end
@@ -729,7 +729,7 @@ module [HASIM_MODULE] mkInterconnect
                 begin
                     if (new_out_vc_req[in_p][ln][vc] matches tagged Valid .req)
                     begin
-                        debugLog.record(iid, $format("4: RC: REQ OUT VC in port %s ln %0d vc %0d, out port %s vc %0d:",
+                        debugLog.record(iid, $format("4: RC: REQ OUT VC in port %s ln %0d vc %0d, out port %s vc %0d: ",
                                                      portShow(fromInteger(in_p)), ln, vc, portShow(tpl_4(req)), tpl_5(req)) +
                                              fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][vc])));
                     end
@@ -827,7 +827,7 @@ module [HASIM_MODULE] mkInterconnect
             eventGrantArb.recordEvent(iid, tagged Valid zeroExtend(evt_arb));
 
             debugLog.record(iid, $format("5: RC: ARB 0x%x grant %0d", pack(linear_vc_req_vec), idx));
-            debugLog.record(iid, $format("5: RC: GRANT OUT VC in port %s ln %0d vc %0d, out port %s vc %0d:",
+            debugLog.record(iid, $format("5: RC: GRANT OUT VC in port %s ln %0d vc %0d, out port %s vc %0d: ",
                                          portShow(in_p), ln, in_vc, portShow(out_p), out_vc) +
                                  fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][in_vc])));
         end
@@ -875,11 +875,11 @@ module [HASIM_MODULE] mkInterconnect
 
                     new_flit = tagged FLIT_HEAD new_info;
 
-                    debugLog.record(iid, $format("6: BW: ENTER in port %s ln %0d vc %0d", p, ln, vc) + fshow(new_flit));
+                    debugLog.record(iid, $format("6: BW: ENTER in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(new_flit));
                 end
                 else
                 begin
-                    debugLog.record(iid, $format("6: BW: ENQ in port %s ln %0d vc %0d", p, ln, vc) + fshow(new_flit));
+                    debugLog.record(iid, $format("6: BW: ENQ in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(new_flit));
                 end
                 new_vcs[p][ln][vc] = funcFIFO_UGenq(virtualChannels[p][ln][vc], new_flit);
             end

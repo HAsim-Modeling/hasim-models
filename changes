@@ -4761,3 +4761,20 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 - Add events for monitoring mesh model virtual channel grants, enabling more
   debugging on FPGAs.
+
+----------
+mcadler     Date: Tue Aug 23 08:25:42 EDT 2011  CSN: CSN-hasim-models-158
+                  Tue Aug 23 12:25:42 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          157 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          157 
+
+- Fix some debugging messages in the mesh model.
+
+- Follow the rewind path for faulting instructions in the unpipelined model.
+  While this isn't technically necessary for an unpipelined model, it serves
+  as an example of the usual flow and tests the rewind code a bit.
