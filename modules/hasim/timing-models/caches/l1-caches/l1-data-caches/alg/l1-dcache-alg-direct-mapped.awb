@@ -7,4 +7,4 @@
 %public  l1-dcache-alg-direct-mapped.bsv 
 %public  l1-dcache-alg-direct-mapped.dic 
 
-%param --global L1_DCACHE_ALG_INDEX_SIZE 12 "Number of bits to use as DCache index."
+%param --global L1_DCACHE_ALG_INDEX_SIZE 10 "Number of bits to use as DCache index."

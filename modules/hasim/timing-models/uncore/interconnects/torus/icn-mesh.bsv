@@ -358,7 +358,7 @@ module [HASIM_MODULE] mkInterconnect
     MULTIPLEXED#(NUM_STATIONS,
                  Vector#(NUM_PORTS,
                          LOCAL_ARBITER#(TMul#(NUM_LANES, VCS_PER_LANE)))) stage2Arbiters
-        <- mkMultiplexed(replicateM(mkLocalArbiter(False)));
+        <- mkMultiplexed(replicateM(mkLocalArbiter()));
 
     (* conservative_implicit_conditions *)
     rule stage2_multiplexVCs (True);
@@ -434,7 +434,7 @@ module [HASIM_MODULE] mkInterconnect
             let ready_vcs = map(uncurry(isReadyVC(in_p)), concat(identity_map));
 
             // Pick a winner
-            let grant_idx <- arbiters[in_p].arbitrate(ready_vcs);
+            let grant_idx <- arbiters[in_p].arbitrate(ready_vcs, False);
             if (grant_idx matches tagged Valid .idx)
             begin
                 // Reverse map the winning index to a lane and channel
@@ -469,7 +469,7 @@ module [HASIM_MODULE] mkInterconnect
     MULTIPLEXED#(NUM_STATIONS,
                  Vector#(NUM_PORTS,
                          LOCAL_ARBITER#(NUM_PORTS))) stage3Arbiters
-        <- mkMultiplexed(replicateM(mkLocalArbiter(False)));
+        <- mkMultiplexed(replicateM(mkLocalArbiter()));
 
     (* conservative_implicit_conditions *)
     rule stage3_crossbar (True);
@@ -530,7 +530,7 @@ module [HASIM_MODULE] mkInterconnect
 
         for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
         begin
-            let grant_idx <- arbiters[out_p].arbitrate(out_port_requests[out_p]);
+            let grant_idx <- arbiters[out_p].arbitrate(out_port_requests[out_p], False);
             if (grant_idx matches tagged Valid .in_p)
             begin
                 let info = validValue(vc_winners[in_p]);
@@ -760,7 +760,7 @@ module [HASIM_MODULE] mkInterconnect
     MULTIPLEXED#(NUM_STATIONS,
                  LOCAL_ARBITER#(TMul#(NUM_PORTS,
                                       TMul#(NUM_LANES, VCS_PER_LANE)))) stage5arbiter
-        <- mkMultiplexed(mkLocalRandomArbiter(False));
+        <- mkMultiplexed(mkLocalArbiter());
 
     (* conservative_implicit_conditions *)
     rule stage5_arbOutChannel (True);
@@ -782,8 +782,23 @@ module [HASIM_MODULE] mkInterconnect
         // Map the vector to a boolean request vector
         let linear_vc_req_vec = map(isValid, linear_vc_req);
 
-        // Pick a winner among the valid entries (entries with requests)
-        let grant_idx <- arbiter.arbitrate(linear_vc_req_vec);
+        //
+        // Pick a winner among the valid entries (entries with requests).
+        // Arbitration here is messy.  In general, we use round robin arbitration.
+        // Because of the traffic patterns, round robin can be unfair.  The
+        // typical configuration has only one memory controller, so all traffic
+        // matches one of two possibilities.  Either it is fanning in through
+        // multiple ports, heading out a single port to the memory controller or
+        // it is coming in on a single port from the memory controller and fanning
+        // out.  The router often gets in a state where it alternates between
+        // arbitration of these two classes.  This alternation can cause the
+        // round robin pointer always to be set immediately after the port
+        // coming from memory.  To alleviate this, we don't change the round
+        // robin pointer if only a single request is active.
+        //
+
+        let fixed = (countElem(True, linear_vc_req_vec) <= 1);
+        let grant_idx <- arbiter.arbitrate(linear_vc_req_vec, fixed);
         if (grant_idx matches tagged Valid .idx)
         begin
             match {.in_p, .ln, .in_vc, .out_p, .out_vc} = validValue(linear_vc_req[idx]);

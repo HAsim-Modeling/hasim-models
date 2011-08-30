@@ -4778,3 +4778,34 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 - Follow the rewind path for faulting instructions in the unpipelined model.
   While this isn't technically necessary for an unpipelined model, it serves
   as an example of the usual flow and tests the rewind code a bit.
+
+----------
+mcadler     Date: Tue Aug 30 08:09:31 EDT 2011  CSN: CSN-hasim-models-159
+                  Tue Aug 30 12:09:31 UTC 2011
+
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-direct-mapped.awb Locally Modified          158 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.awb Locally Modified          158 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          158 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          158 
+
+- Fix a deadlock in the timing model's store buffer: the CAM when a commit
+  message arrives uses the token ID to find the corresponding entry.  Store
+  buffer entries may survive beyond the wrapping of the token ID space
+  (though the commit will come before any wrapping).  The CAM logic sometimes
+  matched an old instance of a token ID that was waiting to be written back
+  instead of the current instance, resulting in a store buffer entry that
+  would never be flushed.
+
+- Improve the mesh arbitration.
+
+- Convert L1 cache default sizes to 32KB.  They were set large because the
+  current LLC won't synthesize on ACP larger than 64KB.  That is still true
+  but I plan to fix the LLC problem.

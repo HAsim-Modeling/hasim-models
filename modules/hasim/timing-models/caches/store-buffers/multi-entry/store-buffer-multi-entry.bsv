@@ -180,6 +180,21 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // stage2_search
     
+    // Helper function for stage2 store buffer entry CAM
+    function Bool matchCompletedStore(TOKEN storeTok,
+                                      Tuple2#(Maybe#(TOKEN), Maybe#(MEM_ADDRESS)) sb);
+        match {.sb_tok, .sb_pa} = sb;
+        // To match the token must be the same AND there must not yet be a PA
+        // assigned.  A valid PA means the store is already completed.  Two store
+        // buffer entries may share the same token if the token space has wrapped
+        // with a store outstanding.  Tokens aren't used by the store buffer for
+        // precisely this reason.  Requiring a non-valid PA forces a match of the
+        // active instance of a token.
+        return (isValid(sb_tok) &&
+                tokTokenId(validValue(sb_tok)) == tokTokenId(storeTok) &&
+                ! isValid(sb_pa));
+    endfunction
+
     (* conservative_implicit_conditions *)
     rule stage2_search (True);
 
@@ -248,19 +263,13 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
                     // Update with the actual physical address.
                     // (A real store buffer would also record the value.)
-                    let tok_id = tokTokenId(req.bundle.token);
                     
-                    // We find the index for this token using a CAM Write
-                    
-                    SB_INDEX sb_idx = 0;
-                    
-                    for (Integer x = 0; x < `SB_NUM_ENTRIES; x = x + 1)
-                    begin
-                    
-                        if (local_state.tokID[x] matches tagged Valid .tok &&& tokTokenId(tok) == tok_id)
-                            sb_idx = fromInteger(x);
-                    
-                    end
+                    // We find the index for this token using a CAM Write.  There
+                    // must be a match (could add an assertion), so no check
+                    // is used for actually finding the entry.                    
+                    let idx = findIndex(matchCompletedStore(req.bundle.token),
+                                        zip(local_state.tokID, local_state.physAddress));
+                    SB_INDEX sb_idx = pack(validValue(idx));
                     
                     // A completion of a previously allocated store.
                     debugLog.record(cpu_iid, fshow("COMPLETE STORE ") + fshow(req.bundle.token) + $format(" SLOT: %0d", sb_idx));
