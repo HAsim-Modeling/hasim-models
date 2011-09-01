@@ -644,12 +644,13 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(OCN_MSG)) stage3Ctrl <- mkStageController();
 
     MULTIPLEXED_REG#(NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputCreditsPool  <- mkMultiplexedReg(replicate(replicate(False)));
     MULTIPLEXED_REG#(NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputNotFullsPool <- mkMultiplexedReg(replicate(replicate(False)));
     MULTIPLEXED_REG#(NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingRspPool <- mkMultiplexedReg(tagged Invalid);
     MULTIPLEXED_REG#(NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingReqPool <- mkMultiplexedReg(tagged Invalid);
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS)         physAddrPool       <- mkMultiplexedLUTRAM(~0);
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS)     physAddrPool       <- mkMemory_Multiplexed(mkBRAMInitialized(~0));
 
     function Maybe#(VC_IDX) vcToEnq(INSTANCE_ID#(NUM_CPUS) cpu_iid, LANE_IDX ln);
     
@@ -718,7 +719,6 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
 
         Reg#(Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingRsp = packetizingRspPool.getReg(cpu_iid);
         Reg#(Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingReq = packetizingReqPool.getReg(cpu_iid);
-        LUTRAM#(MEM_OPAQUE, LINE_ADDRESS)         physAddr       = physAddrPool.getRAM(cpu_iid);
 
         // Start by checking for new responses from the LLC.
         // These are higher priority.
@@ -767,7 +767,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
             reqFromLLC.doDeq(cpu_iid);
             if (!req.isStore)
             begin
-                physAddr.upd(req.opaque, req.physicalAddress);
+                physAddrPool.write(cpu_iid, req.opaque, req.physicalAddress);
             end
 
         end
@@ -780,8 +780,35 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         
         end
         
-        // Route enqueues from the OCN to the correct place. This ignores virtual channels - just lanes.
+        // Route enqueues from the OCN to the correct place. This ignores
+        // virtual channels - just lanes.
         let m_enq <- enqFromOCN.receive(cpu_iid);
+
+        // Need to read the PA associated with an incoming message?  Stage 3
+        // is separate from this step to wait for the BRAM read.
+        if (m_enq matches tagged Valid {.ln, .vc_idx, .msg} &&&
+            ln == `LANE_LLC_RSP &&&
+            msg matches tagged FLIT_BODY .info)
+        begin
+            physAddrPool.readReq(cpu_iid, info.opaque);
+        end
+        else
+        begin
+            // Trigger a read request just so one is outstanding.  It is needed
+            // for the schedule, but not the data.
+            physAddrPool.readReq(cpu_iid, unpack(0));
+        end
+
+        stage3Ctrl.ready(cpu_iid, m_enq);
+
+    endrule
+
+    (* conservative_implicit_conditions *)
+    rule stage3_LLCRsp (True);
+    
+        match {.cpu_iid, .m_enq} <- stage3Ctrl.nextReadyInstance();
+
+        let pa <- physAddrPool.readRsp(cpu_iid);
 
         let can_enq_req <- reqToLLC.canEnq(cpu_iid);
         let can_enq_rsp <- rspToLLC.canEnq(cpu_iid);
@@ -822,7 +849,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
                     tagged FLIT_BODY .info:
                     begin
                        reqToLLC.noEnq(cpu_iid);
-                       rspToLLC.doEnq(cpu_iid, initMemRsp(physAddr.sub(info.opaque), info.opaque));
+                       rspToLLC.doEnq(cpu_iid, initMemRsp(pa, info.opaque));
                     end
 
                 endcase

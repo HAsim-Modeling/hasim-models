@@ -4809,3 +4809,26 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 - Convert L1 cache default sizes to 32KB.  They were set large because the
   current LLC won't synthesize on ACP larger than 64KB.  That is still true
   but I plan to fix the LLC problem.
+
+----------
+mcadler     Date: Thu Sep  1 07:33:31 EDT 2011  CSN: CSN-hasim-models-160
+                  Thu Sep  1 11:33:31 UTC 2011
+
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          159 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          159 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.awb   Locally Modified          159 
+
+- Move LLC and set associative metadata from LUTRAM to BRAM.  As the number
+  of contexts grows these become quite large.  Only one new pipeline stage
+  was needed and a new, relatively rare, conflict was introduced between
+  set associative lookups and the fill path.
+
+- Move to BRAM enabled 256KB LLC.  We had only been able to synthesize 64KB
+  before.  Now the 16 node mesh model meets timing on 10 of 10 cost tables
+  tried.  Before it used to be about a 30% success rate.
