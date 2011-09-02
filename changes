@@ -4832,3 +4832,14 @@ Directory modules/hasim/timing-models/caches/last-level-caches/alg
 - Move to BRAM enabled 256KB LLC.  We had only been able to synthesize 64KB
   before.  Now the 16 node mesh model meets timing on 10 of 10 cost tables
   tried.  Before it used to be about a 30% success rate.
+
+----------
+mcadler     Date: Fri Sep  2 16:39:12 EDT 2011  CSN: CSN-hasim-models-161
+                  Fri Sep  2 20:39:12 UTC 2011
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          160 
+
+Break crossbar stage rule into two rules to keep Bluespec compile times
+acceptable up to 64 simulated nodes.

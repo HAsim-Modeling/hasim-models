@@ -214,7 +214,11 @@ module [HASIM_MODULE] mkInterconnect
     LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <- mkLocalControllerPlusN(inports, inportsR, outportsR);
     
     STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER#(NUM_STATIONS, Tuple2#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)), VC_STATE#(t_VC_FIFO))) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, Tuple2#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)), VC_STATE#(t_VC_FIFO))) stage3aCtrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, Tuple4#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)),
+                                            VC_STATE#(t_VC_FIFO),
+                                            Vector#(NUM_PORTS, Bool),
+                                            Vector#(NUM_PORTS, Maybe#(MESH_MSG)))) stage3bCtrl <- mkStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple4#(VC_STATE#(t_VC_FIFO),
                                             VC_STATE#(Maybe#(PORT_IDX)), // routes
@@ -461,7 +465,7 @@ module [HASIM_MODULE] mkInterconnect
             end
         end
 
-        stage3Ctrl.ready(iid, tuple2(vc_winners, virtualChannels));
+        stage3aCtrl.ready(iid, tuple2(vc_winners, virtualChannels));
 
     endrule
 
@@ -472,26 +476,14 @@ module [HASIM_MODULE] mkInterconnect
         <- mkMultiplexed(replicateM(mkLocalArbiter()));
 
     (* conservative_implicit_conditions *)
-    rule stage3_crossbar (True);
+    rule stage3a_crossbarArb (True);
         
         // Get the info from the previous stage.
-        match {.iid, {.vc_winners, .virtualChannels}} <- stage3Ctrl.nextReadyInstance();
+        match {.iid, {.vc_winners, .virtualChannels}} <- stage3aCtrl.nextReadyInstance();
         
-        // Read our local state from the pools.
-        Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes          = routesPool.getReg(iid);
-        Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs       = outputVCsPool.getReg(iid);
-        Reg#(VC_STATE#(Bool))             usedVCs         = usedVCsPool.getReg(iid);
-        Reg#(VC_STATE#(Bool))             outputCredits   = outputCreditsPool.getReg(iid);
-
         // This is the vector of output messages that the virtual channels contend for.
         Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msg_to = replicate(tagged Invalid);
         
-        // Vectors to update our registers with.
-        VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
-        VC_STATE#(Maybe#(PORT_IDX))   new_routes = routes;
-        VC_STATE#(Bool)             new_used_vcs = usedVCs;
-        VC_STATE#(Maybe#(VC_IDX)) new_output_vcs = outputVCs;
-
         // Arbiters for the current instance
         Vector#(NUM_PORTS, LOCAL_ARBITER#(NUM_PORTS)) arbiters = stage3Arbiters[iid];
 
@@ -548,6 +540,27 @@ module [HASIM_MODULE] mkInterconnect
             end
         end
 
+        stage3bCtrl.ready(iid, tuple4(vc_winners, virtualChannels, in_port_used, msg_to));
+
+    endrule
+
+
+    (* conservative_implicit_conditions *)
+    rule stage3b_crossbarSend (True);
+        
+        // Get the info from the previous stage.
+        match {.iid, {.vc_winners, .virtualChannels, .in_port_used, .msg_to}} <- stage3bCtrl.nextReadyInstance();
+
+        // Read our local state from the pools.
+        Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes          = routesPool.getReg(iid);
+        Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs       = outputVCsPool.getReg(iid);
+        Reg#(VC_STATE#(Bool))             usedVCs         = usedVCsPool.getReg(iid);
+
+        // Vectors to update our registers with.
+        VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
+        VC_STATE#(Maybe#(PORT_IDX))   new_routes = routes;
+        VC_STATE#(Bool)             new_used_vcs = usedVCs;
+        VC_STATE#(Maybe#(VC_IDX)) new_output_vcs = outputVCs;
 
         //
         // Act on the routing crossbar decisions.  There are two loops here
@@ -594,7 +607,7 @@ module [HASIM_MODULE] mkInterconnect
         end
 
         stage4Ctrl.ready(iid, tuple4(new_vcs, new_routes, new_output_vcs, new_used_vcs));
-    
+
     endrule
 
 
@@ -904,7 +917,7 @@ module [HASIM_MODULE] mkInterconnect
 
     endrule
 
-    (* conservative_implicit_conditions, descending_urgency="stage7_creditsOut, stage6_enqs, stage5_arbOutChannel, stage4_route, stage3_crossbar, stage2_multiplexVCs, stage1_updateCreditsIn" *)
+    (* conservative_implicit_conditions, descending_urgency="stage7_creditsOut, stage6_enqs, stage5_arbOutChannel, stage4_route, stage3b_crossbarSend, stage3a_crossbarArb, stage2_multiplexVCs, stage1_updateCreditsIn" *)
     rule stage7_creditsOut (True);
     
         match {.iid, .virtualChannels} <- stage7Ctrl.nextReadyInstance();
