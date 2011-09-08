@@ -20,6 +20,7 @@ import Vector::*;
 // ******* Generated File Imports *******
 
 `include "asim/dict/STATS_LLC.bsh"
+`include "asim/dict/EVENTS_LLC.bsh"
 
 // ****** Local Definitions *******
 
@@ -166,6 +167,9 @@ module [HASIM_MODULE] mkLastLevelCache();
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteHit   <- mkStatCounter_Multiplexed(`STATS_LLC_WRITE_HIT);
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteRetry <- mkStatCounter_Multiplexed(`STATS_LLC_WRITE_RETRY);
     STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statFillRetry  <- mkStatCounter_Multiplexed(`STATS_LLC_FILL_RETRY);
+
+    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventHit  <- mkEventRecorder_Multiplexed(`EVENTS_LLC_HIT);
+    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventMiss <- mkEventRecorder_Multiplexed(`EVENTS_LLC_MISS);
 
 
     (* conservative_implicit_conditions *)
@@ -407,6 +411,8 @@ module [HASIM_MODULE] mkLastLevelCache();
 
             // Propogate the bubble.
             reqFromCore.noDeq(cpu_iid);
+            eventHit.recordEvent(cpu_iid, tagged Invalid);
+            eventMiss.recordEvent(cpu_iid, tagged Invalid);
             stage4Ctrl.ready(cpu_iid, local_state);
 
         end
@@ -416,11 +422,18 @@ module [HASIM_MODULE] mkLastLevelCache();
     (* conservative_implicit_conditions *)
     rule stage3_STALL (stage3Stall matches tagged Valid {.cpu_iid, .req, .m_entry, .ls});
     
-    
         // Get our local state from the pools.
         LUTRAM#(LLC_MISS_ID, MEM_OPAQUE) opaques = opaquesPool.getRAM(cpu_iid);
 
         let local_state = ls;
+
+        //
+        // All events here will use the low bit to indicate whether the operation
+        // is a load (0) or a store (1).  The remainer of the event data is
+        // whatever fits from the low bits of the PA.
+        //
+        Maybe#(EVENT_PARAM) evt_hit = tagged Invalid;
+        Maybe#(EVENT_PARAM) evt_miss = tagged Invalid;
 
         if (m_entry matches tagged Valid .entry)
         begin
@@ -444,6 +457,7 @@ module [HASIM_MODULE] mkLastLevelCache();
 
                     // No response to a store. Don't change the coreQData in case there was a fill.
                     statWriteHit.incr(cpu_iid);
+                    evt_hit = tagged Valid resize({ req.physicalAddress, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE HIT"));
                     reqFromCore.doDeq(cpu_iid);
                 
@@ -466,6 +480,7 @@ module [HASIM_MODULE] mkLastLevelCache();
                 local_state.coreQData = initMemRsp(req.physicalAddress, req.opaque);
                 local_state.coreQUsed = True;
                 statReadHit.incr(cpu_iid);
+                evt_hit = tagged Valid resize({ req.physicalAddress, 1'b0 });
                 debugLog.record(cpu_iid, $format("3: LOAD HIT"));
                 reqFromCore.doDeq(cpu_iid);
 
@@ -502,6 +517,7 @@ module [HASIM_MODULE] mkLastLevelCache();
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     //statWriteMiss.incr(cpu_iid);
+                    evt_miss = tagged Valid resize({ req.physicalAddress, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE MISS: %0d", miss_tok.index));
                     reqFromCore.doDeq(cpu_iid);
 
@@ -540,6 +556,7 @@ module [HASIM_MODULE] mkLastLevelCache();
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     statReadMiss.incr(cpu_iid);
+                    evt_miss = tagged Valid resize({ req.physicalAddress, 1'b0 });
                     debugLog.record(cpu_iid, $format("3: LOAD MISS: %0d", miss_tok.index));
                     reqFromCore.doDeq(cpu_iid);
 
@@ -558,6 +575,9 @@ module [HASIM_MODULE] mkLastLevelCache();
         
         end // cache miss
         
+        eventHit.recordEvent(cpu_iid, evt_hit);
+        eventMiss.recordEvent(cpu_iid, evt_miss);
+
         stage3Stall <= tagged Invalid;
         stage4Ctrl.ready(cpu_iid, local_state);
         

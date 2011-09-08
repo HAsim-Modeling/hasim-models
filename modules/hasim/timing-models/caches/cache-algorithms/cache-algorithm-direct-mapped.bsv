@@ -26,7 +26,8 @@
 `define PORT_STORE 1
 `define PORT_EVICT 2
 
-module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name)
+module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name,
+                                              Bool storeTagsInScratchpad)
     // interface:
         (CACHE_ALG_INDEXED#(t_NUM_INSTANCES, t_OPAQUE, t_IDX_SIZE))
     provisos
@@ -41,7 +42,13 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name)
     FIFO#(Bit#(t_IDX_SIZE)) evictionQ <- mkSizedFIFO(buffering);
 
     // Initialize a opaque memory to store our tags in.   
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES, 3, Bit#(t_IDX_SIZE), Maybe#(t_INTERNAL_ENTRY)) tagStore <- mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
+                                       3,
+                                       Bit#(t_IDX_SIZE),
+                                       Maybe#(t_INTERNAL_ENTRY))
+        tagStore <- (storeTagsInScratchpad ?
+                         mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED) :
+                         mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(tagged Invalid)));
 
     function Maybe#(CACHE_ENTRY#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr, Maybe#(t_INTERNAL_ENTRY) m_entry);
     

@@ -42,10 +42,15 @@ module [HASIM_MODULE] mkLastLevelCacheAlg
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
 
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc_alg.out");
+
     // NUM_WAYS is passed as a pseudo-numeric parameter.
     NumTypeParam#(`LLC_ALG_NUM_WAYS) numWays = ?;
 
-    CACHE_ALG_INDEXED#(NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgSetAssociative(`VDEV_SCRATCH_HASIM_LAST_LEVEL_CACHE_ALG_SCRATCHPAD, numWays);
+    CACHE_ALG_INDEXED#(NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgSetAssociative(debugLog,
+                                                                                     `VDEV_SCRATCH_HASIM_LAST_LEVEL_CACHE_ALG_SCRATCHPAD,
+                                                                                     `LLC_ALG_TAGS_USE_SCRATCHPAD != 0,
+                                                                                     numWays);
 
     return toCacheAlg(alg);
         

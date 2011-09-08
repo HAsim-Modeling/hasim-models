@@ -8,3 +8,4 @@
 %public  l1-icache-alg-direct-mapped.dic 
 
 %param --global L1_ICACHE_ALG_INDEX_SIZE 10 "Number of bits for ICache index."
+%param --global L1_ICACHE_ALG_TAGS_USE_SCRATCHPAD 1 "Store tags in scratchpads? (0: BRAM, 1: Scratchpad)"

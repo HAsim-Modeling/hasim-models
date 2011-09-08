@@ -49,7 +49,9 @@ module [HASIM_MODULE] mkL1ICacheAlg
          TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2)))))))),
          TLog#(TDiv#(TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2))))),
          64))), 32));
-    CACHE_ALG_INDEXED#(NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_ICACHE_ALG_SCRATCHPAD);
+
+    CACHE_ALG_INDEXED#(NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_ICACHE_ALG_SCRATCHPAD,
+                                                                                   `L1_ICACHE_ALG_TAGS_USE_SCRATCHPAD != 0);
 
     return toCacheAlg(alg);
         

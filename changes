@@ -4843,3 +4843,38 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 Break crossbar stage rule into two rules to keep Bluespec compile times
 acceptable up to 64 simulated nodes.
+
+----------
+mcadler     Date: Thu Sep  8 17:11:46 EDT 2011  CSN: CSN-hasim-models-162
+                  Thu Sep  8 21:11:46 UTC 2011
+
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-direct-mapped.awb Locally Modified          161 
+ l1-icache-alg-direct-mapped.bsv Locally Modified          161 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.awb Locally Modified          161 
+ l1-dcache-alg-direct-mapped.bsv Locally Modified          161 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          161 
+ cache-algorithm-direct-mapped.bsv Locally Modified          161 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          161 
+ last-level-cache-no-coherence.dic Locally Modified          161 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.awb   Locally Modified          161 
+ llc-set-associative.bsv   Locally Modified          161 
+
+- Add debugging output to the set associative cache model (LLC)
+
+- Add events to the LLC
+
+- Add AWB parameters to control whether L1 cache tags are stored in scratchpads
+  or in BRAM.  Frustratingly, when stored in BRAM on ACP the L1 behavior remains
+  correct but the LLC starts claiming misses.  So far I've failed to understand
+  why.  It could either be a protocol bug or a synthesis tool bug.  The L1
+  tags default to scratchpad storage.

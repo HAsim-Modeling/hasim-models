@@ -31,7 +31,10 @@ import FIFOF::*;
 `define PORT_EVICT 1
 `define PORT_ALLOC 2
 
-module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypeParam#(t_NUM_WAYS) dummy)
+module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_NUM_INSTANCES) debugLog,
+                                                Integer opaque_name,
+                                                Bool storeTagsInScratchpad,
+                                                NumTypeParam#(t_NUM_WAYS) dummy)
     // interface:
         (CACHE_ALG_INDEXED#(t_NUM_INSTANCES, t_OPAQUE, t_IDX_SIZE))
     provisos
@@ -52,7 +55,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
                                        3,
                                        Bit#(t_IDX_SIZE),
                                        Vector#(t_NUM_WAYS, t_INTERNAL_ENTRY))
-        tagStoreBanks <- mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED);
+        tagStoreBanks <- (storeTagsInScratchpad ?
+                              mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED) :
+                              mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead()));
     
     // Smaller cache management meta-data fits in local BRAM
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
@@ -127,12 +132,14 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         accessedPool.write(iid, idx, new_accessed);
 
         let new_valid = validsvec;
-        validsvec[winner] = True;
-        validsPool.write(iid, idx, validsvec);
+        new_valid[winner] = True;
+        validsPool.write(iid, idx, new_valid);
 
         let new_entry = entryvec;
         new_entry[winner]= entry;
         tagStoreBanks.write(iid, idx, new_entry);
+
+        debugLog.record_simple_ctx(iid, $format("Alloc idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, winner, entry, pack(new_accessed), pack(new_valid)));
 
     endrule
 
@@ -152,7 +159,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
     method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid) if (!allocQ.notEmpty());
         let addr = loadLookupQ.first();
         loadLookupQ.deq();
-        let idx = getCacheIndex(addr);
+        Bit#(t_IDX_SIZE) idx = getCacheIndex(addr);
         
         let entryvec <- tagStoreBanks.readPorts[`PORT_LOAD].readRsp(iid);
         let accessedvec <- accessedPool.readPorts[`PORT_LOAD].readRsp(iid);
@@ -170,10 +177,14 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
             new_accessed = all(id, new_accessed) ? replicate(False) : new_accessed;
             accessedPool.write(iid, idx, new_accessed);
 
+            debugLog.record_simple_ctx(iid, $format("LD lookup HIT PA 0x%0h idx %d: hit way %d, accessed 0x%0h", addr, idx, way, pack(new_accessed)));
+
             return res[way];
         end
         else
         begin
+            debugLog.record_simple_ctx(iid, $format("LD lookup MISS PA 0x%0h idx %d", addr, idx));
+
             return tagged Invalid;
         end
 
@@ -249,7 +260,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
     
     method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
-        let idx = evictionQ.first();
+        Bit#(t_IDX_SIZE) idx = evictionQ.first();
         evictionQ.deq();
 
         // Since we're a set associative cache we need to figure out which bank
@@ -270,6 +281,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
         if (!allValid)
         begin
             // There's an unused way, so no one will be evicted.
+            debugLog.record_simple_ctx(iid, $format("EVICT NONE idx %d: accessed 0x%0h, valids 0x%0h", idx, pack(accessedvec), pack(validsvec)));
             return tagged Invalid;
         end
         else
@@ -277,10 +289,12 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(Integer opaque_name, NumTypePara
             // Everyone's valid, so figure out which was (pseudo) LRU.
             if (findElem(False, accessedvec) matches tagged Valid .x)
             begin
+                debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, x, entryvec[x], pack(accessedvec), pack(validsvec)));
                 return tagged Valid toCacheEntry(entryvec[x], idx);
             end
             else
             begin
+                debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, 0, entryvec[0], pack(accessedvec), pack(validsvec)));
                 return tagged Valid toCacheEntry(entryvec[0], idx);
             end
         end

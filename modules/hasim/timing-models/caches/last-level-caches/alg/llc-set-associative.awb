@@ -9,3 +9,4 @@
 
 %param --global LLC_ALG_INDEX_SIZE 11 "Number of bits to use as Last Level Cache index."
 %param --global LLC_ALG_NUM_WAYS    4 "Number of ways in set associative cache."
+%param --global LLC_ALG_TAGS_USE_SCRATCHPAD 1 "Store tags in scratchpads? (0: BRAM, 1: Scratchpad)"
