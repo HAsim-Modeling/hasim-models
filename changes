@@ -4878,3 +4878,17 @@ Directory modules/hasim/timing-models/caches/last-level-caches/alg
   correct but the LLC starts claiming misses.  So far I've failed to understand
   why.  It could either be a protocol bug or a synthesis tool bug.  The L1
   tags default to scratchpad storage.
+
+----------
+mcadler     Date: Tue Sep 13 10:36:33 EDT 2011  CSN: CSN-hasim-models-163
+                  Tue Sep 13 14:36:33 UTC 2011
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ 2bit-bp-alg.bsv           Locally Modified          162 
+
+Move branch predictor storage to BRAM.  The LUTRAM storage required for a 64-way
+model was quite large.  The new code maintains the same semantics.  Prediction
+requests are locked out for a CPU while updates to that CPU are in progress.
+A more refined address comparison could be done, but the typical stage controller
+of a caller would have this same policy already.
