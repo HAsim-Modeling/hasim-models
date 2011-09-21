@@ -4892,3 +4892,13 @@ model was quite large.  The new code maintains the same semantics.  Prediction
 requests are locked out for a CPU while updates to that CPU are in progress.
 A more refined address comparison could be done, but the typical stage controller
 of a caller would have this same policy already.
+
+----------
+mcadler     Date: Tue Sep 20 23:38:02 EDT 2011  CSN: CSN-hasim-models-164
+                  Wed Sep 21 03:38:02 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          163 
+
+Use mkStreamsClient_Debug to enable streams debugging when AWB param is set.

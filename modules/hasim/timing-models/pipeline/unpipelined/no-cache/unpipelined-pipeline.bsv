@@ -58,8 +58,7 @@ module [HASIM_MODULE] mkPipeline
 
     // Debugging output stream, useful for getting a stream of status messages
     // when running on an FPGA.
-    //STREAMS_CLIENT link_streams <- mkStreamsClient(`STREAMID_CPU);
-    STREAMS_CLIENT link_streams <- mkStreamsClient_Disabled();
+    STREAMS_CLIENT link_streams <- mkStreamsClient_Debug(`STREAMID_CPU);
 
     //********* State Elements *********//
 
