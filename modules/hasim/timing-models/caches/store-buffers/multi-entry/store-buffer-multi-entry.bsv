@@ -120,7 +120,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
     
     STAGE_CONTROLLER#(NUM_CPUS, STORE_BUFF_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(STORE_BUFF_STATE, Bool)) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(STORE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, STORE_BUFF_STATE) stage4Ctrl <- mkStageController();
 
 

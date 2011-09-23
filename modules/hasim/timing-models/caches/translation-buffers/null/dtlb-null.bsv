@@ -59,7 +59,7 @@ module [HASIM_MODULE] mkDTLB();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DTLB_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DTLB_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
 
 
     (* conservative_implicit_conditions *)

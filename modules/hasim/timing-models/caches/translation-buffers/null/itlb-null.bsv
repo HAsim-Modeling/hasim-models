@@ -51,7 +51,7 @@ module [HASIM_MODULE] mkITLB();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, ITLB_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, ITLB_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
 
     (* conservative_implicit_conditions *)
     rule stage1_instReq (True);

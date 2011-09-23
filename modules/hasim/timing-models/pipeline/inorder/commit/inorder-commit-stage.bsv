@@ -116,7 +116,7 @@ module [HASIM_MODULE] mkCommit ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, COM_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, COM_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
 
 
     // ****** Events and Stats *****

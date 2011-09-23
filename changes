@@ -4902,3 +4902,53 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  unpipelined-pipeline.bsv  Locally Modified          163 
 
 Use mkStreamsClient_Debug to enable streams debugging when AWB param is set.
+
+----------
+mcadler     Date: Fri Sep 23 08:19:29 EDT 2011  CSN: CSN-hasim-models-165
+                  Fri Sep 23 12:19:29 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          164 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          164 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          164 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          164 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          164 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          164 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          164 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          164 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          164 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          164 
+ itlb-null.bsv             Locally Modified          164 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          164 
+
+The default mkStageController() provides only a 2-entry FIFO, which is fine
+for a normal pipeline.  When a timing model uses both a stage controller and
+makes a request to some other pipeline with a rendezvous in the next stage,
+the stage controller buffer needs to be as large as the pipeline depth of
+the external request.  This is particularly important for multi-FPGA
+configurations where the latency may be quite high.
+
+Models are now changed to use mkBufferedStageController() when an external
+pipeline is embedded within a set of stages.
+

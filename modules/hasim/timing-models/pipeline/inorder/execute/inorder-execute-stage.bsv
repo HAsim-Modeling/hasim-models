@@ -111,7 +111,7 @@ module [HASIM_MODULE] mkExecute ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(EXE_STAGE2_STATE, TOKEN_EPOCH)) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(EXE_STAGE2_STATE, TOKEN_EPOCH)) stage2Ctrl <- mkBufferedStageController();
 
 
     // ****** Events and Stats ******

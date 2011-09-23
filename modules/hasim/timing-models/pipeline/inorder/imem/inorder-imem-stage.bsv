@@ -94,7 +94,7 @@ module [HASIM_MODULE] mkIMem
     // If Invalid, means there was a bubble input to this stage.
     // Otherwise contains output that should be sent to pccalc if icache
     // responds with a bubble.
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Maybe#(IMEM_OUTPUT), IMEM_EPOCH)) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Maybe#(IMEM_OUTPUT), IMEM_EPOCH)) stage2Ctrl <- mkBufferedStageController();
 
     // ****** Rules ******
 

@@ -154,8 +154,8 @@ module [HASIM_MODULE] mkLastLevelCache();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
-    STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage4Ctrl <- mkStageController(); // XXX TMP
     Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, MEMORY_REQ, Maybe#(CACHE_ENTRY#(VOID)), LLC_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
 

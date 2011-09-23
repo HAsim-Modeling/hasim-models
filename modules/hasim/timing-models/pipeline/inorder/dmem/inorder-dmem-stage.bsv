@@ -120,8 +120,8 @@ module [HASIM_MODULE] mkDMem ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE2_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE3_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE3_STATE) stage3Ctrl <- mkBufferedStageController();
 
 
     // ****** Events and Stats ******
