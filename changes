@@ -4952,3 +4952,15 @@ configurations where the latency may be quite high.
 Models are now changed to use mkBufferedStageController() when an external
 pipeline is embedded within a set of stages.
 
+
+----------
+mcadler     Date: Sat Sep 24 11:02:15 EDT 2011  CSN: CSN-hasim-models-166
+                  Sat Sep 24 15:02:15 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          165 
+
+Move large bundlesPool to BRAM.  The extra pipeline stage and conflict due to
+a single read port appear not to have a significant effect on simulator
+performance.

@@ -52,6 +52,12 @@ typedef 16 NUM_COMMITQ_SLOTS;
 
 typedef Bit#(TLog#(NUM_COMMITQ_SLOTS)) COMMITQ_SLOT_ID;
 
+//
+// Bundles pool read ports
+//
+`define PORT_OLDEST   0
+`define PORT_INCOMING 1
+
 
 module [HASIM_MODULE] mkCommitQueue
     // interface:
@@ -65,7 +71,8 @@ module [HASIM_MODULE] mkCommitQueue
     MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, COMMITQ_SLOT_ID, Bool) completionsPool    <- mkMultiplexedLUTRAMMultiWrite(False);
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, COMMITQ_SLOT_ID, DMEM_BUNDLE) bundlesPool <- mkMultiplexedLUTRAM(?);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, COMMITQ_SLOT_ID, DMEM_BUNDLE)
+        bundlesPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead());
 
     // Which slot should we allocate into?
     MULTIPLEXED_REG#(NUM_CPUS, COMMITQ_SLOT_ID) nextFreeSlotPool    <- mkMultiplexedReg(0);
@@ -102,8 +109,8 @@ module [HASIM_MODULE] mkCommitQueue
 
     LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(COMMITQ_SLOT_ID)) stage3Ctrl <- mkStageController();
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
 
 
@@ -130,35 +137,21 @@ module [HASIM_MODULE] mkCommitQueue
 
         // Get the local state for the current instance.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 0);
-        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool.getRAM(cpu_iid);
 
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool.getReg(cpu_iid);
         Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool.getReg(cpu_iid);
     
         // Let's see if the oldest slot has been completed.
         // If so, send it to the decode.
-        let empty = oldestSlot == nextFreeSlot;
+        Bool oldest_is_ready = completions.sub(oldestSlot) && (oldestSlot != nextFreeSlot);
 
-        if (completions.sub(oldestSlot) && !empty)
+        if (oldest_is_ready)
         begin
-
-            // It's ready to go.
-            let bundle = bundles.sub(oldestSlot);
-            debugLog.record_next_cycle(cpu_iid, fshow("1: SEND READY: ") + fshow(bundle.token));
-            
-            // Send it to commit.
-            bundleToCom.send(cpu_iid, tagged Valid bundle);
-            
-        end
-        else
-        begin
-            
-            // We're not ready to send anything to commit.
-            debugLog.record_next_cycle(cpu_iid, fshow("1: NO SEND"));
-            bundleToCom.send(cpu_iid, tagged Invalid);
+            // It's ready to go.  Read the bundle.
+            bundlesPool.readPorts[`PORT_OLDEST].readReq(cpu_iid, oldestSlot);
         end
     
-        stage2Ctrl.ready(cpu_iid);
+        stage2Ctrl.ready(cpu_iid, oldest_is_ready);
     
     endrule
         
@@ -166,42 +159,46 @@ module [HASIM_MODULE] mkCommitQueue
     rule stage2_complete (True);
     
         // Get the info from the previous stage.
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+        match {.cpu_iid, .oldest_is_ready} <- stage2Ctrl.nextReadyInstance();
 
         // Get the local state for the current instance.
-        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 0);
-        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool.getRAM(cpu_iid);
         LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
     
+        // Complete forwarding of commit, having ready the bundle from BRAM
+        if (oldest_is_ready)
+        begin
+            let bundle <- bundlesPool.readPorts[`PORT_OLDEST].readRsp(cpu_iid);
+            debugLog.record_next_cycle(cpu_iid, fshow("2: SEND READY: ") + fshow(bundle.token));
+            
+            // Send it to commit.
+            bundleToCom.send(cpu_iid, tagged Valid bundle);
+        end
+        else
+        begin
+            // We're not ready to send anything to commit.
+            debugLog.record_next_cycle(cpu_iid, fshow("2: NO SEND"));
+            bundleToCom.send(cpu_iid, tagged Invalid);
+        end
+
         // Now let's check for miss responses from the DCache.
         let m_complete <- rspFromDCacheDelayed.receive(cpu_iid);
         
         if (m_complete matches tagged Valid .rsp)
         begin
-        
             // A new completion came in. Get the slot from the MAF.
             COMMITQ_SLOT_ID slot = maf.sub(rsp.missID);
-            DMEM_BUNDLE bundle = bundles.sub(slot);
-            debugLog.record_next_cycle(cpu_iid, fshow("1: COMPLETE: ") + fshow(slot));
-            
-            // Mark this slot as complete.
-            completions.upd(slot, True);
+            debugLog.record_next_cycle(cpu_iid, fshow("2: COMPLETE: ") + fshow(slot));
 
-            // Tell Decode to writeback the destination.
-            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(bundle.token, bundle.dests));
+            bundlesPool.readPorts[`PORT_INCOMING].readReq(cpu_iid, slot);
 
+            // Pass this context to the next stage.
+            stage3Ctrl.ready(cpu_iid, tagged Valid slot);
         end
         else
         begin
-        
-            // No writebacks to report.
-            writebackToDec.send(cpu_iid, tagged Invalid);
-
+            stage3Ctrl.ready(cpu_iid, tagged Invalid);
         end
         
-        // Pass this context to the next stage.
-        stage3Ctrl.ready(cpu_iid);
-
     endrule
 
 
@@ -214,11 +211,30 @@ module [HASIM_MODULE] mkCommitQueue
     // Ports written:
     // * none
 
-    (* conservative_implicit_conditions *)
     rule stage3_deallocate (True);
 
         // Get the info from the previous stage.
-        let cpu_iid <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, .incoming_completion} <- stage3Ctrl.nextReadyInstance();
+
+        // Get the local state for the current instance.
+        LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 0);
+
+        if (incoming_completion matches tagged Valid .slot)
+        begin
+            let bundle <- bundlesPool.readPorts[`PORT_INCOMING].readRsp(cpu_iid);
+            
+            // Mark this slot as complete.
+            completions.upd(slot, True);
+
+            // Tell Decode to writeback the destination.
+            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(bundle.token, bundle.dests));
+            debugLog.record_next_cycle(cpu_iid, fshow("3: FWD COMPLETE: ") + fshow(bundle.token));
+        end
+        else
+        begin
+            // No writebacks to report.
+            writebackToDec.send(cpu_iid, tagged Invalid);
+        end
 
         // Get the local state for the current instance.
         Reg#(COMMITQ_SLOT_ID)   oldestSlot = oldestSlotPool.getReg(cpu_iid);
@@ -230,7 +246,7 @@ module [HASIM_MODULE] mkCommitQueue
         begin
             
             // A dequeue occurred. Just drop the oldest guy.
-            debugLog.record(cpu_iid, fshow("2: DEQ"));
+            debugLog.record(cpu_iid, fshow("3: DEQ"));
             oldestSlot <= oldestSlot + 1;
 
         end
@@ -259,7 +275,6 @@ module [HASIM_MODULE] mkCommitQueue
         
         // Get our local state based on the context.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 1);
-        LUTRAM#(COMMITQ_SLOT_ID, DMEM_BUNDLE) bundles = bundlesPool.getRAM(cpu_iid);
         LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
 
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool.getReg(cpu_iid);
@@ -273,15 +288,15 @@ module [HASIM_MODULE] mkCommitQueue
         begin
 
             // A new allocation.
-            debugLog.record(cpu_iid, $format("3: ALLOC: ") + fshow(bundle.token) + $format(" COMPLETE: %0b", pack(isValid(m_miss_id))));
-            bundles.upd(nextFreeSlot, bundle);
+            debugLog.record(cpu_iid, $format("4: ALLOC: ") + fshow(bundle.token) + $format(" COMPLETE: %0b", pack(isValid(m_miss_id))));
+            bundlesPool.write(cpu_iid, nextFreeSlot, bundle);
             completions.upd(nextFreeSlot, !isValid(m_miss_id));
             new_next_free = nextFreeSlot + 1;
 
             if (m_miss_id matches tagged Valid .miss_id)
             begin
             
-                debugLog.record(cpu_iid, $format("3: MISS ID: %0d mapped to slot %0d.", miss_id, nextFreeSlot));
+                debugLog.record(cpu_iid, $format("4: MISS ID: %0d mapped to slot %0d.", miss_id, nextFreeSlot));
                 maf.upd(miss_id, nextFreeSlot);
                 
             end
@@ -293,7 +308,7 @@ module [HASIM_MODULE] mkCommitQueue
         begin
         
             // We still have room.
-            debugLog.record(cpu_iid, fshow("3: SEND CREDIT"));
+            debugLog.record(cpu_iid, fshow("4: SEND CREDIT"));
             creditToDMem.send(cpu_iid, tagged Valid (?));
 
         end
@@ -301,7 +316,7 @@ module [HASIM_MODULE] mkCommitQueue
         begin
 
             // We're full.
-            debugLog.record(cpu_iid, fshow("3: NO CREDIT"));
+            debugLog.record(cpu_iid, fshow("4: NO CREDIT"));
             creditToDMem.send(cpu_iid, tagged Invalid);
 
         end
