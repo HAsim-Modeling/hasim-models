@@ -4964,3 +4964,24 @@ Directory modules/hasim/timing-models/pipeline/inorder/commitq
 Move large bundlesPool to BRAM.  The extra pipeline stage and conflict due to
 a single read port appear not to have a significant effect on simulator
 performance.
+
+----------
+mcadler     Date: Tue Oct  4 14:52:08 EDT 2011  CSN: CSN-hasim-models-167
+                  Tue Oct  4 18:52:08 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          166 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          166 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          166 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          166 
+
+- Add buffering for parallel accesses to scratchpad memories.
+- Tweak to event data structure hacks to support 128 node networks.
+- Clean up debug messages in commitq.

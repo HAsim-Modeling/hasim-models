@@ -168,7 +168,7 @@ module [HASIM_MODULE] mkCommitQueue
         if (oldest_is_ready)
         begin
             let bundle <- bundlesPool.readPorts[`PORT_OLDEST].readRsp(cpu_iid);
-            debugLog.record_next_cycle(cpu_iid, fshow("2: SEND READY: ") + fshow(bundle.token));
+            debugLog.record(cpu_iid, fshow("2: SEND READY: ") + fshow(bundle.token));
             
             // Send it to commit.
             bundleToCom.send(cpu_iid, tagged Valid bundle);
@@ -176,7 +176,7 @@ module [HASIM_MODULE] mkCommitQueue
         else
         begin
             // We're not ready to send anything to commit.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: NO SEND"));
+            debugLog.record(cpu_iid, fshow("2: NO SEND"));
             bundleToCom.send(cpu_iid, tagged Invalid);
         end
 
@@ -187,7 +187,7 @@ module [HASIM_MODULE] mkCommitQueue
         begin
             // A new completion came in. Get the slot from the MAF.
             COMMITQ_SLOT_ID slot = maf.sub(rsp.missID);
-            debugLog.record_next_cycle(cpu_iid, fshow("2: COMPLETE: ") + fshow(slot));
+            debugLog.record(cpu_iid, fshow("2: COMPLETE: ") + fshow(slot));
 
             bundlesPool.readPorts[`PORT_INCOMING].readReq(cpu_iid, slot);
 
@@ -228,7 +228,7 @@ module [HASIM_MODULE] mkCommitQueue
 
             // Tell Decode to writeback the destination.
             writebackToDec.send(cpu_iid, tagged Valid genBusMessage(bundle.token, bundle.dests));
-            debugLog.record_next_cycle(cpu_iid, fshow("3: FWD COMPLETE: ") + fshow(bundle.token));
+            debugLog.record(cpu_iid, fshow("3: FWD COMPLETE: ") + fshow(bundle.token));
         end
         else
         begin

@@ -172,11 +172,11 @@ module [HASIM_MODULE] mkL1DCache ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage4Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage5Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage6Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage6Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage7Ctrl <- mkStageController();
 
 

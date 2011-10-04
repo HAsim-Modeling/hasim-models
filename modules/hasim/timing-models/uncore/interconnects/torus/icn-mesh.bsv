@@ -818,17 +818,17 @@ module [HASIM_MODULE] mkInterconnect
             new_output_vcs[in_p][ln][in_vc] = tagged Valid out_vc;
             new_used_vcs[out_p][ln][out_vc] = True;
 
-            // Pack the event data into more readable chunks
+            // Pack the event data into more readable chunks.
             Bit#(3) evt_in_p = zeroExtend(in_p);
             Bit#(3) evt_ln = zeroExtend(ln);
-            Bit#(3) evt_in_vc = zeroExtend(in_vc);
             Bit#(3) evt_out_p = zeroExtend(out_p);
-            Bit#(3) evt_out_vc = zeroExtend(out_vc);
+            Bit#(2) evt_in_vc = zeroExtend(in_vc);
+            Bit#(2) evt_out_vc = zeroExtend(out_vc);
 
             // flit_src/dst are large enough for 128 node simulations.  If we
             // grow larger some bits can be taken from lanes and channels above.
-            Bit#(7) flit_src = 0;
-            Bit#(7) flit_dst = 0;
+            Bit#(8) flit_src = 0;
+            Bit#(8) flit_dst = 0;
             Bit#(1) flit_isHead = 0;
             Bit#(1) flit_isTail = 0;
             Bit#(1) flit_isStore = 0;
