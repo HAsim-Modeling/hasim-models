@@ -359,10 +359,10 @@ module [HASIM_MODULE] mkInterconnect
     endrule
     
 
-    MULTIPLEXED#(NUM_STATIONS,
-                 Vector#(NUM_PORTS,
-                         LOCAL_ARBITER#(TMul#(NUM_LANES, VCS_PER_LANE)))) stage2Arbiters
-        <- mkMultiplexed(replicateM(mkLocalArbiter()));
+    MULTIPLEXED_REG#(NUM_STATIONS,
+                     Vector#(NUM_PORTS,
+                             LOCAL_ARBITER_OPAQUE#(TMul#(NUM_LANES, VCS_PER_LANE))))
+        stage2ArbiterStates <- mkMultiplexedReg(replicate(unpack(0)));
 
     (* conservative_implicit_conditions *)
     rule stage2_multiplexVCs (True);
@@ -376,8 +376,8 @@ module [HASIM_MODULE] mkInterconnect
         Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs      = outputVCsPool.getReg(iid);
         Reg#(VC_STATE#(Bool))             outputNotFulls = outputNotFullsPool.getReg(iid);
 
-        // Arbiters for the current instance
-        Vector#(NUM_PORTS, LOCAL_ARBITER#(TMul#(NUM_LANES, VCS_PER_LANE))) arbiters = stage2Arbiters[iid];
+        // Arbiter states for the current instance
+        Reg#(Vector#(NUM_PORTS, LOCAL_ARBITER_OPAQUE#(TMul#(NUM_LANES, VCS_PER_LANE)))) arbiters = stage2ArbiterStates.getReg(iid);
 
         // This simulates the fact that the router only has one VC allocator.
         Bool vc_alloc_in_use = False;
@@ -425,6 +425,9 @@ module [HASIM_MODULE] mkInterconnect
         // output port.  Only one will proceed this simulated cycle, chosen in
         // the next stage.
         //
+
+        Vector#(NUM_PORTS, LOCAL_ARBITER_OPAQUE#(TMul#(NUM_LANES, VCS_PER_LANE))) arbiters_out = ?;
+
         for (Integer in_p = 0; in_p < numPorts; in_p = in_p + 1)
         begin
             // Generate a linear bit vector across all lanes and channels within
@@ -438,7 +441,9 @@ module [HASIM_MODULE] mkInterconnect
             let ready_vcs = map(uncurry(isReadyVC(in_p)), concat(identity_map));
 
             // Pick a winner
-            let grant_idx <- arbiters[in_p].arbitrate(ready_vcs, False);
+            match {.grant_idx, .new_state} = localArbiterFunc(ready_vcs, False, arbiters[in_p]);
+            arbiters_out[in_p] = new_state;
+
             if (grant_idx matches tagged Valid .idx)
             begin
                 // Reverse map the winning index to a lane and channel
@@ -465,15 +470,18 @@ module [HASIM_MODULE] mkInterconnect
             end
         end
 
+        // Record the updated internal arbiter state.
+        arbiters <= arbiters_out;
+
         stage3aCtrl.ready(iid, tuple2(vc_winners, virtualChannels));
 
     endrule
 
 
-    MULTIPLEXED#(NUM_STATIONS,
-                 Vector#(NUM_PORTS,
-                         LOCAL_ARBITER#(NUM_PORTS))) stage3Arbiters
-        <- mkMultiplexed(replicateM(mkLocalArbiter()));
+    MULTIPLEXED_REG#(NUM_STATIONS,
+                     Vector#(NUM_PORTS,
+                             LOCAL_ARBITER_OPAQUE#(NUM_PORTS)))
+        stage3ArbiterStates <- mkMultiplexedReg(replicate(unpack(0)));
 
     (* conservative_implicit_conditions *)
     rule stage3a_crossbarArb (True);
@@ -485,7 +493,7 @@ module [HASIM_MODULE] mkInterconnect
         Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msg_to = replicate(tagged Invalid);
         
         // Arbiters for the current instance
-        Vector#(NUM_PORTS, LOCAL_ARBITER#(NUM_PORTS)) arbiters = stage3Arbiters[iid];
+        Reg#(Vector#(NUM_PORTS, LOCAL_ARBITER_OPAQUE#(NUM_PORTS))) arbiters = stage3ArbiterStates.getReg(iid);
 
         debugLog.record(iid, $format("3: SA Begin."));
 
@@ -519,10 +527,13 @@ module [HASIM_MODULE] mkInterconnect
         //
 
         Vector#(NUM_PORTS, Bool) in_port_used = replicate(False);
+        Vector#(NUM_PORTS, LOCAL_ARBITER_OPAQUE#(NUM_PORTS)) arbiters_out = ?;
 
         for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
         begin
-            let grant_idx <- arbiters[out_p].arbitrate(out_port_requests[out_p], False);
+            match {.grant_idx, .new_state} = localArbiterFunc(out_port_requests[out_p], False, arbiters[out_p]);
+            arbiters_out[out_p] = new_state;
+
             if (grant_idx matches tagged Valid .in_p)
             begin
                 let info = validValue(vc_winners[in_p]);
@@ -539,6 +550,9 @@ module [HASIM_MODULE] mkInterconnect
                 msg_to[out_p] = tagged Valid tuple3(info.lane, info.outputVC, info.message);
             end
         end
+
+        // Record the updated internal arbiter state.
+        arbiters <= arbiters_out;
 
         stage3bCtrl.ready(iid, tuple4(vc_winners, virtualChannels, in_port_used, msg_to));
 
@@ -770,10 +784,10 @@ module [HASIM_MODULE] mkInterconnect
     // With arbitration, it was too much to fit into a single stage.
     // 
 
-    MULTIPLEXED#(NUM_STATIONS,
-                 LOCAL_ARBITER#(TMul#(NUM_PORTS,
-                                      TMul#(NUM_LANES, VCS_PER_LANE)))) stage5arbiter
-        <- mkMultiplexed(mkLocalArbiter());
+    MULTIPLEXED_REG#(NUM_STATIONS,
+                     LOCAL_ARBITER_OPAQUE#(TMul#(NUM_PORTS,
+                                                 TMul#(NUM_LANES, VCS_PER_LANE))))
+        stage5arbiter <- mkMultiplexedReg(unpack(0));
 
     (* conservative_implicit_conditions *)
     rule stage5_arbOutChannel (True);
@@ -782,7 +796,9 @@ module [HASIM_MODULE] mkInterconnect
         debugLog.record(iid, $format("5: Begin."));
 
         // Arbiter for the current instance
-        let arbiter = stage5arbiter[iid];
+        Reg#(LOCAL_ARBITER_OPAQUE#(TMul#(NUM_PORTS,
+                                         TMul#(NUM_LANES,
+                                               VCS_PER_LANE)))) arbiter = stage5arbiter.getReg(iid);
 
         //
         // Now we have a set of requests in new_out_vc_req.  Pick a winner.
@@ -811,7 +827,9 @@ module [HASIM_MODULE] mkInterconnect
         //
 
         let fixed = (countElem(True, linear_vc_req_vec) <= 1);
-        let grant_idx <- arbiter.arbitrate(linear_vc_req_vec, fixed);
+        match {.grant_idx, .new_state} = localArbiterFunc(linear_vc_req_vec, fixed, arbiter);
+        arbiter <= new_state;
+
         if (grant_idx matches tagged Valid .idx)
         begin
             match {.in_p, .ln, .in_vc, .out_p, .out_vc} = validValue(linear_vc_req[idx]);

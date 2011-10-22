@@ -4985,3 +4985,15 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 - Add buffering for parallel accesses to scratchpad memories.
 - Tweak to event data structure hacks to support 128 node networks.
 - Clean up debug messages in commitq.
+
+----------
+mcadler     Date: Sat Oct 22 08:51:45 EDT 2011  CSN: CSN-hasim-models-168
+                  Sat Oct 22 12:51:45 UTC 2011
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          167 
+
+Manage the storage for arbiters explicitly instead of allowing each individual
+arbiter to hold its own state in a register.  The logic expansion with separate
+storage was significant for large numbers of nodes.
