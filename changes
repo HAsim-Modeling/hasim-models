@@ -4997,3 +4997,23 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 Manage the storage for arbiters explicitly instead of allowing each individual
 arbiter to hold its own state in a register.  The logic expansion with separate
 storage was significant for large numbers of nodes.
+
+----------
+mcadler     Date: Sun Oct 23 09:28:44 EDT 2011  CSN: CSN-hasim-models-169
+                  Sun Oct 23 13:28:44 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          168 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          168 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          168 
+
+Multi-write LUTRAM is an expensive structure as the number of contexts grows
+large.  Use the pseudo-multi-write version instead with the same interface
+but serialized writes.  The implementation still allows rules that might
+write to fire in parallel.  There is little (perhaps no) significant impact
+on simulator performance.

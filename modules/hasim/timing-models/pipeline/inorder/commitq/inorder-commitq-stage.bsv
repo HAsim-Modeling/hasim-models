@@ -68,7 +68,7 @@ module [HASIM_MODULE] mkCommitQueue
     // ****** Model State (per Context) ******
 
     // Which tokens are complete? (Ready to issue)
-    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, COMMITQ_SLOT_ID, Bool) completionsPool    <- mkMultiplexedLUTRAMMultiWrite(False);
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, COMMITQ_SLOT_ID, Bool) completionsPool <- mkMultiplexedLUTRAMPseudoMultiWrite(False);
 
     // Queue to rendezvous with instructions.
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, COMMITQ_SLOT_ID, DMEM_BUNDLE)
@@ -267,7 +267,6 @@ module [HASIM_MODULE] mkCommitQueue
     // Ports written:
     // * creditToDMem
 
-    (* conservative_implicit_conditions *)
     rule stage4_allocate (True);
 
         // Get our context from the previous stage.

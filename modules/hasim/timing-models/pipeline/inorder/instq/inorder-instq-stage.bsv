@@ -98,7 +98,7 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // Queue to rendezvous with instructions.
     MULTIPLEXED_LUTRAM#(NUM_CPUS, INSTQ_SLOT_ID, FETCH_BUNDLE) slotsPool <- mkMultiplexedLUTRAM(?);
-    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_SLOT_ID, Bool) completePool <- mkMultiplexedLUTRAMMultiWrite(False);
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_SLOT_ID, Bool) completePool <- mkMultiplexedLUTRAMPseudoMultiWrite(False);
 
     // Record of which expected icache miss delayed updates we should ignore.
     MULTIPLEXED_REG#(NUM_CPUS, MISS_DROP_MAP) shouldDropPool <- mkMultiplexedReg(replicate(False));
@@ -198,7 +198,6 @@ module [HASIM_MODULE] mkInstructionQueue
     // * rspFromICacheDelayed
     // Ports Written
     // (none)
-    (* conservative_implicit_conditions *)
     rule stage2_complete (True);
         let cpu_iid <- stage2Ctrl.nextReadyInstance();
 
@@ -243,7 +242,6 @@ module [HASIM_MODULE] mkInstructionQueue
     // * enqFromFetch
     // Ports Written
     // * creditToFetch
-    (* conservative_implicit_conditions *)
     rule stage3_deq_clear_enq_credit (True);
         // Get the info from the previous stage.
         let cpu_iid <- stage3Ctrl.nextReadyInstance();

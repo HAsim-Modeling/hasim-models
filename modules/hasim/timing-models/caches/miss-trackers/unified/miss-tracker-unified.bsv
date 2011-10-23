@@ -139,7 +139,7 @@ module [HASIM_MODULE] mkCacheMissTracker
     // A LUTRAM to store which other miss IDs a fill should be returned to,
     // represented as a linked list.
     MULTIPLEXED_LUTRAM#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillListPool <- mkMultiplexedLUTRAM(?);
-    MULTIPLEXED_LUTRAM_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValidsPool <- mkMultiplexedLUTRAMMultiWrite(False);
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValidsPool <- mkMultiplexedLUTRAMPseudoMultiWrite(False);
     
     // A register to store the current token that we are returning a fill to, beyond the first.
     MULTIPLEXED_REG#(t_NUM_INSTANCES, Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFillsPool <- mkMultiplexedReg(tagged Invalid);
