@@ -97,7 +97,7 @@ module [HASIM_MODULE] mkInstructionQueue
     // ****** Model State (per instance) ******
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, INSTQ_SLOT_ID, FETCH_BUNDLE) slotsPool <- mkMultiplexedLUTRAM(?);
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, INSTQ_SLOT_ID, FETCH_BUNDLE) slotsPool <- mkMemory_Multiplexed(mkBRAM());
     MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, INSTQ_SLOT_ID, Bool) completePool <- mkMultiplexedLUTRAMPseudoMultiWrite(False);
 
     // Record of which expected icache miss delayed updates we should ignore.
@@ -105,7 +105,7 @@ module [HASIM_MODULE] mkInstructionQueue
 
     // Miss Address File (MAF).
     // Maps from icache miss ID to instq slot.
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) mafPool <- mkMultiplexedLUTRAM(?);
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) mafPool <- mkMemory_Multiplexed(mkBRAM());
     
     // Pointer to the head slot, which contains the next bundle for the decode
     // stage to look at.
@@ -142,8 +142,8 @@ module [HASIM_MODULE] mkInstructionQueue
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inctrls, unctrl_ctrls, outctrls);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
 
     // ****** Rules ******
@@ -154,7 +154,7 @@ module [HASIM_MODULE] mkInstructionQueue
     // Ports Read:
     //  (none)
     // Ports Written
-    // * bundleToDec
+    // (none)
 
     (* conservative_implicit_conditions *)
     rule stage1_first (True);
@@ -164,30 +164,29 @@ module [HASIM_MODULE] mkInstructionQueue
         debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) slots = slotsPool.getRAM(cpu_iid);
         LUTRAM#(INSTQ_SLOT_ID, Bool) complete = completePool.getRAMWithWritePort(cpu_iid, 0);
         Reg#(INSTQ_SLOT_ID) head_ptr = headPtrPool.getReg(cpu_iid);
         Reg#(INSTQ_SLOT_ID) tail_ptr = tailPtrPool.getReg(cpu_iid);
 
+        // Request slot associated with head in case it is needed.
+        slotsPool.readReq(cpu_iid, head_ptr);
+
         // Send the head bundle to decode if ready.
         let empty = (head_ptr == tail_ptr);
-        let first = slots.sub(head_ptr);
         if (!empty && complete.sub(head_ptr))
         begin
             // It's ready to go.
-            debugLog.record_next_cycle(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", head_ptr, first.pc));
-            bundleToDec.send(cpu_iid, tagged Valid first);
+            debugLog.record_next_cycle(cpu_iid, $format("1: SLOT READY: 0x%0h", head_ptr));
+            stage2Ctrl.ready(cpu_iid, True);
         end
         else
         begin
             // We're not ready to send anything to the decode.
-            debugLog.record_next_cycle(cpu_iid, $format("NO SEND: ")
+            debugLog.record_next_cycle(cpu_iid, $format("1: NO SEND: ")
                 + $format(empty ? "EMPTY" : "HEAD NOT COMPLETE"));
 
-            bundleToDec.send(cpu_iid, tagged Invalid);
+            stage2Ctrl.ready(cpu_iid, False);
         end
-
-        stage2Ctrl.ready(cpu_iid);
 
     endrule
 
@@ -197,18 +196,31 @@ module [HASIM_MODULE] mkInstructionQueue
     // Ports Read:
     // * rspFromICacheDelayed
     // Ports Written
-    // (none)
+    // * bundleToDec
     rule stage2_complete (True);
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
+        match {.cpu_iid, .slot_ready} <- stage2Ctrl.nextReadyInstance();
+        let first <- slotsPool.readRsp(cpu_iid);
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, Bool) complete = completePool.getRAMWithWritePort(cpu_iid, 0);
         Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool.getReg(cpu_iid);
         MISS_DROP_MAP should_drop = shouldDrop;
-        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
+
+        if (slot_ready)
+        begin
+            // It's ready to go.
+            debugLog.record_next_cycle(cpu_iid, $format("2: SEND READY SLOT: ADDR:0x%h", first.pc));
+            bundleToDec.send(cpu_iid, tagged Valid first);
+        end
+        else
+        begin
+            // We're not ready to send anything to the decode.
+            bundleToDec.send(cpu_iid, tagged Invalid);
+        end
+
 
         // Check for icache rendezvous.
         let m_rendezvous <- rspFromICacheDelayed.receive(cpu_iid);
+        Bool is_complete = False;
         if (m_rendezvous matches tagged Valid .rsp)
         begin
             if (should_drop[rsp.missID])
@@ -217,19 +229,15 @@ module [HASIM_MODULE] mkInstructionQueue
             end
             else
             begin
-                INSTQ_SLOT_ID slot = maf.sub(rsp.missID);
-
-                // A real instQ would update the instruction here.
-                // However we already have the actual instruction, so we just mark
-                // it as ready to go.
-                complete.upd(slot, True);
+                is_complete = True;
+                mafPool.readReq(cpu_iid, rsp.missID);
 
                 debugLog.record(cpu_iid, fshow("COMPLETE. MISS ID = ") + fshow(rsp.missID));
             end
         end
 
         // Pass this instance to the next stage.
-        stage3Ctrl.ready(cpu_iid);
+        stage3Ctrl.ready(cpu_iid, is_complete);
     endrule
 
     // stage3_deq_clear_enq_credit
@@ -244,14 +252,13 @@ module [HASIM_MODULE] mkInstructionQueue
     // * creditToFetch
     rule stage3_deq_clear_enq_credit (True);
         // Get the info from the previous stage.
-        let cpu_iid <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, .is_complete} <- stage3Ctrl.nextReadyInstance();
 
         // Get our local state based on the current instance.
-        LUTRAM#(INSTQ_SLOT_ID, FETCH_BUNDLE) slots = slotsPool.getRAM(cpu_iid);
-        LUTRAM#(INSTQ_SLOT_ID, Bool) complete = completePool.getRAMWithWritePort(cpu_iid, 1);
+        LUTRAM#(INSTQ_SLOT_ID, Bool) complete0 = completePool.getRAMWithWritePort(cpu_iid, 0);
+        LUTRAM#(INSTQ_SLOT_ID, Bool) complete1 = completePool.getRAMWithWritePort(cpu_iid, 1);
         Reg#(MISS_DROP_MAP) shouldDrop = shouldDropPool.getReg(cpu_iid);
         MISS_DROP_MAP should_drop = shouldDrop;
-        LUTRAM#(L1_ICACHE_MISS_ID, INSTQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
         Reg#(INSTQ_SLOT_ID) headPtr = headPtrPool.getReg(cpu_iid);
         Reg#(INSTQ_SLOT_ID) tailPtr = tailPtrPool.getReg(cpu_iid);
         INSTQ_SLOT_ID head_ptr = headPtr;
@@ -260,6 +267,17 @@ module [HASIM_MODULE] mkInstructionQueue
 
         // Check for dequeue from decode.
         let m_deq <- deqFromDec.receive(cpu_iid);
+
+        // Finish completion from previous stage?
+        if (is_complete)
+        begin
+            INSTQ_SLOT_ID slot <- mafPool.readRsp(cpu_iid);
+
+            // A real instQ would update the instruction here.
+            // However we already have the actual instruction, so we just mark
+            // it as ready to go.
+            complete0.upd(slot, True);
+        end
 
         if (isValid(m_deq))
         begin
@@ -291,15 +309,15 @@ module [HASIM_MODULE] mkInstructionQueue
             begin
                 // Enqueue a bundle
 
-                slots.upd(tailPtr, bundle);
-                complete.upd(tailPtr, !isValid(enq.missID));
+                slotsPool.write(cpu_iid, tailPtr, bundle);
+                complete1.upd(tailPtr, !isValid(enq.missID));
                 tailPtr <= tailPtr + 1;
 
                 debugLog.record(cpu_iid, $format("ENQ pc = 0x%0h", bundle.pc));
 
                 if (enq.missID matches tagged Valid .miss_id)
                 begin
-                    maf.upd(miss_id, tailPtr);
+                    mafPool.write(cpu_iid, miss_id, tailPtr);
                     should_drop[miss_id] = False;
                 end
             end

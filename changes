@@ -5017,3 +5017,19 @@ large.  Use the pseudo-multi-write version instead with the same interface
 but serialized writes.  The implementation still allows rules that might
 write to fire in parallel.  There is little (perhaps no) significant impact
 on simulator performance.
+
+----------
+mcadler     Date: Mon Oct 24 10:34:15 EDT 2011  CSN: CSN-hasim-models-170
+                  Mon Oct 24 14:34:15 UTC 2011
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          169 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          169 
+
+Reduce LUTRAM (no measured simulator performance change in in-order mesh model):
+
+- branch predictor: Move btbValidsPool to BRAM.
+- instq: Move slotsPool and mafPool to BRAM.

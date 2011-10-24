@@ -40,11 +40,11 @@ typedef Bit#(`BTB_IDX_SIZE) BTB_INDEX;
 
 typedef union tagged
 {
-    void        STAGE2_bubble;
-    ISA_ADDRESS STAGE2_nonBranch;
-    ISA_ADDRESS STAGE2_btbRsp;
+    void        STAGE3_bubble;
+    ISA_ADDRESS STAGE3_nonBranch;
+    ISA_ADDRESS STAGE3_btbRsp;
 }
-BP_STAGE2_STATE deriving (Eq, Bits);
+BP_STAGE3_STATE deriving (Eq, Bits);
 
 module [HASIM_MODULE] mkBranchPredictor ();
 
@@ -54,7 +54,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
     // ****** Model State (per instance) ******
     
     MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, BTB_INDEX, Tuple2#(BTB_TAG, ISA_ADDRESS)) btb <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_HASIM_BTB_SCRATCHPAD, SCRATCHPAD_CACHED);
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, BTB_INDEX, Bool) btbValidsPool <- mkMultiplexedLUTRAM(False);
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, BTB_INDEX, Bool) btbValidsPool <- mkMemory_Multiplexed(mkBRAMInitialized(False));
 
     BRANCH_PREDICTOR_ALG bPAlg <- mkBranchPredAlg();
 
@@ -78,8 +78,9 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, BP_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS)             stage3Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(ISA_ADDRESS)) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, BP_STAGE3_STATE) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER_VOID#(NUM_CPUS)             stage4Ctrl <- mkStageControllerVoid();
 
     // ****** Helper Functions ******
 
@@ -123,9 +124,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
 
-        // Get the local state for the current instance.
-        let btbValids = btbValidsPool.getRAM(cpu_iid);
-
         // Let's see if there was a prediction request.
         let m_pc <- pcFromFet.receive(cpu_iid);
 
@@ -133,7 +131,42 @@ module [HASIM_MODULE] mkBranchPredictor ();
         begin
         
             // See if we even have a valid entry in the btb at this index.
-            let entry_valid = btbValids.sub(getIndex(addr));
+            btbValidsPool.readReq(cpu_iid, getIndex(addr));
+            debugLog.record_next_cycle(cpu_iid, $format("1: REQ: %h", addr));
+
+        end
+        else
+        begin
+
+            debugLog.record_next_cycle(cpu_iid, $format("1: NO REQ"));
+
+        end
+
+        stage2Ctrl.ready(cpu_iid, m_pc);
+
+    endrule
+
+
+    // stage2_btbLookup
+    
+    // Check whether a valid prediction exists
+
+    // Ports read:
+    // * None
+
+    // Ports written:
+    // * None
+
+    rule stage2_btbLookup (True);
+
+        // Get the active instance from the previous stage.
+        match {.cpu_iid, .m_pc} <- stage2Ctrl.nextReadyInstance();
+
+        if (m_pc matches tagged Valid .addr)
+        begin
+        
+            // See if we even have a valid entry in the btb at this index.
+            let entry_valid <- btbValidsPool.readRsp(cpu_iid);
             
             if (entry_valid)
             begin
@@ -141,16 +174,17 @@ module [HASIM_MODULE] mkBranchPredictor ();
                 // Lookup this PC in the BTB and branch predictor.
                 btb.readReq(cpu_iid, getIndex(addr));
                 bPAlg.getPredReq(cpu_iid, addr);
+                debugLog.record(cpu_iid, $format("2: REQ: %h", addr));
 
                 // Pass the information to the next stage.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_btbRsp addr);
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_btbRsp addr);
             
             end
             else
             begin
             
                 // We don't even know anything about this, so just go on.
-                stage2Ctrl.ready(cpu_iid, tagged STAGE2_nonBranch addr);
+                stage3Ctrl.ready(cpu_iid, tagged STAGE3_nonBranch addr);
             
             end
 
@@ -159,13 +193,13 @@ module [HASIM_MODULE] mkBranchPredictor ();
         begin
 
             // No prediction request. Propogate the bubble.
-            stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
+            stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
 
         end
 
     endrule
 
-    // stage2_btbRsp
+    // stage3_btbRsp
     
     // Get the responses from the prediction structures and process them (if any).
     // Ports read:
@@ -175,14 +209,14 @@ module [HASIM_MODULE] mkBranchPredictor ();
     // * predToFet
     // * attrToFet
 
-    rule stage2_btbRsp (True);
+    rule stage3_btbRsp (True);
 
         // Get the active instance from the previous stage.
-        match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
+        match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
         
         // Get our local state from the instance.
 
-        if (state matches tagged STAGE2_bubble)
+        if (state matches tagged STAGE3_bubble)
         begin
         
             // Just propogate the bubble.
@@ -190,22 +224,22 @@ module [HASIM_MODULE] mkBranchPredictor ();
             attrToFet.send(cpu_iid, tagged Invalid);
             
             // Proceed to the next stage.
-            stage3Ctrl.ready(cpu_iid);
+            stage4Ctrl.ready(cpu_iid);
         
         end
-        else if (state matches tagged STAGE2_nonBranch .pc)
+        else if (state matches tagged STAGE3_nonBranch .pc)
         begin
         
             // Well, the BTB doesn't know about it, so we'll go with PC+4.
-            debugLog.record(cpu_iid, $format("2: PRED: %h -> entry invalid", pc));
+            debugLog.record(cpu_iid, $format("3: PRED: %h -> entry invalid", pc));
             predToFet.send(cpu_iid, tagged Valid (pc + 4));
             attrToFet.send(cpu_iid, tagged Valid NotBranch);
 
             // Proceed to the next stage.
-            stage3Ctrl.ready(cpu_iid);
+            stage4Ctrl.ready(cpu_iid);
         
         end
-        else if (state matches tagged STAGE2_btbRsp .pc)
+        else if (state matches tagged STAGE3_btbRsp .pc)
         begin
 
             // Get the responses from the predictors.
@@ -224,7 +258,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
                     // The branch predictor thinks we're taking it, so give the BTB
                     // response as the next PC.
-                    debugLog.record(cpu_iid, $format("2: PRED: %h -> taken; tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
+                    debugLog.record(cpu_iid, $format("3: PRED: %h -> taken; tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
 
                     // Send the responses to the Fetch unit.
                     predToFet.send(cpu_iid, tagged Valid tgt);
@@ -235,7 +269,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
                 begin
 
                     // Well, we have a target, but the BP says not taken, so lets ignore it.
-                    debugLog.record(cpu_iid, $format("2: PRED: %h -> not-taken; taken-tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
+                    debugLog.record(cpu_iid, $format("3: PRED: %h -> not-taken; taken-tgt=%h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
 
                     // Send the responses to the Fetch unit.
                     predToFet.send(cpu_iid, tagged Valid (pc + 4));
@@ -248,20 +282,20 @@ module [HASIM_MODULE] mkBranchPredictor ();
             begin
 
                 // Well, the tag check failed, so we'll go with PC+4.
-                debugLog.record(cpu_iid, $format("2: PRED: %h -> tag mismatch", pc));
+                debugLog.record(cpu_iid, $format("3: PRED: %h -> tag mismatch", pc));
                 predToFet.send(cpu_iid, tagged Valid (pc + 4));
                 attrToFet.send(cpu_iid, tagged Valid NotBranch);
 
             end
                 
             // Proceed to the next stage.
-            stage3Ctrl.ready(cpu_iid);
+            stage4Ctrl.ready(cpu_iid);
 
         end
 
     endrule
 
-    // stage3_train
+    // stage4_train
     
     // Get the training data and update the branch predictor.
 
@@ -272,11 +306,10 @@ module [HASIM_MODULE] mkBranchPredictor ();
     // * None
 
     (* conservative_implicit_conditions *)
-    rule stage3_train (True);
+    rule stage4_train (True);
     
         // Get the next ready instance.
-        let cpu_iid <- stage3Ctrl.nextReadyInstance();
-        let btbValids = btbValidsPool.getRAM(cpu_iid);
+        let cpu_iid <- stage4Ctrl.nextReadyInstance();
 
         // Check for any new training.
         let m_train <- trainingFromExe.receive(cpu_iid);
@@ -292,8 +325,8 @@ module [HASIM_MODULE] mkBranchPredictor ();
             begin
 
                 // Update the BTB to note the actual target.            
-                debugLog.record(cpu_iid, $format("3: BTB TRAIN: %h -> %h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
-                btbValids.upd(getIndex(pc), True);
+                debugLog.record(cpu_iid, $format("4: BTB TRAIN: %h -> %h", pc, tgt) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
+                btbValidsPool.write(cpu_iid, getIndex(pc), True);
                 btb.write(cpu_iid, getIndex(pc), tuple2(getTag(pc),tgt));
                 taken = True;
 
@@ -303,8 +336,8 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
                 // BTB must be an alias for a different branch.  Remove BTB entry.
                 // Note: this is a bit aggressive. Two-bit predictor semantics could be an alternative?
-                debugLog.record(cpu_iid, $format("3: BTB TRAIN: %h not branch", pc) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
-                btbValids.upd(getIndex(pc), False);
+                debugLog.record(cpu_iid, $format("4: BTB TRAIN: %h not branch", pc) + $format(" (idx:%h, tag:%h)", getIndex(pc), getTag(pc)));
+                btbValidsPool.write(cpu_iid, getIndex(pc), False);
 
             end
             
@@ -323,7 +356,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
             begin
 
                 // Update the predictor with the training.
-                debugLog.record(cpu_iid, $format("3: BP TRAIN: %h, pred: %d, taken: %d", pc, pred, taken));
+                debugLog.record(cpu_iid, $format("4: BP TRAIN: %h, pred: %d, taken: %d", pc, pred, taken));
                 bPAlg.upd(cpu_iid, bpt.branchPC, pred, taken);
 
             end
