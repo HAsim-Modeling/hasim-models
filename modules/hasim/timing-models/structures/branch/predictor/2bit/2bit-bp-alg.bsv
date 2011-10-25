@@ -17,6 +17,7 @@
 //
 
 import FIFO::*;
+import FIFOF::*;
 import SpecialFIFOs::*;
 
 `include "asim/provides/hasim_common.bsh"
@@ -62,10 +63,8 @@ module mkBranchPredAlg
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, BRANCH_INDEX, Bit#(2))
         branchPredTablePool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(1));
 
-    MULTIPLEXED#(NUM_CPUS, COUNTER#(1)) updateInProgress <- mkMultiplexed(mkLCounter(0));
-
     FIFO#(Tuple4#(CPU_INSTANCE_ID, ISA_ADDRESS, Bool, Bool)) newUpdQ <- mkBypassFIFO();
-    FIFO#(Tuple4#(CPU_INSTANCE_ID, BRANCH_INDEX, Bool, Bool)) updQ <- mkFIFO();
+    FIFOF#(Tuple4#(CPU_INSTANCE_ID, BRANCH_INDEX, Bool, Bool)) updQ <- mkFIFOF();
 
     FIFO#(Tuple2#(CPU_INSTANCE_ID, ISA_ADDRESS)) newReqQ <- mkBypassFIFO();
     FIFO#(CPU_INSTANCE_ID) reqQ <- mkFIFO();
@@ -75,8 +74,14 @@ module mkBranchPredAlg
         return truncate(hashBits(addr[31:2]));
     endfunction
 
+    //
+    // cpuIsLockedForUpdate --
+    //     A CPU is locked if an if the prediction table has been read but not
+    //     yet updated.  This code depends on updQ being a FIFO of normal
+    //     size.
+    //
     function cpuIsLockedForUpdate(CPU_INSTANCE_ID iid);
-        return updateInProgress[iid].value() != 0;
+        return updQ.notEmpty() && (tpl_1(updQ.first()) == iid);
     endfunction
 
 
@@ -122,9 +127,6 @@ module mkBranchPredAlg
         let idx = getIdx(addr);
         branchPredTablePool.readPorts[`PORT_UPD].readReq(iid, idx);
 
-        // Lock predictor access for this CPU
-        updateInProgress[iid].up();
-
         updQ.enq(tuple4(iid, idx, pred, actual));
     endrule
 
@@ -141,9 +143,6 @@ module mkBranchPredAlg
             new_counter = (counter == 0) ? 0 : counter - 1;
 
         branchPredTablePool.write(iid, idx, new_counter);
-
-        // Unlock predictor access for this CPU
-        updateInProgress[iid].down();
     endrule
 
 

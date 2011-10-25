@@ -80,7 +80,7 @@ module [HASIM_MODULE] mkCommit ();
 
     // ****** Model State (per Context) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(TOKEN_FAULT_EPOCH)) faultEpochPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED_REG#(NUM_CPUS, TOKEN_FAULT_EPOCH) faultEpochPool <- mkMultiplexedReg(0);
 
     // ****** Ports ******
 
@@ -152,7 +152,7 @@ module [HASIM_MODULE] mkCommit ();
         debugLog.nextModelCycle(cpu_iid);
         
         // Get our local state from the context.
-        Reg#(TOKEN_FAULT_EPOCH) faultEpoch = faultEpochPool[cpu_iid];
+        Reg#(TOKEN_FAULT_EPOCH) faultEpoch = faultEpochPool.getReg(cpu_iid);
         
         let m_bundle <- bundleFromCommitQ.receive(cpu_iid);
         
@@ -228,7 +228,7 @@ module [HASIM_MODULE] mkCommit ();
         match {.cpu_iid, .state} <- stage2Ctrl.nextReadyInstance();
         
         // Get our local state from the context.
-        Reg#(TOKEN_FAULT_EPOCH) faultEpoch = faultEpochPool[cpu_iid];
+        Reg#(TOKEN_FAULT_EPOCH) faultEpoch = faultEpochPool.getReg(cpu_iid);
         
         if (state matches tagged STAGE2_bubble)
         begin

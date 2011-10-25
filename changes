@@ -5033,3 +5033,19 @@ Reduce LUTRAM (no measured simulator performance change in in-order mesh model):
 
 - branch predictor: Move btbValidsPool to BRAM.
 - instq: Move slotsPool and mafPool to BRAM.
+
+----------
+mcadler     Date: Tue Oct 25 11:35:42 EDT 2011  CSN: CSN-hasim-models-171
+                  Tue Oct 25 15:35:42 UTC 2011
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ 2bit-bp-alg.bsv           Locally Modified          170 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          170 
+
+- Use MULTIPLEXED_REG instead of MULTIPLEXED#(..., Reg#()) in commit logic.
+  The former uses a LUTRAM, the latter a vector of registers and muxes.
+
+- More efficient tracking of updates in flight in the branch predictor.
