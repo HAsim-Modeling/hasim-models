@@ -5049,3 +5049,21 @@ Directory modules/hasim/timing-models/pipeline/inorder/commit
   The former uses a LUTRAM, the latter a vector of registers and muxes.
 
 - More efficient tracking of updates in flight in the branch predictor.
+
+----------
+mcadler     Date: Fri Oct 28 08:02:15 EDT 2011  CSN: CSN-hasim-models-172
+                  Fri Oct 28 12:02:15 UTC 2011
+
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          171 
+
+- Use pseudo versions of multi-write port registers for events that are rare.
+  This allows rules that might write to fire and uses a simpler structure.
+  Actual parallel writes are serialized.
+
+- Manage free list LUTRAM read ports explicitly.  Bluespec fails to merge
+  read ports on some mutually exclusive rules.  For our 128 context model
+  each free list read port is 2K x 4 bits.
+
+- Move some LUTRAM storage to BRAM.

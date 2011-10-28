@@ -1,3 +1,22 @@
+//
+// Copyright (C) 2011 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+import FIFOF::*;
 
 // ******* Project Includes *******
 
@@ -125,20 +144,29 @@ endinterface
 
 module [HASIM_MODULE] mkCacheMissTracker 
     // interface:
-        (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ))
-    provisos
-        // Perhaps the dumbest proviso ever.
-        (Add#(TSub#(t_MISS_ID_SZ, 1), t_TMP, t_MISS_ID_SZ));
+        (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ));
 
     // ******* Model State *******
 
     // A LUTRAM to store the free miss IDs. 
     // Initially each entry is initialized to be equal to its index.
-    MULTIPLEXED_LUTRAM#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) freelist <- mkMultiplexedLUTRAMInitializedWith(id);
-    
+    // A multi-read LUTRAM is used to force exactly one read port, even
+    // though multiple methods read the RAM.  The methods are mutually
+    // exclusive.
+    let freeListInitFunc = mapMultiplexedLUTRAMInitFunc(id);
+    MULTIPLEXED_LUTRAM_MULTI_READ#(t_NUM_INSTANCES,
+                                   1,
+                                   CACHE_MISS_INDEX#(t_MISS_ID_SZ),
+                                   CACHE_MISS_INDEX#(t_MISS_ID_SZ))
+        freelist <- mkMultiReadLUTRAM_Multiplexed(mkMultiReadLUTRAMWith(freeListInitFunc));
+
     // A LUTRAM to store which other miss IDs a fill should be returned to,
     // represented as a linked list.
-    MULTIPLEXED_LUTRAM#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillListPool <- mkMultiplexedLUTRAM(?);
+    MEMORY_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
+                            CACHE_MISS_INDEX#(t_MISS_ID_SZ),
+                            CACHE_MISS_INDEX#(t_MISS_ID_SZ))
+        multipleFillListPool <- mkMemory_Multiplexed(mkBRAM());
+
     MULTIPLEXED_LUTRAM_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValidsPool <- mkMultiplexedLUTRAMPseudoMultiWrite(False);
     
     // A register to store the current token that we are returning a fill to, beyond the first.
@@ -149,11 +177,11 @@ module [HASIM_MODULE] mkCacheMissTracker
 
     // A register to store the last load we served. No more loads will be made to this address.
     MULTIPLEXED_REG#(t_NUM_INSTANCES, LINE_ADDRESS) lastServedAddrPool <- mkMultiplexedReg(?);
-    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, Bool) lastServedAddrValidPool <- mkMultiplexedRegMultiWrite(False);
+    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, Bool) lastServedAddrValidPool <- mkMultiplexedRegPseudoMultiWrite(False);
 
     // Track the state of the freelist. Initially the freelist is full and
     // every ID is on the list.
-    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtrPool <- mkMultiplexedRegMultiWrite(minBound);
+    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtrPool <- mkMultiplexedRegPseudoMultiWrite(minBound);
     MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtrPool <- mkMultiplexedReg(maxBound);
     
 
@@ -187,6 +215,26 @@ module [HASIM_MODULE] mkCacheMissTracker
         return (tailPtr + 1) == headPtr;
     
     endfunction
+
+
+    // ******* Rules *******
+
+    //
+    // updateFillToDeliver --
+    //     Deliver multiple fills for a single address?
+    //
+    FIFOF#(Tuple2#(INSTANCE_ID#(t_NUM_INSTANCES), Bool)) updateFillToDeliverQ <- mkFIFOF();
+
+    rule updateFillToDeliver (True);
+        match {.iid, .is_valid} = updateFillToDeliverQ.first();
+        updateFillToDeliverQ.deq();
+
+        let fill_idx <- multipleFillListPool.readRsp(iid);
+
+        Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
+        servingMultipleFills <= is_valid ? tagged Valid fill_idx : tagged Invalid;
+    endrule
+
 
     // ******* Methods *******
     
@@ -241,16 +289,15 @@ module [HASIM_MODULE] mkCacheMissTracker
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTail = runTailPool.getReg(iid);
         Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
         Reg#(Bool) lastServedAddrValid = lastServedAddrValidPool.getRegWithWritePort(iid, 0);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillList = multipleFillListPool.getRAM(iid);
         LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 0);
 
-        let idx = freelist.getRAM(iid).sub(headPtr);
+        let idx = freelist.getRAM(iid, 0).sub(headPtr);
 
         headPtr <= headPtr + 1;
 
         if (lastServedAddrValid && lastServedAddr == addr)
         begin
-            multipleFillList.upd(runTail, idx);
+            multipleFillListPool.write(iid, runTail, idx);
             multipleFillListValids.upd(runTail, True);
         end
 
@@ -278,7 +325,7 @@ module [HASIM_MODULE] mkCacheMissTracker
 
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 1);
 
-        let idx = freelist.getRAM(iid).sub(headPtr);
+        let idx = freelist.getRAM(iid, 0).sub(headPtr);
 
         headPtr <= headPtr + 1;
 
@@ -293,23 +340,24 @@ module [HASIM_MODULE] mkCacheMissTracker
     // Since we're unified this method is load/store-agnostic.
 
     method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid, CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok);
-    
+
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
-        Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), CACHE_MISS_INDEX#(t_MISS_ID_SZ)) multipleFillList = multipleFillListPool.getRAM(iid);
         LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 1);
 
         let miss_idx = missTokIndex(miss_tok);
-        freelist.getRAM(iid).upd(tailPtr, miss_idx);
+        freelist.getRAM(iid, 0).upd(tailPtr, miss_idx);
 
         tailPtr <= tailPtr + 1;
         
-        servingMultipleFills <= multipleFillListValids.sub(miss_idx) ? tagged Valid multipleFillList.sub(miss_idx) : tagged Invalid;
+        multipleFillListPool.readReq(iid, miss_idx);
+        updateFillToDeliverQ.enq(tuple2(iid,
+                                        multipleFillListValids.sub(miss_idx)));
+
         multipleFillListValids.upd(miss_idx, False);
     
     endmethod
 
-    method Maybe#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Maybe#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid) if (! updateFillToDeliverQ.notEmpty());
         Reg#(Maybe#(CACHE_MISS_INDEX#(t_MISS_ID_SZ))) servingMultipleFills = servingMultipleFillsPool.getReg(iid);
         if (servingMultipleFills matches tagged Valid .idx)
         begin
