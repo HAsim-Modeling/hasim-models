@@ -88,7 +88,7 @@ module [HASIM_MODULE] mkIMem
     outctrls[0] = physAddrToICache.ctrl;
     outctrls[1] = iMemToPCCalc.ctrl;
     
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("IMem", inctrls, outctrls);
 
     // Stage 2 data.
     // If Invalid, means there was a bubble input to this stage.

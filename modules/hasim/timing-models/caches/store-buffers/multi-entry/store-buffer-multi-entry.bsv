@@ -117,7 +117,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     outports[1] = creditToDecode.ctrl;
     outports[2] = storeToWriteQ.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Store Buffer", inports, outports);
     
     STAGE_CONTROLLER#(NUM_CPUS, STORE_BUFF_STATE) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(STORE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();

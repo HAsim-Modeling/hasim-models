@@ -140,7 +140,7 @@ module [HASIM_MODULE] mkInstructionQueue
     outctrls[0] = creditToFetch.ctrl;
     outctrls[1] = bundleToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inctrls, unctrl_ctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Instruction Queue", inctrls, unctrl_ctrls, outctrls);
 
     STAGE_CONTROLLER#(NUM_CPUS, Bool) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();

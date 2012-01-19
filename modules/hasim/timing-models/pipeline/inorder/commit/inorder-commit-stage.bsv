@@ -114,7 +114,7 @@ module [HASIM_MODULE] mkCommit ();
     outports[3] = deqToCommitQ.ctrl;
     outports[4] = rewindToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Commit", inports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, COM_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
 

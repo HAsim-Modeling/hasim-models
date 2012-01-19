@@ -152,7 +152,7 @@ module [HASIM_MODULE] mkLastLevelCache();
     outctrls[4]  = rspFromCC.ctrl.out;
     outctrls[5]  = rspToCC.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("LLC", inctrls, outctrls);
 
     STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
@@ -662,7 +662,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
     outctrls[4]  = enqToOCN.ctrl;
     outctrls[5]  = creditToOCN.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Coherence", inctrls, outctrls);
     STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER#(NUM_CPUS, Maybe#(OCN_MSG)) stage3Ctrl <- mkStageController();
 

@@ -109,7 +109,7 @@ module [HASIM_MODULE] mkExecute ();
     outports[4] = bundleFromIssueQ.ctrl.out;
     outports[5] = rewindToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Execute", inports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(EXE_STAGE2_STATE, TOKEN_EPOCH)) stage2Ctrl <- mkBufferedStageController();
 

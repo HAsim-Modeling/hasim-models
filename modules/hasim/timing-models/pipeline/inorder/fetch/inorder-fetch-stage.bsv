@@ -106,7 +106,7 @@ module [HASIM_MODULE] mkFetch ();
     outports[1] = pcToBP.ctrl;
     outports[2] = pcToLP.ctrl;
     
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Fetch", inports, depports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, FETCH_STATE) stage2Ctrl <- mkBufferedStageController();
 

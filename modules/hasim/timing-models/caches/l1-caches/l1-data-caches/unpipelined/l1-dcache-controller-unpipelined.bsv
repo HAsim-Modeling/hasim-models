@@ -170,7 +170,7 @@ module [HASIM_MODULE] mkL1DCache ();
     outports[5] = fillFromMemory.ctrl.out;
     depports[0] = storeReqFromCPU.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("L1 DCache Controller", inports, depports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage3Ctrl <- mkStageController();

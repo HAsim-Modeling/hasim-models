@@ -57,7 +57,7 @@ module [HASIM_MODULE] mkDTLB();
     outports[0] = rspToOutQ.ctrl.out;
     outports[1] = reqFromInQ.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("DTLB", inports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, DTLB_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
 

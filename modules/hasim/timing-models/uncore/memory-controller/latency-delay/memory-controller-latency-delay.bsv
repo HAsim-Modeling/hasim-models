@@ -74,7 +74,7 @@ module [HASIM_MODULE] mkMemoryController();
     Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) notFulls <- mkReg(replicate(replicate(False)));
     
     // Coordinate between the pipeline stages.
-    MULTIPLEX_CONTROLLER#(1)  runCtrl <- mkMultiplexController(Vector::nil);
+    MULTIPLEX_CONTROLLER#(1)  runCtrl <- mkNamedMultiplexController("Memory Controller", Vector::nil);
     DEPENDENCE_CONTROLLER#(1) stage2Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage3Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage4Ctrl <- mkDependenceController();

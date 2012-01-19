@@ -110,7 +110,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
     outports[0] = creditToSB.ctrl;
     outports[1] = storeReqToDCache.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Write Buffer", inports, depports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, WRITE_BUFF_STATE) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(WRITE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();

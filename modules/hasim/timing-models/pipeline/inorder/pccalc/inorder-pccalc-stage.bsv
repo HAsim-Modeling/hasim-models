@@ -112,7 +112,7 @@ module [HASIM_MODULE] mkPCCalc
     outctrls[1]  = nextPCToFetch.ctrl;
     outctrls[2]  = clearToInstQ.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("PC Calc", inctrls, outctrls);
 
     STAGE_CONTROLLER#(NUM_CPUS, PCC_STAGE2_STATE) stage2Ctrl <- mkStageController();
 

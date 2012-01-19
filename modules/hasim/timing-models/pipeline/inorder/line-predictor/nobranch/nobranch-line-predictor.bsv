@@ -37,7 +37,7 @@ module [HASIM_MODULE] mkLinePredictor ();
     inctrls[0]  = pcFromFet.ctrl;
     outctrls[0] = predToFet.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Line Predictor", inctrls, outctrls);
 
 
     // ****** Rules ******

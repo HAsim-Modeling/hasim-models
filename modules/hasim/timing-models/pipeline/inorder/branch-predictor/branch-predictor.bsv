@@ -76,7 +76,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
     outports[0] = predToFet.ctrl;
     outports[1] = attrToFet.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Branch Predictor", inports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, Maybe#(ISA_ADDRESS)) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_CPUS, BP_STAGE3_STATE) stage3Ctrl <- mkBufferedStageController();

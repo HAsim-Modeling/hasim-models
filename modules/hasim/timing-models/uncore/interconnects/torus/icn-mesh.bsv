@@ -211,7 +211,7 @@ module [HASIM_MODULE] mkInterconnect
     outportsR[0] = enqTo[portLocal].ctrl;
     outportsR[1] = creditTo[portLocal].ctrl;
 
-    LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <- mkLocalControllerPlusN(inports, inportsR, outportsR);
+    LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <- mkNamedLocalControllerPlusN("Mesh Network", inports, inportsR, outportsR);
     
     STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple2#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)), VC_STATE#(t_VC_FIFO))) stage3aCtrl <- mkStageController();

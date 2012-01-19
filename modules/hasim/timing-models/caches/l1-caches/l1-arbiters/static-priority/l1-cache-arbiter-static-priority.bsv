@@ -51,7 +51,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
     outctrls[4]  = reqToMemory.ctrl.out;
     outctrls[5]  = rspFromMemory.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("L1 Cache Arbiter", inctrls, outctrls);
     
     function Bool rspForIStream(MEM_OPAQUE opaque);
     

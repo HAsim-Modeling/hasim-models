@@ -118,7 +118,7 @@ module [HASIM_MODULE] mkDMem ();
     outports[3] = searchToWB.ctrl;
     outports[4] = bundleFromDMemQ.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("DMem", inports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE3_STATE) stage3Ctrl <- mkBufferedStageController();
