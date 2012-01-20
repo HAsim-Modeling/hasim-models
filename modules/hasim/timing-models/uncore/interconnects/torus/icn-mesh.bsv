@@ -190,10 +190,6 @@ module [HASIM_MODULE] mkInterconnect
     // one set is NUM_CPUS multiplexed, the other is NUM_STATIONS multiplexed.
     // This local controller variant handles that.
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    inports[0] = enqFromCores.ctrl;
-    inports[1] = creditFromCores.ctrl;
-
     Vector#(11, INSTANCE_CONTROL_IN#(NUM_STATIONS)) inportsR = newVector();
     inportsR[0] = enqFrom[portNorth].ctrl;
     inportsR[1] = enqFrom[portSouth].ctrl;
@@ -207,11 +203,18 @@ module [HASIM_MODULE] mkInterconnect
     inportsR[9] = creditFrom[portLocal].ctrl;
     inportsR[10] = virtualChannelsPool.ctrl;
 
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_STATIONS)) depports = newVector();
+    depports[0] <- mkConvertControllerInstances_IN(enqFromCores.ctrl);
+    depports[1] <- mkConvertControllerInstances_IN(creditFromCores.ctrl);
+
     Vector#(2, INSTANCE_CONTROL_OUT#(NUM_STATIONS)) outportsR = newVector();
     outportsR[0] = enqTo[portLocal].ctrl;
     outportsR[1] = creditTo[portLocal].ctrl;
 
-    LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <- mkNamedLocalControllerPlusN("Mesh Network", inports, inportsR, outportsR);
+    LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <-
+        mkNamedLocalControllerWithActive("Mesh Network",
+                                         valueOf(TSub#(NUM_STATIONS, NUM_CPUS)),
+                                         inportsR, depports, outportsR);
     
     STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage2Ctrl <- mkStageControllerVoid();
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple2#(Vector#(NUM_PORTS, Maybe#(WINNER_INFO)), VC_STATE#(t_VC_FIFO))) stage3aCtrl <- mkStageController();

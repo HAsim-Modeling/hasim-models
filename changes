@@ -5135,3 +5135,13 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
  icn-mesh.bsv              Locally Modified          172 
 
 Use new named versions of controllers to enable scanning.
+
+----------
+mcadler     Date: Fri Jan 20 08:52:59 EST 2012  CSN: CSN-hasim-models-174
+                  Fri Jan 20 13:52:59 UTC 2012
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          173 
+
+Standard local controller now supports extra active instances (memory controller).
