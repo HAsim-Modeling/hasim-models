@@ -14,18 +14,3 @@
 
 def EVENTS.CPU.INSTRUCTION_COMMIT   "COM";
 def STATS.CPU.INSTRUCTION_COMMIT    "Committed Instructions";
-
-def STREAMID.CPU "cpu";
-
-def STREAMS.CPU.PC_VTOA_REQ  "Timing: ITranslate VA 0x%x%08x\n";
-def STREAMS.CPU.FET          "Timing: Fetch PA 0x%x%08x\n";
-def STREAMS.CPU.DEC          "Timing: Decode 0x%x\n";
-def STREAMS.CPU.LOAD_REQ     "Timing: Token %d load req\n";
-def STREAMS.CPU.LOAD_REQ_P   "Timing: Token %d load req [POISON]\n";
-def STREAMS.CPU.LOAD_RSP     "Timing: Token %d load rsp\n";
-def STREAMS.CPU.STORE_REQ    "Timing: Token %d store req\n";
-def STREAMS.CPU.STORE_REQ_P  "Timing: Token %d store req [POISON]\n";
-def STREAMS.CPU.STORE_RSP    "Timing: Token %d store rsp\n";
-def STREAMS.CPU.COMMIT       "Timing: Token %d local commit\n";
-def STREAMS.CPU.POISON       "Timing: Token %d is poisoned!\n";
-def STREAMS.CPU.FAULT_REDIR  "Timing: Fault redirect to 0x%x%08x\n";

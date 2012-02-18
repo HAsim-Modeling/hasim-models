@@ -23,6 +23,9 @@ import FShow::*;
 //HASim library imports
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
+`include "asim/provides/soft_services.bsh"
+`include "asim/provides/soft_services_lib.bsh"
+`include "asim/provides/soft_services_deps.bsh"
 `include "asim/provides/common_services.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/hasim_model_services.bsh"
@@ -34,8 +37,6 @@ import FShow::*;
 
 `include "asim/dict/EVENTS_CPU.bsh"
 `include "asim/dict/STATS_CPU.bsh"
-`include "asim/dict/STREAMID.bsh"
-`include "asim/dict/STREAMS_CPU.bsh"
 
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
@@ -58,7 +59,21 @@ module [HASIM_MODULE] mkPipeline
 
     // Debugging output stream, useful for getting a stream of status messages
     // when running on an FPGA.
-    STREAMS_CLIENT link_streams <- mkStreamsClient_Debug(`STREAMID_CPU);
+    STDIO#(Bit#(64)) stdio <- mkStdIO_Debug();
+
+    let msgPC_VTOA_REQ <- getGlobalStringUID("Timing: ITranslate VA 0x%016llx\n");
+    let msgFET         <- getGlobalStringUID("Timing: Fetch PA 0x%016llx\n");
+    let msgDEC         <- getGlobalStringUID("Timing: Decode 0x%x\n");
+    let msgLOAD_REQ    <- getGlobalStringUID("Timing: TOKEN (%d, %d) load req\n");
+    let msgLOAD_REQ_P  <- getGlobalStringUID("Timing: TOKEN (%d, %d) load req [POISON]\n");
+    let msgLOAD_RSP    <- getGlobalStringUID("Timing: TOKEN (%d, %d) load rsp\n");
+    let msgSTORE_REQ   <- getGlobalStringUID("Timing: TOKEN (%d, %d) store req\n");
+    let msgSTORE_REQ_P <- getGlobalStringUID("Timing: TOKEN (%d, %d) store req [POISON]\n");
+    let msgSTORE_RSP   <- getGlobalStringUID("Timing: TOKEN (%d, %d) store rsp\n");
+    let msgCOMMIT      <- getGlobalStringUID("Timing: TOKEN (%d, %d) local commit\n");
+    let msgPOISON      <- getGlobalStringUID("Timing: TOKEN (%d, %d) is poisoned!\n");
+    let msgFAULT_REDIR <- getGlobalStringUID("Timing: Fault redirect TOKEN (%d, %d) to 0x%016llx\n");
+
 
     //********* State Elements *********//
 
@@ -179,7 +194,7 @@ module [HASIM_MODULE] mkPipeline
         let ctx_id = getContextId(cpu_iid);
         linkToITR.makeReq(initFuncpReqDoITranslate(ctx_id, pc));
         debugLog.record_next_cycle(cpu_iid, $format("Translating virtual address: 0x%h", pc));
-        link_streams.send(`STREAMS_CPU_PC_VTOA_REQ, pc[63:32], pc[31:0]);
+        stdio.printf(msgPC_VTOA_REQ, list1(resize(pc)));
 
     endrule
 
@@ -202,7 +217,7 @@ module [HASIM_MODULE] mkPipeline
             debugLog.record(cpu_iid, $format("Fetching physical address: 0x%h, offset: 0x%h", rsp.physicalAddress, rsp.offset));
 
             Bit#(64) fetch_pa = zeroExtend(rsp.physicalAddress + zeroExtend(rsp.offset));
-            link_streams.send(`STREAMS_CPU_FET, fetch_pa[63:32], fetch_pa[31:0]);
+            stdio.printf(msgFET, list1(resize(fetch_pa)));
         end
 
     endrule
@@ -221,7 +236,7 @@ module [HASIM_MODULE] mkPipeline
         // Tell the functional partition to decode the current instruction and place it in flight.
         linkToDEC.makeReq(initFuncpReqGetDependencies(rsp.contextId, rsp.instruction, pc));
         debugLog.record(cpu_iid, $format("Decoding instruction: 0x%h", rsp.instruction));
-        link_streams.send(`STREAMS_CPU_DEC, rsp.instruction, ?);
+        stdio.printf(msgDEC, list1(resize(rsp.instruction)));
 
         stage4Ctrl.ready(cpu_iid, tuple2(isaIsLoad(rsp.instruction), isaIsStore(rsp.instruction)));
 
@@ -347,9 +362,10 @@ module [HASIM_MODULE] mkPipeline
                     // Request the load(s).
                     linkToLOA.makeReq(initFuncpReqDoLoads(tok));
                     debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
-                    link_streams.send(! tokIsPoisoned(tok) ? `STREAMS_CPU_LOAD_REQ :
-                                                             `STREAMS_CPU_LOAD_REQ_P,
-                                      zeroExtend(tokTokenId(tok)), ?);
+                    stdio.printf(! tokIsPoisoned(tok) ? msgLOAD_REQ :
+                                                        msgLOAD_REQ_P,
+                                 list2(zeroExtend(tokContextId(tok)),
+                                       zeroExtend(tokTokenId(tok))));
 
                 end
                 else if (tokIsStore(tok))
@@ -358,9 +374,10 @@ module [HASIM_MODULE] mkPipeline
                     // Request the store(s)
                     linkToSTO.makeReq(initFuncpReqDoStores(tok));
                     debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
-                    link_streams.send(! tokIsPoisoned(tok) ? `STREAMS_CPU_STORE_REQ :
-                                                             `STREAMS_CPU_STORE_REQ_P,
-                                      zeroExtend(tokTokenId(tok)), ?);
+                    stdio.printf(! tokIsPoisoned(tok) ? msgSTORE_REQ :
+                                                        msgSTORE_REQ_P,
+                                 list2(zeroExtend(tokContextId(tok)),
+                                       zeroExtend(tokTokenId(tok))));
 
                 end
 
@@ -401,9 +418,10 @@ module [HASIM_MODULE] mkPipeline
                 // Request the load(s).
                 linkToLOA.makeReq(initFuncpReqDoLoads(tok));
                 debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do loads"));
-                link_streams.send(! tokIsPoisoned(tok) ? `STREAMS_CPU_LOAD_REQ :
-                                                         `STREAMS_CPU_LOAD_REQ_P,
-                                  zeroExtend(tokTokenId(tok)), ?);
+                stdio.printf(! tokIsPoisoned(tok) ? msgLOAD_REQ :
+                                                    msgLOAD_REQ_P,
+                             list2(zeroExtend(tokContextId(tok)),
+                                   zeroExtend(tokTokenId(tok))));
 
             end
             else if (tokIsStore(tok))
@@ -412,9 +430,10 @@ module [HASIM_MODULE] mkPipeline
                 // Request the store(s)
                 linkToSTO.makeReq(initFuncpReqDoStores(tok));
                 debugLog.record(cpu_iid, fshow(tok.index) + $format(": Do stores"));
-                link_streams.send(! tokIsPoisoned(tok) ? `STREAMS_CPU_STORE_REQ :
-                                                         `STREAMS_CPU_STORE_REQ_P,
-                                  zeroExtend(tokTokenId(tok)), ?);
+                stdio.printf(! tokIsPoisoned(tok) ? msgSTORE_REQ :
+                                                    msgSTORE_REQ_P,
+                             list2(zeroExtend(tokContextId(tok)),
+                                   zeroExtend(tokTokenId(tok))));
 
             end
 
@@ -439,7 +458,8 @@ module [HASIM_MODULE] mkPipeline
             tok = rsp.token;
 
             debugLog.record(cpu_iid, $format("Load ops responded for token: %0d", tokTokenId(tok)));
-            link_streams.send(`STREAMS_CPU_LOAD_RSP, zeroExtend(tokTokenId(tok)), ?);
+            stdio.printf(msgLOAD_RSP, list2(zeroExtend(tokContextId(tok)),
+                                            zeroExtend(tokTokenId(tok))));
 
         end
         else if (tokIsStore(tok))
@@ -452,7 +472,8 @@ module [HASIM_MODULE] mkPipeline
             tok = rsp.token;
 
             debugLog.record(cpu_iid, $format(": Store ops responded for token: %0d", tokTokenId(tok)));
-            link_streams.send(`STREAMS_CPU_STORE_RSP, zeroExtend(tokTokenId(tok)), ?);
+            stdio.printf(msgSTORE_RSP, list2(zeroExtend(tokContextId(tok)),
+                                             zeroExtend(tokTokenId(tok))));
 
         end
         
@@ -472,12 +493,14 @@ module [HASIM_MODULE] mkPipeline
         if (! tokIsPoisoned(tok))
         begin
             debugLog.record(cpu_iid, $format("Locally committing token: %0d", tokTokenId(tok)));
-            link_streams.send(`STREAMS_CPU_COMMIT, zeroExtend(tokTokenId(tok)), ?);
+            stdio.printf(msgCOMMIT, list2(zeroExtend(tokContextId(tok)),
+                                          zeroExtend(tokTokenId(tok))));
         end
         else
         begin
             debugLog.record(cpu_iid, $format("Locally committing POISONED token: %0d", tokTokenId(tok)));
-            link_streams.send(`STREAMS_CPU_POISON, zeroExtend(tokTokenId(tok)), ?);
+            stdio.printf(msgPOISON, list2(zeroExtend(tokContextId(tok)),
+                                          zeroExtend(tokTokenId(tok))));
         end
 
     endrule
@@ -498,7 +521,9 @@ module [HASIM_MODULE] mkPipeline
         begin
 
             debugLog.record(cpu_iid, $format("LCO responded with fault for token: %0d, new PC: 0x%h", tokTokenId(tok), new_addr));
-            link_streams.send(`STREAMS_CPU_FAULT_REDIR, new_addr[63:32], new_addr[31:0]);
+            stdio.printf(msgFAULT_REDIR, list3(zeroExtend(tokContextId(tok)),
+                                               zeroExtend(tokTokenId(tok)),
+                                               resize(new_addr)));
 
             // Next PC following fault
             pc <= new_addr;

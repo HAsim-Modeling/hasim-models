@@ -5145,3 +5145,14 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
  icn-mesh.bsv              Locally Modified          173 
 
 Standard local controller now supports extra active instances (memory controller).
+
+----------
+mcadler     Date: Fri Feb 17 19:29:18 EST 2012  CSN: CSN-hasim-models-175
+                  Sat Feb 18 00:29:18 UTC 2012
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          174 
+ unpipelined-pipeline.dic  Locally Modified          174 
+
+Use STDIO instead of STREAMS.
