@@ -5156,3 +5156,24 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  unpipelined-pipeline.dic  Locally Modified          174 
 
 Use STDIO instead of STREAMS.
+
+----------
+mcadler     Date: Wed Feb 22 10:45:17 EST 2012  CSN: CSN-hasim-models-176
+                  Wed Feb 22 15:45:17 UTC 2012
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          175 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          175 
+
+Fix model deadlock:  sending a request to the functional partition should be treated as
+a channel with credits.  The caller must guarantee to provide buffering space to receive
+all outstanding responses.  Failure to do so can lead to deadlocks in the functional
+partition during contended operations, such as rewind.  In the most recent deadlock,
+rewind backed up due to lack of buffering and a dependence chain in the timing model
+that didn't allow rewind to proceed until some other functional operation could
+complete.  The functional operation was blocked by the rewind.
+
+Debugged completely on hardware using debug scan!

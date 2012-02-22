@@ -167,7 +167,7 @@ module [HASIM_MODULE] mkDecode ();
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Decode", inports, depports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(DEC_STAGE3_STATE, DECODE_STATE)) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(DEC_STAGE4_STATE, DECODE_STATE)) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(DEC_STAGE4_STATE, DECODE_STATE)) stage4Ctrl <- mkBufferedStageController();
 
     // ****** Events ******
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventDec <- mkEventRecorder_Multiplexed(`EVENTS_DECODE_INSTRUCTION_DECODE);
