@@ -16,7 +16,6 @@
 # %attributes hasim model caches
 #
 # %public  l1-instruction-cache.bsv 
-# %private l1-instruction-cache.dic
 #
 # %AWB_END
 # */

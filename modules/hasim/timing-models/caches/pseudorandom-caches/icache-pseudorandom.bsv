@@ -19,7 +19,6 @@ import LFSR::*;
 // ****** Generated Files ******
 
 `include "asim/dict/PARAMS_HASIM_ICACHE.bsh"
-`include "asim/dict/STATS_PSEUDORANDOM_ICACHE.bsh"
 
 
 // mkICache
@@ -101,9 +100,15 @@ module [HASIM_MODULE] mkICache();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statHits       <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_ICACHE_ICACHE_HITS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMisses     <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_ICACHE_ICACHE_MISSES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statRetries    <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_ICACHE_ICACHE_RETRIES);
+    STAT_VECTOR#(NUM_CPUS) statHits <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_ICACHE_HITS",
+                                           "ICache Read Hits"));
+    STAT_VECTOR#(NUM_CPUS) statMisses <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_ICACHE_MISSES",
+                                           "ICache Read Misses"));
+    STAT_VECTOR#(NUM_CPUS) statRetries <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_ICACHE_RETRIES",
+                                           "ICache Read Retries"));
 
 
     // ****** Rules ******

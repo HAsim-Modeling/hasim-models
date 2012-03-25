@@ -31,7 +31,6 @@ import FIFO::*;
 
 // ******* Generated File Imports *******
 
-`include "asim/dict/STATS_L1_DCACHE.bsh"
 `include "asim/dict/PARAMS_HASIM_L1_DCACHE.bsh"
 
 // ****** Local Definitions *******
@@ -182,12 +181,24 @@ module [HASIM_MODULE] mkL1DCache ();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadHit    <- mkStatCounter_Multiplexed(`STATS_L1_DCACHE_READ_HIT);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadMiss   <- mkStatCounter_Multiplexed(`STATS_L1_DCACHE_READ_MISS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadRetry  <- mkStatCounter_Multiplexed(`STATS_L1_DCACHE_READ_RETRY);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteHit   <- mkStatCounter_Multiplexed(`STATS_L1_DCACHE_WRITE_HIT);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteMiss  <- mkStatCounter_Multiplexed(`STATS_L1_DCACHE_WRITE_MISS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteRetry <- mkStatCounter_Multiplexed(`STATS_L1_DCACHE_WRITE_RETRY);
+    STAT_VECTOR#(NUM_CPUS) statReadHit <-
+        mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_HIT",
+                                           "L1 DCache Read Hits"));
+    STAT_VECTOR#(NUM_CPUS) statReadMiss <-
+        mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_MISS",
+                                           "L1 DCache Read Misses"));
+    STAT_VECTOR#(NUM_CPUS) statReadRetry <-
+        mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_RETRY",
+                                           "L1 DCache Read Retries"));
+    STAT_VECTOR#(NUM_CPUS) statWriteHit <-
+        mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_HIT",
+                                           "L1 DCache Write Hits"));
+    STAT_VECTOR#(NUM_CPUS) statWriteMiss <-
+        mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_MISS",
+                                           "L1 DCache Write Misses"));
+    STAT_VECTOR#(NUM_CPUS) statWriteRetry <-
+        mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_RETRY",
+                                           "L1 DCache Write Retries"));
 
 
     // ****** Rules ******

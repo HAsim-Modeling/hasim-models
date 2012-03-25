@@ -1,3 +1,21 @@
+//
+// Copyright (C) 2012 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
 import Vector::*;
 
 `include "asim/provides/hasim_common.bsh"
@@ -13,7 +31,7 @@ import Vector::*;
 `include "asim/provides/hasim_dcache_memory.bsh"
 `include "asim/provides/hasim_icache.bsh"
 `include "asim/provides/hasim_dcache_replacement_algorithm.bsh"
-`include "asim/dict/STATS_SETASSOC_DCACHE_WRITEBACK.bsh"
+
 
 typedef enum {HandleReq, NullReq, CheckTag, HandleRead, HandleWrite, ReadStall, WriteStall, HandleReadWrite, Flush} State deriving (Eq, Bits);
 typedef enum {Null, Read, Write, ReadWrite} RequestType deriving (Eq, Bits);
@@ -99,10 +117,18 @@ module [HASIM_MODULE] mkDCache();
    LocalController local_ctrl <- mkLocalController(inports, outports);
    
    // Stats
-   STAT stat_dcache_read_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_HITS);
-   STAT stat_dcache_read_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_READ_MISSES);
-   STAT stat_dcache_write_hits <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_HITS);
-   STAT stat_dcache_write_misses <- mkStatCounter(`STATS_SETASSOC_DCACHE_WRITEBACK_DCACHE_WRITE_MISSES);
+   STAT_ID statIDs[4] = {
+       statName("SETASSOC_DCACHE_WRITEBACK_READ_HITS", "DCache Read Hits"),
+       statName("SETASSOC_DCACHE_WRITEBACK_READ_MISSES", "DCache Read Misses"),
+       statName("SETASSOC_DCACHE_WRITEBACK_WRITE_HITS", "DCache Write Hits"),
+       statName("SETASSOC_DCACHE_WRITEBACK_WRITE_MISSES", "DCache Write Misses")
+   };
+
+   STAT_VECTOR#(4) stats <- mkStatCounter_Vector(statIDs);
+   let stat_dcache_read_hits = 0;
+   let stat_dcache_read_misses = 1;
+   let stat_dcache_write_hits = 2;
+   let stat_dcache_write_misses = 3;
    
    // rules
    rule handlereq (state == HandleReq);
@@ -249,13 +275,13 @@ module [HASIM_MODULE] mkDCache();
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: True, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleReadWrite;
-		  stat_dcache_write_hits.incr();
+		  stats.incr(stat_dcache_write_hits);
 	       end
 	    else
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: False, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleReadWrite;
-		  stat_dcache_write_misses.incr();
+		  stats.incr(stat_dcache_write_misses);
 	       end
 	 end
       else if (req_type == Read)
@@ -282,13 +308,13 @@ module [HASIM_MODULE] mkDCache();
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_spec, DCacheReplacementAlgorithmInput{accessed_hit: True, accessed_set: tagstore_read, accessed_way: hit_way}));
 		  state <= HandleRead;
-		  stat_dcache_read_hits.incr();
+		  stats.incr(stat_dcache_read_hits);
 	       end
 	    else
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_spec, DCacheReplacementAlgorithmInput{accessed_hit: False, accessed_set: tagstore_read, accessed_way: hit_way}));
 		  state <= HandleRead;
-		  stat_dcache_read_misses.incr();
+		  stats.incr(stat_dcache_read_misses);
 	       end
 	 end
       else if (req_type == Write)
@@ -315,13 +341,13 @@ module [HASIM_MODULE] mkDCache();
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: True, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleWrite;
-		  stat_dcache_write_hits.incr();
+		  stats.incr(stat_dcache_write_hits);
 	       end
 	    else
 	       begin
 		  port_to_replacement_alg.send(tagged Valid tuple2(req_tok_comm, DCacheReplacementAlgorithmInput{accessed_hit: False, accessed_set: tagstore_write, accessed_way: hit_way}));
 		  state <= HandleWrite;
-		  stat_dcache_write_misses.incr();
+		  stats.incr(stat_dcache_write_misses);
 	       end
 	 end
    endrule

@@ -15,7 +15,6 @@
 # %attributes hasim caches
 #
 # %public  dcache-setassoc-writeback.bsv 
-# %private dcache-setassoc-writeback.dic
 #
 # %AWB_END
 # */

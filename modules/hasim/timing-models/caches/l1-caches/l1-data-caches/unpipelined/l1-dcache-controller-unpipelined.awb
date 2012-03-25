@@ -16,7 +16,6 @@
 # %attributes hasim model caches
 #
 # %public  l1-dcache-controller-unpipelined.bsv 
-# %private l1-dcache-controller-unpipelined.dic
 #
 # %param --dynamic WRITE_THROUGH 0 "0 for write back hits on eviction. 1 for write through hits to memory immediately."
 #

@@ -39,7 +39,6 @@ import Vector::*;
 // ****** Generated Files ******
 
 `include "asim/dict/EVENTS_EXECUTE.bsh"
-`include "asim/dict/STATS_EXECUTE.bsh"
 
 
 // mkExecute
@@ -131,8 +130,9 @@ module [HASIM_MODULE] mkExecute ();
 
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventExe <- mkEventRecorder_Multiplexed(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMispred <- mkStatCounter_Multiplexed(`STATS_EXECUTE_BPRED_MISPREDS);
-
+    STAT_VECTOR#(NUM_CPUS) statMispred <-
+        mkStatCounter_Multiplexed(statName("EXECUTE_BPRED_MISPREDS",
+                                           "Branch Mispredicts"));
 
     // ****** Helper functions ******
 

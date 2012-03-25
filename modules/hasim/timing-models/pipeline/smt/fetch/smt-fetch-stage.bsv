@@ -45,7 +45,7 @@ import Vector::*;
 // ****** Generated files ******
 
 `include "asim/dict/EVENTS_FETCH.bsh"
-`include "asim/dict/STATS_FETCH.bsh"
+
 
 // ****** Modules ******
 
@@ -106,8 +106,12 @@ module [HASIM_MODULE] mkFetch (SMTFetch);
 
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventFet <- mkEventRecorder_Multiplexed(`EVENTS_FETCH_INSTRUCTION_FET);
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statCycles  <- mkStatCounter_Multiplexed(`STATS_FETCH_TOTAL_CYCLES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statFet     <- mkStatCounter_Multiplexed(`STATS_FETCH_INSTS_FETCHED);
+    STAT_VECTOR#(NUM_CPUS) statCycles <-
+        mkStatCounter_Multiplexed(statName("FETCH_TOTAL_CYCLES",
+                                           "Total Cycles"));
+    STAT_VECTOR#(NUM_CPUS) statFet <-
+        mkStatCounter_Multiplexed(statName("FETCH_INSTS_FETCHED",
+                                           "Instructions Fetched"));
 
 
     // ****** Rules ******

@@ -45,7 +45,7 @@ import Vector::*;
 // ****** Generated files ******
 
 `include "asim/dict/EVENTS_FETCH.bsh"
-`include "asim/dict/STATS_FETCH.bsh"
+
 
 // ****** Modules ******
 

@@ -18,7 +18,6 @@ import LFSR::*;
 // ****** Generated Files ******
 
 `include "asim/dict/PARAMS_HASIM_DCACHE.bsh"
-`include "asim/dict/STATS_PSEUDORANDOM_DCACHE.bsh"
 
 
 typedef union tagged
@@ -121,13 +120,27 @@ module [HASIM_MODULE] mkDCache();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadHits       <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_HITS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadMisses     <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_MISSES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadRetries    <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_READ_RETRIES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreHits      <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_HITS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreMisses    <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_MISSES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreRetries   <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_WRITE_RETRIES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statPortCollisions <- mkStatCounter_Multiplexed(`STATS_PSEUDORANDOM_DCACHE_DCACHE_PORT_COLLISIONS);
+    STAT_VECTOR#(NUM_CPUS) statLoadHits <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_READ_HITS",
+                                           "DCache Read Hits"));
+    STAT_VECTOR#(NUM_CPUS) statLoadMisses <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_READ_MISSES",
+                                           "DCache Read Misses"));
+    STAT_VECTOR#(NUM_CPUS) statLoadRetries <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_READ_RETRIES",
+                                           "DCache Read Retries"));
+    STAT_VECTOR#(NUM_CPUS) statStoreHits <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_WRITE_HITS",
+                                           "DCache Write Hits"));
+    STAT_VECTOR#(NUM_CPUS) statStoreMisses <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_WRITE_MISSES",
+                                           "DCache Write Misses"));
+    STAT_VECTOR#(NUM_CPUS) statStoreRetries <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_WRITE_RETRIES",
+                                           "DCache Write Retries"));
+    STAT_VECTOR#(NUM_CPUS) statPortCollisions <-
+        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_PORT_COLLISIONS",
+                                           "DCache Port Collisions"));
 
 
     // ****** Rules ******

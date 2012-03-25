@@ -27,11 +27,6 @@ import FIFO::*;
 `include "asim/provides/hasim_l1_icache_alg.bsh"
 `include "asim/provides/hasim_miss_tracker.bsh"
 
-// ******* Generated File Imports *******
-
-`include "asim/dict/STATS_L1_ICACHE.bsh"
-
-
 // ****** Local Definitions *******
 
 
@@ -123,9 +118,15 @@ module [HASIM_MODULE] mkL1ICache ();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statHits    <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_HIT);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMisses  <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_MISS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statRetries <- mkStatCounter_Multiplexed(`STATS_L1_ICACHE_RETRY);
+    STAT_VECTOR#(NUM_CPUS) statHits <-
+        mkStatCounter_Multiplexed(statName("L1_ICACHE_HIT",
+                                           "L1 ICache Controller Read Hits"));
+    STAT_VECTOR#(NUM_CPUS) statMisses <-
+        mkStatCounter_Multiplexed(statName("L1_ICACHE_MISS",
+                                           "L1 ICache Controller Read Misses"));
+    STAT_VECTOR#(NUM_CPUS) statRetries <-
+        mkStatCounter_Multiplexed(statName("L1_ICACHE_RETRY",
+                                           "L1 ICache Controller Read Retries"));
 
     // ****** Rules ******
 

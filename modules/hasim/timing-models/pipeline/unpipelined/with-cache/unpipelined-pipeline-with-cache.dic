@@ -13,4 +13,3 @@
 //
 
 def EVENTS.CPU.INSTRUCTION_COMMIT   "COM";
-def STATS.CPU.INSTRUCTION_COMMIT    "Committed Instructions";

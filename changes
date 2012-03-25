@@ -5177,3 +5177,111 @@ that didn't allow rewind to proceed until some other functional operation could
 complete.  The functional operation was blocked by the rewind.
 
 Debugged completely on hardware using debug scan!
+
+----------
+mcadler     Date: Sun Mar 25 17:02:16 EDT 2012  CSN: CSN-hasim-models-177
+                  Sun Mar 25 21:02:16 UTC 2012
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          176 
+ pccalc.dic                Locally Removed           176 
+ inorder-pccalc-stage.awb  Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          176 
+ commit.dic                Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          176 
+ fetch.dic                 Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ execute.dic               Locally Modified          176 
+ inorder-execute-stage.bsv Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/execute
+ execute.dic               Locally Modified          176 
+ ooo-execute-stage.bsv     Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/commit
+ commit.dic                Locally Modified          176 
+ ooo-commit-stage.bsv      Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/smt/execute
+ execute.dic               Locally Modified          176 
+ smt-execute-stage.bsv     Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/smt/pccalc
+ smt-pccalc-stage.awb      Locally Modified          176 
+ smt-pccalc-stage.bsv      Locally Modified          176 
+ pccalc.dic                Locally Removed           176 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.bsv      Locally Modified          176 
+ commit.dic                Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.bsv       Locally Modified          176 
+ fetch.dic                 Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/smt/instq
+ smt-instq-stage.bsv       Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          176 
+ unpipelined-pipeline-with-cache.dic Locally Modified          176 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          176 
+ unpipelined-pipeline.dic  Locally Modified          176 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.awb  Locally Modified          176 
+ l1-instruction-cache.bsv  Locally Modified          176 
+ l1-instruction-cache.dic  Locally Removed           176 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.awb Locally Modified          176 
+ l1-dcache-controller-unpipelined.bsv Locally Modified          176 
+ l1-dcache-controller-unpipelined.dic Locally Removed           176 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ dcache-direct-mapped-writeback.bsv Locally Modified          176 
+ dcache-direct-mapped-writeback.dic Locally Modified          176 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          176 
+ dcache-direct-mapped-writethrough.dic Locally Modified          176 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.awb   Locally Modified          176 
+ dcache-pseudorandom.dic   Locally Removed           176 
+ icache-pseudorandom.bsv   Locally Modified          176 
+ icache-pseudorandom.dic   Locally Removed           176 
+ dcache-pseudorandom.awb   Locally Modified          176 
+ dcache-pseudorandom.bsv   Locally Modified          176 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          176 
+ icache-direct-mapped.dic  Locally Modified          176 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ dcache-setassoc-writeback.dic Locally Removed           176 
+ dcache-setassoc-writeback.awb Locally Modified          176 
+ dcache-setassoc-writeback.bsv Locally Modified          176 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-set-associative.bsv Locally Modified          176 
+ last-level-cache-no-coherence.bsv Locally Modified          176 
+ last-level-cache-no-coherence.dic Locally Modified          176 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ icache-setassoc.awb       Locally Modified          176 
+ icache-setassoc.bsv       Locally Modified          176 
+ icache-setassoc.dic       Locally Removed           176 
+
+Statistics IDs are now global strings instead of dictionary entries.

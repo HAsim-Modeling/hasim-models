@@ -36,7 +36,6 @@ import FShow::*;
 `include "asim/provides/chip_base_types.bsh"
 
 `include "asim/dict/EVENTS_CPU.bsh"
-`include "asim/dict/STATS_CPU.bsh"
 
 `include "asim/provides/funcp_interface.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
@@ -127,7 +126,9 @@ module [HASIM_MODULE] mkPipeline
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_CPU_INSTRUCTION_COMMIT);
 
     // Stats
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statCom <- mkStatCounter_Multiplexed(`STATS_CPU_INSTRUCTION_COMMIT);
+    STAT_VECTOR#(NUM_CPUS) statCom <-
+        mkStatCounter_Multiplexed(statName("CPU_INSTRUCTION_COMMIT",
+                                           "Committed Instructions"));
 
     Vector#(0, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
     Vector#(0, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();

@@ -1,3 +1,0 @@
-def STATS.L1_ICACHE.HIT    "L1 ICache Controller Read Hits";
-def STATS.L1_ICACHE.MISS   "L1 ICache Controller Read Misses";
-def STATS.L1_ICACHE.RETRY  "L1 ICache Controller Read Retries";

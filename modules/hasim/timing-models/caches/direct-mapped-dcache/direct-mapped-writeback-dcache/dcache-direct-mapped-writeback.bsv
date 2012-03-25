@@ -16,7 +16,6 @@ import FIFO::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
-`include "asim/dict/STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE.bsh"
 `include "asim/dict/PARAMS_HASIM_DCACHE.bsh"
 `include "asim/dict/VDEV_SCRATCH.bsh"
 
@@ -154,12 +153,24 @@ module [HASIM_MODULE] mkDCache();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadHits            <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_READ_HITS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLoadMisses          <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_READ_MISSES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreHits           <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_WRITE_HITS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statStoreMisses         <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_WRITE_MISSES);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statPortCollisionsRead  <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_PORT_COLLISIONS_READ);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statPortCollisionsWrite <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_WRITETHROUGH_DCACHE_DCACHE_PORT_COLLISIONS_WRITE);
+    STAT_VECTOR#(NUM_CPUS) statLoadHits <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_READ_HITS",
+                                           "DCache Read Hits"));
+    STAT_VECTOR#(NUM_CPUS) statLoadMisses <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_READ_MISSES",
+                                           "DCache Read Misses"));
+    STAT_VECTOR#(NUM_CPUS) statStoreHits <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_WRITE_HITS",
+                                           "DCache Write Hits"));
+    STAT_VECTOR#(NUM_CPUS) statStoreMisses <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_WRITE_MISSES",
+                                           "DCache Write Misses"));
+    STAT_VECTOR#(NUM_CPUS) statPortCollisionsRead <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_PORT_COLLISIONS_READ",
+                                           "DCache Port Collisions (Read/Read)"));
+    STAT_VECTOR#(NUM_CPUS) statPortCollisionsWrite <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_PORT_COLLISIONS_WRITE",
+                                           "DCache Port Collisions (Read/Write)"));
 
 
     // ****** Rules ******

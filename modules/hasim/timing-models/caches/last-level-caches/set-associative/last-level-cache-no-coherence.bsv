@@ -19,7 +19,6 @@ import Vector::*;
 
 // ******* Generated File Imports *******
 
-`include "asim/dict/STATS_LLC.bsh"
 `include "asim/dict/EVENTS_LLC.bsh"
 
 // ****** Local Definitions *******
@@ -161,12 +160,24 @@ module [HASIM_MODULE] mkLastLevelCache();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadHit    <- mkStatCounter_Multiplexed(`STATS_LLC_READ_HIT);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadMiss   <- mkStatCounter_Multiplexed(`STATS_LLC_READ_MISS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadRetry  <- mkStatCounter_Multiplexed(`STATS_LLC_READ_RETRY);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteHit   <- mkStatCounter_Multiplexed(`STATS_LLC_WRITE_HIT);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteRetry <- mkStatCounter_Multiplexed(`STATS_LLC_WRITE_RETRY);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statFillRetry  <- mkStatCounter_Multiplexed(`STATS_LLC_FILL_RETRY);
+    STAT_VECTOR#(NUM_CPUS) statReadHit <-
+        mkStatCounter_Multiplexed(statName("LLC_READ_HIT",
+                                           "LLC Read Hits"));
+    STAT_VECTOR#(NUM_CPUS) statReadMiss <-
+        mkStatCounter_Multiplexed(statName("LLC_READ_MISS",
+                                           "LLC Read Misses"));
+    STAT_VECTOR#(NUM_CPUS) statReadRetry <-
+        mkStatCounter_Multiplexed(statName("LLC_READ_RETRY",
+                                           "LLC Read Retries"));
+    STAT_VECTOR#(NUM_CPUS) statWriteHit <-
+        mkStatCounter_Multiplexed(statName("LLC_WRITE_HIT",
+                                           "LLC Write Hits"));
+    STAT_VECTOR#(NUM_CPUS) statWriteRetry <-
+        mkStatCounter_Multiplexed(statName("LLC_WRITE_RETRY",
+                                           "LLC Write Retries"));
+    STAT_VECTOR#(NUM_CPUS) statFillRetry <-
+        mkStatCounter_Multiplexed(statName("LLC_FILL_RETRY",
+                                           "LLC Fill Retries"));
 
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventHit  <- mkEventRecorder_Multiplexed(`EVENTS_LLC_HIT);
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventMiss <- mkEventRecorder_Multiplexed(`EVENTS_LLC_MISS);

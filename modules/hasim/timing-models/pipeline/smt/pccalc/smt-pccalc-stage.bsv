@@ -39,10 +39,6 @@ import Vector::*;
 `include "asim/provides/hasim_model_services.bsh"
 
 
-// ****** Generated files ******
-
-`include "asim/dict/STATS_PCCALC.bsh"
-
 // ASSUMPTIONS made by pccalc:
 //   The input from BranchPrediction refers to the same instruction bundle as
 //   the input from IMem.
@@ -120,7 +116,9 @@ module [HASIM_MODULE] mkPCCalc
 
 
     // ****** Stats ******
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLpBpMismatches <- mkStatCounter_Multiplexed(`STATS_PCCALC_LP_BP_MISMATCHES);
+    STAT_VECTOR#(NUM_CPUS) statLpBpMismatches <-
+        mkStatCounter_Multiplexed(statName("PCCALC_LP_BP_MISMATCHES",
+                                           "Line Prediction/Branch Prediction Mismatches"));
 
     // ****** Rules ******
     

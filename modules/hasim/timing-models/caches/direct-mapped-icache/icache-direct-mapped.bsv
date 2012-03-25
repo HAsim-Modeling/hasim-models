@@ -16,7 +16,6 @@ import FIFO::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
-`include "asim/dict/STATS_DIRECT_MAPPED_ICACHE.bsh"
 `include "asim/dict/PARAMS_HASIM_ICACHE.bsh"
 `include "asim/dict/VDEV_SCRATCH.bsh"
 
@@ -105,8 +104,12 @@ module [HASIM_MODULE] mkICache();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statHits       <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_ICACHE_ICACHE_HITS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statMisses     <- mkStatCounter_Multiplexed(`STATS_DIRECT_MAPPED_ICACHE_ICACHE_MISSES);
+    STAT_VECTOR#(NUM_CPUS) statHits <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_ICACHE_HITS",
+                                           "ICache Hits"));
+    STAT_VECTOR#(NUM_CPUS) statMisses <-
+        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_ICACHE_MISSES",
+                                           "ICache Misses"));
    
     // ****** Model State (Per Instance) *****
    

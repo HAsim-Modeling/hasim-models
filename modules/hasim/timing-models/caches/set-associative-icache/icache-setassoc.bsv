@@ -1,3 +1,21 @@
+//
+// Copyright (C) 2012 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
 import Vector::*;
 
 `include "asim/provides/hasim_common.bsh"
@@ -12,7 +30,6 @@ import Vector::*;
 `include "asim/provides/hasim_icache_memory.bsh"
 `include "asim/provides/hasim_icache_base_types.bsh"
 `include "asim/provides/hasim_icache_replacement_algorithm.bsh"
-`include "asim/dict/STATS_SET_ASSOC_ICACHE.bsh"
 
 typedef enum {HandleReq, HandleReq2, HandleTag, HandleRead, HandleStall1, HandleStall2} State deriving (Eq, Bits);
 
@@ -103,8 +120,14 @@ module [HASIM_MODULE] mkICache();
    LocalController local_ctrl <- mkLocalController(inports, outports); 
    
    // Stats
-   STAT stat_icache_hits <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_HITS);
-   STAT stat_icache_misses <- mkStatCounter(`STATS_SET_ASSOC_ICACHE_ICACHE_MISSES);
+   STAT_ID statIDs[2] = {
+       statName("SET_ASSOC_ICACHE_HITS", "ICache Hits"),
+       statName("SET_ASSOC_ICACHE_MISSES", "ICache Misses")
+   };
+
+   STAT_VECTOR#(2) stats <- mkStatCounter_Vector(statIDs);
+   let stat_icache_hits = 0;
+   let stat_icache_misses = 1;
    
    Reg#(Bool) noRequest <- mkReg(False);
    Reg#(Bool) hit  <- mkReg(False);      
@@ -190,13 +213,13 @@ module [HASIM_MODULE] mkICache();
 	    begin
 	       port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: True, accessed_set: tag_from_bram, accessed_way: hit_way_rec}));
 	       state <= HandleRead;
-	       stat_icache_hits.incr();
+	       stats.incr(stat_icache_hits);
 	    end
 	 else
 	    begin
 	       port_to_replacement_alg.send(tagged Valid tuple2(req_tok, ReplacementAlgorithmInput{accessed_hit: False, accessed_set: tag_from_bram, accessed_way: ?}));
 	       state <= HandleRead;
-	       stat_icache_misses.incr();
+	       stats.incr(stat_icache_misses);
 	    end
       end
      

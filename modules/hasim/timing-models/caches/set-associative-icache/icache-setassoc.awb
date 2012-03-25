@@ -15,7 +15,6 @@
 # %attributes hasim caches
 #
 # %public  icache-setassoc.bsv 
-# %private icache-setassoc.dic
 #
 # %AWB_END
 # */

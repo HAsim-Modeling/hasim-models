@@ -38,7 +38,6 @@ import Vector::*;
 // ****** Generated files ******
 
 `include "asim/dict/EVENTS_COMMIT.bsh"
-`include "asim/dict/STATS_COMMIT.bsh"
 
 
 // mkCommit
@@ -123,7 +122,9 @@ module [HASIM_MODULE] mkCommit ();
 
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_COMMIT_INSTRUCTION_WRITEBACK);
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statCom <- mkStatCounter_Multiplexed(`STATS_COMMIT_INSTS_COMMITTED);
+    STAT_VECTOR#(NUM_CPUS) statCom <-
+        mkStatCounter_Multiplexed(statName("COMMIT_INSTS_COMMITTED",
+                                           "Instructions Committed"));
 
     // ****** Rules ******
     

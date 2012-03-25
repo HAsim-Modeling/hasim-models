@@ -14,7 +14,6 @@
 # %attributes hasim model caches
 #
 # %public dcache-pseudorandom.bsv
-# %private dcache-pseudorandom.dic
 #
 # %param --dynamic DCACHE_LOAD_RETRY_CHANCE 2 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
 # %param --dynamic DCACHE_LOAD_MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."

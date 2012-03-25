@@ -39,11 +39,6 @@ import Vector::*;
 `include "asim/provides/hasim_model_services.bsh"
 
 
-// ****** Generated files ******
-
-`include "asim/dict/STATS_PCCALC.bsh"
-
-
 // ****** Local Datatypes ******
 
 
@@ -118,7 +113,9 @@ module [HASIM_MODULE] mkPCCalc
 
 
     // ****** Stats ******
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statLpBpMismatches <- mkStatCounter_Multiplexed(`STATS_PCCALC_LP_BP_MISMATCHES);
+    STAT_VECTOR#(NUM_CPUS) statLpBpMismatches <-
+        mkStatCounter_Multiplexed(statName("PCCALC_LP_BP_MISMATCHES",
+                                           "Line Prediction/Branch Prediction Mismatches"));
 
     // ****** Rules ******
     

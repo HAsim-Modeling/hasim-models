@@ -16,10 +16,6 @@ import Vector::*;
 `include "asim/provides/hasim_interconnect.bsh"
 `include "asim/provides/hasim_last_level_cache_alg.bsh"
 
-// ******* Generated File Imports *******
-
-`include "asim/dict/STATS_LLC.bsh"
-
 // ****** Local Definitions *******
 
 typedef enum
@@ -152,11 +148,16 @@ module [HASIM_MODULE] mkLastLevelCache();
 
     // ****** Stats ******
 
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadHit    <- mkStatCounter_Multiplexed(`STATS_L1_LLC_READ_HIT);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadMiss   <- mkStatCounter_Multiplexed(`STATS_L1_LLC_READ_MISS);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statReadRetry  <- mkStatCounter_Multiplexed(`STATS_L1_LLC_READ_RETRY);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteHit   <- mkStatCounter_Multiplexed(`STATS_L1_LLC_WRITE_HIT);
-    STAT_RECORDER_MULTIPLEXED#(NUM_CPUS) statWriteRetry <- mkStatCounter_Multiplexed(`STATS_L1_LLC_WRITE_RETRY);
+    STAT_VECTOR#(NUM_CPUS) statReadHit <-
+        mkStatCounter_Multiplexed(statName("L1_LLC_READ_HIT", "LLC Read Hits"));
+    STAT_VECTOR#(NUM_CPUS) statReadMiss <-
+        mkStatCounter_Multiplexed(statName("L1_LLC_READ_MISS", "LLC Read Misses"));
+    STAT_VECTOR#(NUM_CPUS) statReadRetry <-
+        mkStatCounter_Multiplexed(statName("L1_LLC_READ_RETRY", "LLC Read Retries"));
+    STAT_VECTOR#(NUM_CPUS) statWriteHit <-
+        mkStatCounter_Multiplexed(statName("L1_LLC_WRITE_HIT", "LLC Write Hits"));
+    STAT_VECTOR#(NUM_CPUS) statWriteRetry <-
+        mkStatCounter_Multiplexed(statName("L1_LLC_WRITE_RETRY", "LLC Write Retries"));
 
 
     (* conservative_implicit_conditions *)
