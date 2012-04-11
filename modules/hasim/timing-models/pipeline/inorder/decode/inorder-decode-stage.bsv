@@ -138,6 +138,9 @@ module [HASIM_MODULE] mkDecode ();
     DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardLUTRAM();
     // DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardMultiWrite(); // Can be switched for expensive version.
 
+    COUNTER_Z#(CPU_INSTANCE_ID_SZ) nGetDepInFlight <- mkLCounter_Z(0);
+    COUNTER_Z#(CPU_INSTANCE_ID_SZ) nRewindInFlight <- mkLCounter_Z(0);
+
     // ****** Local Controller ******
 
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbExeCtrl  <- mkDependenceController();
@@ -366,6 +369,14 @@ module [HASIM_MODULE] mkDecode ();
     // If we don't have them, request them.
     // If we previously got them, just advance to the next stage.
     
+    // Dependence requests and rewind requests conflict in the functional partition.
+    // The model may deadlock if the queues for both fill.  When one type of
+    // request is outstanding, the other type is blocked here to prevent deadlock.
+    // One request of each is fine, since the response FIFO here guarantees
+    // buffering for at least one outside the functional partition.  Rewind is
+    // expected to be relatively rare, so the effect on simulator performance
+    // is negligible.
+
     // Ports read:
     // * mispredictFromExe
     // * faultFromCom
@@ -375,7 +386,7 @@ module [HASIM_MODULE] mkDecode ();
     // * None
     
     (* conservative_implicit_conditions *)
-    rule stage2_dependencies (True);
+    rule stage2_dependencies (nGetDepInFlight.isZero() || nRewindInFlight.isZero());
 
         // Begin model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
@@ -405,6 +416,7 @@ module [HASIM_MODULE] mkDecode ();
             debugLog.record_next_cycle(cpu_iid, fshow("2: FAULT: ") + fshow(tok));
             
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
+            nRewindInFlight.up();
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
             local_state.epoch.fault = local_state.epoch.fault + 1;
@@ -421,7 +433,9 @@ module [HASIM_MODULE] mkDecode ();
 
             // A mispredict occurred.
             debugLog.record_next_cycle(cpu_iid, fshow("2: MISPREDICT"));
+
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
+            nRewindInFlight.up();
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
             local_state.epoch.branch = local_state.epoch.branch + 1;
@@ -460,6 +474,7 @@ module [HASIM_MODULE] mkDecode ();
                 // We need to retrieve dependencies from the functional partition.
                 debugLog.record_next_cycle(cpu_iid, fshow("2: Request Deps."));
                 getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
+                nGetDepInFlight.up();
                 
                 // Update the bundle in the local state.
                 local_state.currentBundle = bundle;
@@ -522,6 +537,7 @@ module [HASIM_MODULE] mkDecode ();
                 // Get the rewind response.
                 let rsp = rewindToToken.getResp();
                 rewindToToken.deq();
+                nRewindInFlight.down();
                 debugLog.record(cpu_iid, $format("3: REWIND RSP"));
                 
                 // Any tokens we had were rewound, so drop them.
@@ -546,6 +562,7 @@ module [HASIM_MODULE] mkDecode ();
                 // Get the response from the functional partition.
                 let rsp = getDependencies.getResp();
                 getDependencies.deq();
+                nGetDepInFlight.down();
 
                 // Update dependencies.
                 local_state.instToIssue = tagged Valid rsp; 

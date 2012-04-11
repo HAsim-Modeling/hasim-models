@@ -5285,3 +5285,23 @@ Directory modules/hasim/timing-models/caches/set-associative-icache
  icache-setassoc.dic       Locally Removed           176 
 
 Statistics IDs are now global strings instead of dictionary entries.
+
+----------
+mcadler     Date: Wed Apr 11 09:43:02 EDT 2012  CSN: CSN-hasim-models-178
+                  Wed Apr 11 13:43:02 UTC 2012
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          177 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          177 
+
+Rewind and get dependencies share a pipeline in the model but may conflict
+in the functional model if rewind is attempted while too many dependency
+requests are in flight (even for other contexts).  Limit pipelined requests
+to either one category or the other, allowing at most one of a type if
+the other type is already in flight.
+
+This affects model simulation rate only.  Since rewinds are relatively
+infrequent the model performance is about the same.
