@@ -5305,3 +5305,19 @@ the other type is already in flight.
 
 This affects model simulation rate only.  Since rewinds are relatively
 infrequent the model performance is about the same.
+
+----------
+mcadler     Date: Fri Apr 27 21:15:15 EDT 2012  CSN: CSN-hasim-models-179
+                  Sat Apr 28 01:15:15 UTC 2012
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          178 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          178 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          178 
+
+Latest compiler appears not to appreciate partial updates to anonymous structs.

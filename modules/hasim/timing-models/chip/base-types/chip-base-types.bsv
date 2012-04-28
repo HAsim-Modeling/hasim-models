@@ -48,10 +48,27 @@ typedef INSTANCE_ID#(NUM_STATIONS) STATION_IID;
 typedef STATION_IID STATION_ID;
 
 
+typedef struct
+{
+    STATION_ID src;
+    STATION_ID dst;
+    Bool isStore;
+}
+OCN_FLIT_HEAD
+    deriving (Eq, Bits);
+
+typedef struct
+{
+    MEM_OPAQUE opaque;
+    Bool isTail;
+}
+OCN_FLIT_BODY
+    deriving (Eq, Bits);
+
 typedef union tagged
 {
-    struct {STATION_ID src; STATION_ID dst; Bool isStore;} FLIT_HEAD;
-    struct {MEM_OPAQUE opaque; Bool isTail;} FLIT_BODY; // Address?
+    OCN_FLIT_HEAD FLIT_HEAD;
+    OCN_FLIT_BODY FLIT_BODY; // Address?
 }
 OCN_FLIT deriving (Eq, Bits);
 

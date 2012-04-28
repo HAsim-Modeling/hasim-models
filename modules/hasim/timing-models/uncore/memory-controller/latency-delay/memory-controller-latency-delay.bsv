@@ -210,7 +210,7 @@ module [HASIM_MODULE] mkMemoryController();
                     end
                     else
                     begin
-                        qs[lane][vc].enq(tagged FLIT_HEAD {src: ?, dst: info.src, isStore: False});
+                        qs[lane][vc].enq(tagged FLIT_HEAD OCN_FLIT_HEAD {src: ?, dst: info.src, isStore: False});
                         debugLog.record($format("3: Received load from Station %0d", info.src));
                         new_need_load_rsp[lane][vc] = True;
                     end

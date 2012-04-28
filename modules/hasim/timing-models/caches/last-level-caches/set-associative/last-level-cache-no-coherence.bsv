@@ -761,7 +761,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         if (packetizingRsp matches tagged Valid {.op, .vc_idx})
         begin
         
-            let msg = tagged FLIT_BODY {opaque: op, isTail: True};
+            let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
             enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_RSP, vc_idx, msg));
             packetizingRsp <= tagged Invalid;
             rspFromLLC.noDeq(cpu_iid);
@@ -771,7 +771,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         else if (packetizingReq matches tagged Valid {.op, .vc_idx})
         begin
 
-            let msg = tagged FLIT_BODY {opaque: op, isTail: True};
+            let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
             enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_REQ, vc_idx, msg));
             packetizingReq <= tagged Invalid;
             rspFromLLC.noDeq(cpu_iid);
@@ -781,7 +781,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         else if (m_llc_rsp matches tagged Valid .rsp &&& vcToEnq(cpu_iid, `LANE_LLC_RSP) matches tagged Valid .vc_idx)
         begin
         
-            let msg = tagged FLIT_HEAD {src: zeroExtend(cpu_iid), dst: getDst(rsp.physicalAddress), isStore: False};
+            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid), dst: getDst(rsp.physicalAddress), isStore: False};
             enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_RSP, vc_idx, msg));
             packetizingRsp <= tagged Valid tuple2(rsp.opaque, vc_idx);
             rspFromLLC.doDeq(cpu_iid);
@@ -791,7 +791,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         else if (m_llc_req matches tagged Valid .req &&& vcToEnq(cpu_iid, `LANE_LLC_REQ) matches tagged Valid .vc_idx)
         begin
         
-            let msg = tagged FLIT_HEAD {src: zeroExtend(cpu_iid), dst: getDst(req.physicalAddress), isStore: req.isStore};
+            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid), dst: getDst(req.physicalAddress), isStore: req.isStore};
             packetizingReq <= tagged Valid tuple2(req.opaque, vc_idx);
             enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_REQ, vc_idx, msg));
             rspFromLLC.noDeq(cpu_iid);
