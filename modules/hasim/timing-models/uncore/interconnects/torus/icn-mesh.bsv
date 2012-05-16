@@ -24,6 +24,8 @@ import Vector::*;
 import FIFO::*;
 import FIFOF::*;
 import FShow::*;
+import GetPut::*;
+import Connectable::*;
 
 
 // TEMPORARY:
@@ -47,6 +49,7 @@ import FShow::*;
 
 // ****** Generated files ******
 
+`include "awb/rrr/server_stub_ICN_MESH.bsh"
 `include "asim/dict/EVENTS_MESH.bsh"
 
 
@@ -61,6 +64,10 @@ typedef Bit#(TLog#(NUM_PORTS)) PORT_IDX;
 
 typedef 4 NUM_VC_FIFO_ENTRIES;
 
+//
+// The order of port numbering is critical!  North, east, south and west must be
+// the first 4 entries in order to fit in the stationRoutingTable.
+//
 PORT_IDX portNorth  = 0;
 PORT_IDX portEast   = 1;
 PORT_IDX portSouth  = 2;
@@ -103,11 +110,28 @@ typedef struct
 WINNER_INFO 
     deriving (Eq, Bits);
 
+// Get#() for router initialization RRR.
+instance ToGet#(ServerStub_ICN_MESH, Bit#(8));
+    function Get#(Bit#(8)) toGet(ServerStub_ICN_MESH serverStub);
+        Get#(Bit#(8)) f = interface Get#(data_type);
+                              method ActionValue#(Bit#(8)) get();
+                                  let r <- serverStub.acceptRequest_initRoutingTable();
+                                  return r;
+                              endmethod
+                          endinterface;
+        return f;
+    endfunction
+endinstance
+
+//
+// Mesh interconnection network timing.
+//
 module [HASIM_MODULE] mkInterconnect
     // interface:
     ()
     provisos (Alias#(FUNC_FIFO#(MESH_FLIT, NUM_VC_FIFO_ENTRIES), t_VC_FIFO),
-              Alias#(Tuple5#(PORT_IDX, LANE_IDX, VC_IDX, PORT_IDX, VC_IDX), t_OUT_VC_REQ));
+              Alias#(Tuple5#(PORT_IDX, LANE_IDX, VC_IDX, PORT_IDX, VC_IDX), t_OUT_VC_REQ),
+              Alias#(Vector#(NUM_STATIONS, Bit#(2)), t_ROUTING_TABLE));
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_STATIONS) debugLog <- mkTIMEPDebugFile_Multiplexed("interconnect_mesh.out");
 
@@ -117,7 +141,14 @@ module [HASIM_MODULE] mkInterconnect
     Param#(TLog#(NUM_STATIONS)) paramWidth <- mkDynamicParameter(`PARAMS_HASIM_INTERCONNECT_MESH_WIDTH, paramNode);
     Param#(TLog#(NUM_STATIONS)) paramHeight <- mkDynamicParameter(`PARAMS_HASIM_INTERCONNECT_MESH_HEIGHT, paramNode);
     Param#(TLog#(NUM_STATIONS)) paramMemCtrlLoc <- mkDynamicParameter(`PARAMS_HASIM_INTERCONNECT_MESH_MEM_CTRL_LOC, paramNode);
- 
+
+
+    // ******** Initialization from software ********
+    ServerStub_ICN_MESH serverStub <- mkServerStub_ICN_MESH();
+    DEMARSHALLER#(Bit#(8), t_ROUTING_TABLE) routingTableInitQ <- mkSimpleDemarshaller();
+    mkConnection(toGet(serverStub), toPut(routingTableInitQ));
+
+
     // ******** Ports *******
 
     // Queues to/from cores
@@ -238,80 +269,63 @@ module [HASIM_MODULE] mkInterconnect
     STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage6Ctrl <- mkStageController();
     STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage7Ctrl <- mkStageController();
 
+    Reg#(ROUTER_STATE) state <- mkReg(tagged INITIALIZING);
+
+
     // ****** Events ******
     EVENT_RECORDER_MULTIPLEXED#(NUM_STATIONS) eventGrant <- mkEventRecorder_Multiplexed(`EVENTS_MESH_GRANT_VC);
     EVENT_RECORDER_MULTIPLEXED#(NUM_STATIONS) eventGrantArb <- mkEventRecorder_Multiplexed(`EVENTS_MESH_GRANT_VC_ARB);
 
-    // ******** Helper Functions *********
-    
-    // Calculate the 2D position for each router.
-    Reg#(Vector#(NUM_STATIONS, MESH_COORD)) routerRowPosition <- mkRegU();
-    Reg#(Vector#(NUM_STATIONS, MESH_COORD)) routerColPosition <- mkRegU();
-    
-    COUNTER#(MESH_COORD_SZ) curInitID  <- mkLCounter(0);
-    COUNTER#(MESH_COORD_SZ) curInitRow <- mkLCounter(0);
-    COUNTER#(MESH_COORD_SZ) curInitCol <- mkLCounter(0);
-    
-    Reg#(ROUTER_STATE) state <- mkReg(tagged INITIALIZING);
-    
-    function PORT_IDX route(STATION_ID my_id, STATION_ID dst);
-        
-        MESH_COORD dst_row = routerRowPosition[dst];
-        MESH_COORD dst_col = routerColPosition[dst];
-        MESH_COORD my_row  = routerRowPosition[my_id];
-        MESH_COORD my_col  = routerColPosition[my_id];
 
-        STATION_IID cur_pos = 0;
+    // ******** Router Functions *********
+    
+    // The station routing table holds, for each station, the direction of
+    // the next hop to all other stations.  The table stores one of north,
+    // east, south and west.
+    MULTIPLEXED_REG#(NUM_STATIONS, t_ROUTING_TABLE)
+        stationRoutingTable <- mkMultiplexedRegU();
 
+    if ((portNorth > 3) || (portEast > 3) || (portSouth > 3) || (portWest > 3))
+    begin
+        errorM("North, east, south and west port IDs don't fit in the routing table.");
+    end
+    
+    // Pick a link for a packet currently in src heading for dst.
+    function PORT_IDX route(STATION_ID src, STATION_ID dst);
         
-        if (dst_col < my_col)
-            return portWest;
-        else if (dst_col > my_col)
-            return portEast;
+        Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(src);
+
+        if (src == dst)
+        begin
+            return portLocal;
+        end
         else
         begin
-            if (dst_row < my_row)
-                return portNorth;
-            else if (dst_row > my_row)
-                return portSouth;
-            else
-                return portLocal;
+            return zeroExtend(r_table[dst]);
         end
-        
+
     endfunction
 
 
     // ******* Rules *******
 
-    (* conservative_implicit_conditions *)
-    rule initializeRouterPos (state == INITIALIZING);
-    
-        routerRowPosition[curInitID.value()] <= curInitRow.value();
-        routerColPosition[curInitID.value()] <= curInitCol.value();
+    Reg#(STATION_ID) initRTStationID <- mkReg(0);
+
+    rule initRouterTable (True);
+        let t <- toGet(routingTableInitQ).get();
+        $display("ICN_MESH: %0d  0x%h", initRTStationID, t);
+
+        Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(initRTStationID);
+        r_table <= t;
         
-        curInitID.up();
-        
-        if (curInitCol.value() == (paramWidth - 1))
+        if (initRTStationID == fromInteger(valueOf(TSub#(NUM_STATIONS, 1))))
         begin
-
-            curInitCol.setC(0);
-            
-            if (curInitRow.value() == (paramHeight - 1))
-            begin
-                state <= RUNNING;
-            end
-            else
-            begin
-                curInitRow.up();
-            end
-
+            state <= RUNNING;
+            $display("ICN_MESH: Go!");
         end
-        else
-        begin
-            curInitCol.up();
-        end
-
+        initRTStationID <= initRTStationID + 1;
     endrule
+
 
     rule stage1_updateCreditsIn (state == RUNNING);
     

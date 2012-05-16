@@ -16,27 +16,15 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
-#include "awb/provides/hasim_core.h"
-#include "awb/provides/hasim_uncore.h"
+// Uncore with magic memory (no interconnect)
 
-// A single-core chip
+typedef class HASIM_UNCORE_CLASS* HASIM_UNCORE;
 
-typedef class HASIM_CHIP_CLASS* HASIM_CHIP;
-
-class HASIM_CHIP_CLASS
+class HASIM_UNCORE_CLASS
 {
-  private:
-    HASIM_CORE core;
-    HASIM_UNCORE uncore;
-
   public:
-    HASIM_CHIP_CLASS() :
-        core(new HASIM_CORE_CLASS()),
-        uncore(new HASIM_UNCORE_CLASS())
-    {}
+    HASIM_UNCORE_CLASS() {}
+    ~HASIM_UNCORE_CLASS() {}
 
-    ~HASIM_CHIP_CLASS() { delete core; delete uncore; }
-
-    void Init() { uncore->Init(); core->Init(); }
-    void MapContexts(int num_ctxts) { core->MapContexts(num_ctxts); }
+    void Init() {}
 };

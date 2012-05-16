@@ -4,7 +4,8 @@
 
 %attributes hasim memory
 
-%public uncore-magic-memory.bsv 
+%public uncore-magic-memory.bsv
+%public uncore-magic-memory.h
 
 
 %AWB_END

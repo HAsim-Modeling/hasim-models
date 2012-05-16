@@ -120,7 +120,7 @@ module [HASIM_MODULE] mkLastLevelCache();
     CACHE_MISS_TRACKER#(NUM_CPUS, LLC_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
 
     // A RAM To map our miss IDs into the original opaques, that we return to higher levels.
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, LLC_MISS_ID, MEM_OPAQUE) opaquesPool <- mkMultiplexedLUTRAM(?);
+    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, LLC_MISS_ID, MEM_OPAQUE) opaquesPool <- mkMemory_Multiplexed(mkBRAM);
 
     // ****** Ports ******
 
@@ -153,7 +153,7 @@ module [HASIM_MODULE] mkLastLevelCache();
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("LLC", inctrls, outctrls);
 
-    STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(LLC_LOCAL_STATE, Bool)) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, LLC_LOCAL_STATE) stage4Ctrl <- mkStageController(); // XXX TMP
     Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, MEMORY_REQ, Maybe#(CACHE_ENTRY#(VOID)), LLC_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
@@ -190,9 +190,6 @@ module [HASIM_MODULE] mkLastLevelCache();
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
 
-        // Get our local state from the pools.
-        LUTRAM#(LLC_MISS_ID, MEM_OPAQUE) opaques = opaquesPool.getRAM(cpu_iid);
-
         // Make a conglomeration of local information to pass from stage to stage.
         let local_state = initLocalState();
 
@@ -223,6 +220,8 @@ module [HASIM_MODULE] mkLastLevelCache();
             reqFromCC.noDeq(cpu_iid);
         end
 
+        Bool read_opaques = False;
+
         if (m_cc_rsp matches tagged Valid .rsp)
         begin
 
@@ -247,14 +246,16 @@ module [HASIM_MODULE] mkLastLevelCache();
 
                 // Return the fill to higher levels.
                 debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d, LINE: 0x%h", miss_tok.index, fill.physicalAddress));
-                // Replace the opaque with the one for higher levels.
-                fill.opaque = opaques.sub(missTokIndex(miss_tok));
 
                 // Only respond to loads.
                 if (missTokIsLoad(miss_tok))
                 begin
                     local_state.coreQUsed = True;
                     local_state.coreQData = fill;
+
+                    // Replace the opaque with the one for higher levels.
+                    opaquesPool.readReq(cpu_iid, missTokIndex(miss_tok));
+                    read_opaques = True;
                 end
 
                 // See if our allocation will evict a dirty line for writeback.
@@ -279,7 +280,7 @@ module [HASIM_MODULE] mkLastLevelCache();
         end
 
         // Pass this instance on to the next stage.        
-        stage2Ctrl.ready(cpu_iid, local_state);
+        stage2Ctrl.ready(cpu_iid, tuple2(local_state, read_opaques));
 
     endrule
 
@@ -295,7 +296,12 @@ module [HASIM_MODULE] mkLastLevelCache();
 
     rule stage2_evictAndCPUReq (True);
 
-        match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
+        match {.cpu_iid, .local_state, .read_opaques} <- stage2Ctrl.nextReadyInstance();
+
+        if (read_opaques)
+        begin
+            local_state.coreQData.opaque <- opaquesPool.readRsp(cpu_iid);
+        end
 
         // See if we started an eviction in the previous stage.
         if (local_state.writePortUsed)
@@ -405,9 +411,6 @@ module [HASIM_MODULE] mkLastLevelCache();
         // Get the local state from the previous stage.
         match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
 
-        // Get our local state from the pools.
-        LUTRAM#(LLC_MISS_ID, MEM_OPAQUE) opaques = opaquesPool.getRAM(cpu_iid);
-
         // See if we need to finish any cpu responses.
         if (local_state.loadReq matches tagged Valid .req)
         begin
@@ -433,9 +436,6 @@ module [HASIM_MODULE] mkLastLevelCache();
     (* conservative_implicit_conditions *)
     rule stage3_STALL (stage3Stall matches tagged Valid {.cpu_iid, .req, .m_entry, .ls});
     
-        // Get our local state from the pools.
-        LUTRAM#(LLC_MISS_ID, MEM_OPAQUE) opaques = opaquesPool.getRAM(cpu_iid);
-
         let local_state = ls;
 
         //
@@ -555,7 +555,7 @@ module [HASIM_MODULE] mkLastLevelCache();
                     let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, req.physicalAddress);
 
                     // Record the original opaque for returning.
-                    opaques.upd(missTokIndex(miss_tok), req.opaque);
+                    opaquesPool.write(cpu_iid, missTokIndex(miss_tok), req.opaque);
 
                     // Record that we are using the memory queue.
                     local_state.memQUsed = True;

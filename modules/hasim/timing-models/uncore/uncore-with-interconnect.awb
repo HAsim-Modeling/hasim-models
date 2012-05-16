@@ -8,7 +8,8 @@
 
 %attributes hasim memory
 
-%public uncore-with-interconnect.bsv 
+%public uncore-with-interconnect.bsv
+%public uncore-with-interconnect.h
 
 
 %AWB_END

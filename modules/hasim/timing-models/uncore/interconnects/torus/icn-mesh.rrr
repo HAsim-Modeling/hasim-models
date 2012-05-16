@@ -1,0 +1,10 @@
+service ICN_MESH
+{
+    ##
+    ## Initialize the routing table, sending marshalled data.
+    ##
+    server hw (bsv, connection) <- sw (cpp, method)
+    {
+        method initRoutingTable(in UINT8[8] marshalled_data);
+    };
+};

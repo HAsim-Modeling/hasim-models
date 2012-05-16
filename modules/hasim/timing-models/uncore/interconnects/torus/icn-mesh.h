@@ -16,27 +16,35 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
-#include "awb/provides/hasim_core.h"
-#include "awb/provides/hasim_uncore.h"
+//
+// @file icn-mesh.h
+// @brief Configure the routing table
+//
+// @author Michael Adler
+//
 
-// A single-core chip
+#ifndef _ICN_MESH_
+#define _ICN_MESH_
 
-typedef class HASIM_CHIP_CLASS* HASIM_CHIP;
+#include "asim/syntax.h"
 
-class HASIM_CHIP_CLASS
+#include "platforms-module.h"
+#include "awb/provides/rrr.h"
+#include "awb/rrr/client_stub_ICN_MESH.h"
+
+typedef class HASIM_INTERCONNECT_CLASS* HASIM_INTERCONNECT;
+
+class HASIM_INTERCONNECT_CLASS: public PLATFORMS_MODULE_CLASS
 {
   private:
-    HASIM_CORE core;
-    HASIM_UNCORE uncore;
+    // stub
+    ICN_MESH_CLIENT_STUB clientStub;
 
   public:
-    HASIM_CHIP_CLASS() :
-        core(new HASIM_CORE_CLASS()),
-        uncore(new HASIM_UNCORE_CLASS())
-    {}
+    HASIM_INTERCONNECT_CLASS();
+    ~HASIM_INTERCONNECT_CLASS() {};
 
-    ~HASIM_CHIP_CLASS() { delete core; delete uncore; }
-
-    void Init() { uncore->Init(); core->Init(); }
-    void MapContexts(int num_ctxts) { core->MapContexts(num_ctxts); }
+    void Init();
 };
+
+#endif // _ICN_MESH_

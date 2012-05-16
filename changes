@@ -5321,3 +5321,37 @@ Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
  memory-controller-latency-delay.bsv Locally Modified          178 
 
 Latest compiler appears not to appreciate partial updates to anonymous structs.
+
+----------
+mcadler     Date: Wed May 16 11:05:59 EDT 2012  CSN: CSN-hasim-models-180
+                  Wed May 16 15:05:59 UTC 2012
+
+
+Directory modules/hasim/timing-models/chip/multi-core
+ multi-core-chip.h         Locally Modified          179 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          179 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.h Locally Added               0 
+ uncore-with-interconnect.awb Locally Modified          179 
+ uncore-magic-memory.h     Locally Added               0 
+ uncore-magic-memory.awb   Locally Modified          179 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Added               0 
+ icn-mesh.rrr              Locally Added               0 
+ icn-mesh.h                Locally Added               0 
+ icn-mesh.awb              Locally Modified          179 
+ icn-mesh.bsv              Locally Modified          179 
+
+- Add software stubs for uncore.
+
+- The mesh network routing table was too large when simulating 128 nodes.
+  Reduce the size by restructuring the table.  Instead of routing by
+  computing source and destination coordinates, the table now gives
+  a direction of travel for each source/destination pair.  Instead of
+  using hardware, the table itself is computed during initialization
+  in software and scanned in.  For 128 nodes, the routing MUX tree
+  is now derived from a 258-bit vector instead of a 2Kb vector.
