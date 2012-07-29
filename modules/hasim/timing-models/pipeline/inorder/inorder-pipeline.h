@@ -24,10 +24,9 @@ class CORES_SWITCH_CLASS : public COMMAND_SWITCH_INT_CLASS
             VERIFY(arg <= NUM_CPUS, "Told to run more core instances than statically available!");
             numCores = arg;
         }
-        bool ShowSwitch(char* buff)
+        void ShowSwitch(std::ostream& ostr, const string& prefix)
         {
-            strcpy(buff, "[--num-cores=<n>]        Number of cores to simulate.");
-            return true;
+            ostr << prefix << "[--num-cores=<n>]        Number of cores to simulate." << endl;
         }
 };
 

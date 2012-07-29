@@ -5355,3 +5355,22 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   using hardware, the table itself is computed during initialization
   in software and scanned in.  For 128 nodes, the routing MUX tree
   is now derived from a 258-bit vector instead of a 2Kb vector.
+
+----------
+mcadler     Date: Sun Jul 29 14:25:33 EDT 2012  CSN: CSN-hasim-models-181
+                  Sun Jul 29 18:25:33 UTC 2012
+
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.h        Locally Modified          180 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.h            Locally Modified          180 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.h Locally Modified          180 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.h    Locally Modified          180 
+
+Update for new --help argument interface.
