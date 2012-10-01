@@ -135,11 +135,11 @@ module [HASIM_MODULE] mkPipeline
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
     
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage4Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage6Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage7Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage8Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage10Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage4Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage6Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage7Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage8Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage10Ctrl <- mkBufferedStageController();
 
     //********* Rules *********//
 

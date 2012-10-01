@@ -61,7 +61,7 @@ module mkBranchPredAlg
         (BRANCH_PREDICTOR_ALG);
 
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, BRANCH_INDEX, Bit#(2))
-        branchPredTablePool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(1));
+        branchPredTablePool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, 1));
 
     FIFO#(Tuple4#(CPU_INSTANCE_ID, ISA_ADDRESS, Bool, Bool)) newUpdQ <- mkBypassFIFO();
     FIFOF#(Tuple4#(CPU_INSTANCE_ID, BRANCH_INDEX, Bool, Bool)) updQ <- mkFIFOF();

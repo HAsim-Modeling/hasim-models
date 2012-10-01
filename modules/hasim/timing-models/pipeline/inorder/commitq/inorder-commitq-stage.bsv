@@ -72,7 +72,7 @@ module [HASIM_MODULE] mkCommitQueue
 
     // Queue to rendezvous with instructions.
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, COMMITQ_SLOT_ID, DMEM_BUNDLE)
-        bundlesPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead());
+        bundlesPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False));
 
     // Which slot should we allocate into?
     MULTIPLEXED_REG#(NUM_CPUS, COMMITQ_SLOT_ID) nextFreeSlotPool    <- mkMultiplexedReg(0);

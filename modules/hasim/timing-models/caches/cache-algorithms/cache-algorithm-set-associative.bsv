@@ -57,20 +57,20 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
                                        Vector#(t_NUM_WAYS, t_INTERNAL_ENTRY))
         tagStoreBanks <- (storeTagsInScratchpad ?
                               mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED) :
-                              mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead()));
+                              mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False)));
     
     // Smaller cache management meta-data fits in local BRAM
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
                                        3,
                                        Bit#(t_IDX_SIZE),
                                        Vector#(t_NUM_WAYS, Bool))
-        accessedPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(replicate(False)));
+        accessedPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, replicate(False)));
 
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
                                        3,
                                        Bit#(t_IDX_SIZE),
                                        Vector#(t_NUM_WAYS, Bool))
-        validsPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(replicate(False)));
+        validsPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, replicate(False)));
 
 
     //

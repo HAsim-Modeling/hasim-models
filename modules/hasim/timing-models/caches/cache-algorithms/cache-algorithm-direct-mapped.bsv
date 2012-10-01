@@ -48,7 +48,7 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name,
                                        Maybe#(t_INTERNAL_ENTRY))
         tagStore <- (storeTagsInScratchpad ?
                          mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED) :
-                         mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(tagged Invalid)));
+                         mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, tagged Invalid)));
 
     function Maybe#(CACHE_ENTRY#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr, Maybe#(t_INTERNAL_ENTRY) m_entry);
     

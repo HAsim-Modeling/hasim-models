@@ -5374,3 +5374,26 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
  unpipelined-pipeline.h    Locally Modified          180 
 
 Update for new --help argument interface.
+
+----------
+mcadler     Date: Mon Oct  1 18:45:00 EDT 2012  CSN: CSN-hasim-models-182
+                  Mon Oct  1 22:45:00 UTC 2012
+
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ 2bit-bp-alg.bsv           Locally Modified          181 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          181 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          181 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          181 
+ cache-algorithm-direct-mapped.bsv Locally Modified          181 
+
+- Add buffering to stage controllers in the unpipelined models to permit full
+  throughput in functional pipelines.
+
+- Interface change to pseudo-buffered multi-read BRAM.
