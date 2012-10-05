@@ -5500,3 +5500,20 @@ the head of the inorder pipeline:
 - BTB was implemented directly in the inorder model's branch predictor stage
   and it was direct mapped.  Simplified the branch predictor pipeline, doing
   BTB and branch prediction in parallel and now use 4 ways per set by default.
+
+----------
+mcadler     Date: Fri Oct  5 13:33:19 EDT 2012  CSN: CSN-hasim-models-184
+                  Fri Oct  5 17:33:19 UTC 2012
+
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multi-entry
+ btb-multi-entry.bsv       Locally Modified          183 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/n-bit
+ n-bit-bp-alg.bsv          Locally Modified          183 
+
+- Move pseudo-LRU update to the prediction flow instead of the training flow
+  in BTB.  The only reason this wasn't done before was lack of write ports.
+  Moved PLRU to its own storage.
+
+- Add debugging output.

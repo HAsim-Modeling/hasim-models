@@ -62,24 +62,30 @@ module mkBranchTargetPredAlg
               // the offset and the table index.)
               Add#(t_ADDR_TAG_SZ, t_SET_IDX_SZ, t_ADDR_IDX_SZ),
               Alias#(t_ADDR_TAG, Bit#(t_ADDR_TAG_SZ)),
+       
+              // Pseudo-LRU for ways within a set
+              Alias#(t_PLRU, Vector#(n_WAYS, Bool)),
 
               // Type of one way:  maybe indicates whether a prediction exists.
               // The t_ADDR_TAG indicates whether the entry corresponds to a given
               // address index.  The t_ADDR_IDX is the target address (with leading
               // 0's removed.)
               Alias#(t_PRED_WAY, Maybe#(Tuple2#(t_ADDR_TAG, t_ADDR_IDX))),
-       
-              // Pseudo-LRU for ways within a set
-              Alias#(t_PLRU, Vector#(n_WAYS, Bool)),
 
               // Full set
-              Alias#(t_PRED, Tuple2#(t_PLRU, Vector#(n_WAYS, t_PRED_WAY))));
+              Alias#(t_PRED, Vector#(n_WAYS, t_PRED_WAY)));
+
+    DEBUG_FILE debugLog <- mkDebugFile("alg_btb_multi_entry.out");
 
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, t_SET_IDX, t_PRED)
         btbPool <- mkMemoryMultiRead_Multiplexed(
                        mkBRAMBufferedPseudoMultiReadInitialized(False,
-                                                                tuple2(replicate(False),
-                                                                       replicate(tagged Invalid))));
+                                                                replicate(tagged Invalid)));
+
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, t_SET_IDX, t_PLRU)
+        plruPool <- mkMemoryMultiRead_Multiplexed(
+                       mkBRAMBufferedPseudoMultiReadInitialized(False,
+                                                                replicate(False)));
 
     // Lock an entire CPU IID during an update.  This isn't a problem, since
     // HAsim multiplexed timing models only allow one operation per IID to
@@ -87,7 +93,7 @@ module mkBranchTargetPredAlg
     MULTIPLEXED_REG#(NUM_CPUS, Bool) lock <- mkMultiplexedReg(False);
 
     FIFO#(Tuple2#(CPU_INSTANCE_ID, t_ADDR_IDX)) newReqQ <- mkFIFO();
-    FIFO#(Tuple2#(CPU_INSTANCE_ID, t_ADDR_TAG)) reqQ <- mkFIFO();
+    FIFO#(Tuple3#(CPU_INSTANCE_ID, t_SET_IDX, t_ADDR_TAG)) reqQ <- mkFIFO();
     FIFO#(Maybe#(t_ADDR_IDX)) rspQ <- mkSizedFIFO(valueof(NEXT_ADDR_PRED_MIN_RSP_BUFFER_SLOTS));
 
     FIFO#(Tuple3#(CPU_INSTANCE_ID,
@@ -97,6 +103,8 @@ module mkBranchTargetPredAlg
                   t_SET_IDX,
                   t_ADDR_TAG,
                   Maybe#(t_ADDR_IDX))) updQ <- mkFIFO();
+
+    function Bool isTrue(Bool b) = b;
 
     //
     // cpuIsLockedForUpdate --
@@ -144,8 +152,6 @@ module mkBranchTargetPredAlg
     // Update pseudo-LRU access vector.  We do the updates during the upd()
     // phase because the entry is being written already.
     //
-    function Bool isTrue(Bool b) = b;
-
     function t_PLRU updatePLRU(t_PLRU plru, wIdx);
         if (valueOf(n_WAYS) <= 1)
         begin
@@ -176,8 +182,11 @@ module mkBranchTargetPredAlg
         newReqQ.deq();
 
         match {.set, .tag} = setAndTag(addr);
+        debugLog.record($format("<%0d>: Lookup pc=0x%h, set=0x%h, tag=0x%h", iid, pcAddAlignmentBits(addr), set, tag));
+
         btbPool.readPorts[`PORT_PRED].readReq(iid, set);
-        reqQ.enq(tuple2(iid, tag));
+        plruPool.readPorts[`PORT_PRED].readReq(iid, set);
+        reqQ.enq(tuple3(iid, set, tag));
     endrule
 
     //
@@ -185,18 +194,27 @@ module mkBranchTargetPredAlg
     //     Seek matching entry in the BTB and generate a response.
     //
     rule predRsp (True);
-        match {.iid, .tag} = reqQ.first();
+        match {.iid, .set, .tag} = reqQ.first();
         reqQ.deq();
 
-        match {.plru, .btb_entry} <- btbPool.readPorts[`PORT_PRED].readRsp(iid);
-        if (find(matchWay(tag), btb_entry) matches tagged Valid .way)
+        let btb_entry <- btbPool.readPorts[`PORT_PRED].readRsp(iid);
+        let plru <- plruPool.readPorts[`PORT_PRED].readRsp(iid);
+
+        if (findIndex(matchWay(tag), btb_entry) matches tagged Valid .w_idx)
         begin
             // Found a hit in the BTB
-            match {.w_tag, .w_target} = validValue(way);
+            let way = validValue(btb_entry[w_idx]);
+            match {.w_tag, .w_target} = way;
+
+            let plru_upd = updatePLRU(plru, w_idx);
+            plruPool.write(iid, set, plru_upd);
+
+            debugLog.record($format("<%0d>: Hit way=%0d, tgt=0x%h, old_lru=0x%h, new_lru=0x%h", iid, w_idx, pcAddAlignmentBits(w_target), pack(plru), pack(plru_upd)));
             rspQ.enq(tagged Valid w_target);
         end
         else
         begin
+            debugLog.record($format("<%0d>: Miss", iid));
             rspQ.enq(tagged Invalid);
         end
     endrule
@@ -214,7 +232,14 @@ module mkBranchTargetPredAlg
 
         // Read current table value
         match {.set, .tag} = setAndTag(addr);
+
+        if (actual matches tagged Valid .pc)
+            debugLog.record($format("<%0d>: Update pc=0x%h, set=0x%h, tag=0x%h, tgt=0x%h", iid, pcAddAlignmentBits(addr), set, tag, pcAddAlignmentBits(validValue(actual))));
+        else
+            debugLog.record($format("<%0d>: Inval pc=0x%h, set=0x%h, tag=0x%h", iid, pcAddAlignmentBits(addr), set, tag));
+
         btbPool.readPorts[`PORT_UPD].readReq(iid, set);
+        plruPool.readPorts[`PORT_UPD].readReq(iid, set);
 
         updQ.enq(tuple4(iid, set, tag, actual));
     endrule
@@ -229,17 +254,29 @@ module mkBranchTargetPredAlg
 
         unlockCPU(iid);
 
-        match {.plru, .btb_entry} <- btbPool.readPorts[`PORT_UPD].readRsp(iid);
+        let btb_entry <- btbPool.readPorts[`PORT_UPD].readRsp(iid);
+        let plru <- plruPool.readPorts[`PORT_UPD].readRsp(iid);
+
         let w_idx = ?;
         if (findIndex(matchWay(tag), btb_entry) matches tagged Valid .w)
         begin
             // Entry is already in the BTB.  Update the existing way.
             w_idx = w;
+            debugLog.record($format("<%0d>: Update way=%0d, was=0x%h", iid, w_idx, pcAddAlignmentBits(tpl_2(validValue(btb_entry[w_idx])))));
         end
         else
         begin
-            // Entry not yet in the BTB.  Pick a way.
-            w_idx = validValue(findElem(False, plru));
+            // Entry not yet in the BTB.  Pick either an invalid way or the LRU way.
+            if (findElem(tagged Invalid, btb_entry) matches tagged Valid .i)
+            begin
+                w_idx = i;
+                debugLog.record($format("<%0d>: Write unused way=%0d", iid, w_idx));
+            end
+            else
+            begin
+                w_idx = validValue(findElem(False, plru));
+                debugLog.record($format("<%0d>: Write LRU way=%0d, plru=0x%h", iid, w_idx, pack(plru)));
+            end
         end
 
         // Now that a way is picked, update the entry.  Was the instruction
@@ -248,16 +285,14 @@ module mkBranchTargetPredAlg
         begin
             // Yes.  Update target.
             btb_entry[w_idx] = tagged Valid tuple2(tag, tgt);
-            plru = updatePLRU(plru, w_idx);
         end
         else
         begin
             // Not a branch.  Perhaps an alias?  Remove it.
             btb_entry[w_idx] = tagged Invalid;
-            plru[w_idx] = False;
         end
 
-        btbPool.write(iid, set, tuple2(plru, btb_entry));
+        btbPool.write(iid, set, btb_entry);
     endrule
 
 

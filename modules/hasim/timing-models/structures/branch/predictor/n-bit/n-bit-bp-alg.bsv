@@ -45,6 +45,8 @@ module mkBranchPredAlg
     provisos (Alias#(t_PRED_CNT, Bit#(`BP_COUNTER_SIZE)),
               Alias#(t_TABLE_IDX, Bit#(`BP_TABLE_IDX_SIZE)));
 
+    DEBUG_FILE debugLog <- mkDebugFile("alg_bp_n_bit.out");
+
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, t_TABLE_IDX, t_PRED_CNT)
         branchPredTablePool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, ~0 >> 1));
 
@@ -96,7 +98,11 @@ module mkBranchPredAlg
         reqQ.deq();
 
         let counter <- branchPredTablePool.readPorts[`PORT_PRED].readRsp(iid);
-        rspQ.enq(msb(counter) == 1);
+        let taken = (msb(counter) == 1);
+        
+        debugLog.record($format("<%0d>: pred=%d, cnt=%0d", iid, taken, counter));
+
+        rspQ.enq(taken);
     endrule
 
 
@@ -128,6 +134,8 @@ module mkBranchPredAlg
             new_counter = (counter == 0) ? 0 : counter - 1;
 
         branchPredTablePool.write(iid, idx, new_counter);
+
+        debugLog.record($format("<%0d>: Upd idx=%0d, taken=%0d, was=%0d, new=%0d", iid, idx, actual, counter, new_counter));
     endrule
 
 
