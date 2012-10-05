@@ -10,6 +10,7 @@
 %requires hasim_commit
 %requires hasim_branch_pred_alg
 %requires pipeline_base_types
+%requires model_structures_base_types
 %provides hasim_pipeline
 
 %attributes hasim

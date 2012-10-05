@@ -25,6 +25,7 @@ import Vector::*;
 `include "asim/provides/hasim_model_services.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/funcp_interface.bsh"
+`include "asim/provides/model_structures_base_types.bsh"
 `include "asim/provides/hasim_branch_pred_alg.bsh"
 `include "asim/provides/funcp_simulated_memory.bsh"
 
@@ -96,7 +97,10 @@ module [HASIM_MODULE] mkFetch();
             if(bundle.predType == PRED_TYPE_BRANCH_IMM)
             begin
                 debugLog.record($format("Branch Imm upd ") + fshow(bundle));
-                branchPred.upd(0, bundle.pc, bundle.pred, bundle.actual);
+                branchPred.upd(0,
+                               bundle.pc,
+                               bundle.pred == bundle.actual,
+                               bundle.actual);
             end
         end
         else

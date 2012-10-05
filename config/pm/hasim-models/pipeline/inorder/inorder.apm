@@ -36,6 +36,7 @@ Packagehint=hasim-models
 pipeline_base_types=Inorder Pipeline Base Types
 inorder_pipeline_back_end=Inorder Pipeline Back End
 inorder_pipeline_front_end=Inorder Pipeline Front End
+model_structures_base_types=Model Structures Base Types
 
 [Inorder Fetch Stage]
 File=modules/hasim/timing-models/pipeline/inorder/fetch/inorder-fetch-stage.awb
@@ -54,11 +55,8 @@ File=modules/hasim/timing-models/pipeline/inorder/base-types/inorder-pipeline-ba
 Packagehint=hasim-models
 
 [Branch Predictor with Target Buffer/Requires]
-hasim_branch_pred_alg=2 Bit
-
-[2 Bit]
-File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
-Packagehint=hasim-models
+hasim_branch_pred_alg=n-Bit Branch Predictor Algorithm
+hasim_branch_target_buffer=Multi Entry Target Buffer
 
 [Inorder Instruction Queue Stage]
 File=modules/hasim/timing-models/pipeline/inorder/instq/inorder-instq-stage.awb
@@ -112,3 +110,16 @@ write_buffer=Blocking Write Buffer
 commit_stage=Inorder Commit Stage
 commitq_stage=Inorder Commit Queue Stage
 dmem_stage=Inorder DMem Stage
+
+[Model Structures Base Types]
+File=modules/hasim/timing-models/structures/base-types/model-structures-base-types.awb
+Packagehint=hasim-models
+
+[Multi Entry Target Buffer]
+File=modules/hasim/timing-models/structures/branch/target_buffer/multi-entry/btb-multi-entry.awb
+Packagehint=hasim-models
+
+
+[n-Bit Branch Predictor Algorithm]
+File=modules/hasim/timing-models/structures/branch/predictor/n-bit/n-bit-bp-alg.awb
+Packagehint=hasim-models

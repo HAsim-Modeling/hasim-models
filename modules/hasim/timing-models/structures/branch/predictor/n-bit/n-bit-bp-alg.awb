@@ -1,0 +1,10 @@
+%name n-Bit Branch Predictor Algorithm
+%desc n-Bit Branch Predictor Algorithm
+%provides hasim_branch_pred_alg
+
+%attributes hasim model branch_pred algorithm
+
+%public n-bit-bp-alg.bsv
+
+%param BP_TABLE_IDX_SIZE 11 "Branch table (log) size"
+%param BP_COUNTER_SIZE    2 "Branch table prediction counter (log) size"

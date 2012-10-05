@@ -5397,3 +5397,106 @@ Directory modules/hasim/timing-models/caches/cache-algorithms
   throughput in functional pipelines.
 
 - Interface change to pseudo-buffered multi-read BRAM.
+
+----------
+mcadler     Date: Thu Oct  4 21:40:15 EDT 2012  CSN: CSN-hasim-models-183
+                  Fri Oct  5 01:40:15 UTC 2012
+
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified          182 
+
+Directory config/pm/hasim-models/pipeline/smt
+ smt.apm                   Locally Modified          182 
+
+Directory config/pm/hasim-models/pipeline/superscalar-out-of-order
+ superscalar-out-of-order.apm Locally Modified          182 
+ single-issue-out-of-order.apm Locally Modified          182 
+ superscalar-in-order.apm  Locally Modified          182 
+
+Directory modules/hasim/timing-models/structures
+ base-types/               Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/base-types
+ model-structures-base-types.awb Locally Added               0 
+ next-address-predictor-base.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multi-entry
+ btb-multi-entry.awb       Locally Modified          182 
+ btb-multi-entry.bsv       Locally Modified          182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ 2bit/                     Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/2bit
+ 2bit-bp-alg.awb           Locally Removed           182 
+ 2bit-bp-alg.bsv           Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ not-taken/                Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/not-taken
+ not-taken-bp-alg.awb      Locally Removed           182 
+ not-taken-bp-alg.bsv      Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ taken/                    Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/taken
+ taken-bp-alg.awb          Locally Removed           182 
+ taken-bp-alg.bsv          Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ static/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/static
+ static-bp-alg.awb         Locally Added               0 
+ static-bp-alg.bsv         Locally Added               0 
+
+Directory modules/hasim/timing-models/structures/branch/predictor
+ simple/                   Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/simple
+ simple-bp-alg.awb         Locally Removed           182 
+ simple-bp-alg.bsv         Locally Removed           182 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/n-bit
+ n-bit-bp-alg.awb          Locally Added               - 
+ n-bit-bp-alg.bsv          Locally Added               - 
+ 2bit-bp-alg.awb           Locally Removed           182 
+ 2bit-bp-alg.bsv           Locally Removed           182 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          182 
+ branch-predictor.awb      Locally Modified          182 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder.awb               Locally Modified          182 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt.awb                   Locally Modified          182 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ pipeline-6-stage.awb      Locally Modified          182 
+ fetch.bsv                 Locally Modified          182 
+
+Initial cleanup in preparation for moving branch prediction and the BTB to
+the head of the inorder pipeline:
+
+- Define a global type for model structures, where interfaces and base types
+  are kept.  Actual structures thus must conform to a common interface.  For
+  now only next address predictors are defined.
+
+- Branch predictors and BTBs are instances of the general next address
+  predictor interface.
+
+- Branch predictors:
+  - Generalize the 2-bit predictor into an n-bit predictor based on a parameter.
+  - Merge static taken and not taken predictors into a single module with
+    a parameter.
+
+- Add an n-way set-associative BTB.
+
+- BTB was implemented directly in the inorder model's branch predictor stage
+  and it was direct mapped.  Simplified the branch predictor pipeline, doing
+  BTB and branch prediction in parallel and now use 4 ways per set by default.

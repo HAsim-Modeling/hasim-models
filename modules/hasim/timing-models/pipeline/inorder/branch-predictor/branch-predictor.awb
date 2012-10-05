@@ -4,6 +4,7 @@
 %desc Branch Predictor with Target Buffer
 %provides branch_predictor
 %requires hasim_branch_pred_alg
+%requires hasim_branch_target_buffer
 
 %attributes hasim model pipeline inorder
 

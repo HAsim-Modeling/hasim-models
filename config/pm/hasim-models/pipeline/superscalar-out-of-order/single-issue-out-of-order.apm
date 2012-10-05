@@ -56,12 +56,18 @@ hasim_issue=Hasim out-of-order issue
 hasim_fetch=Hasim fetch
 hasim_decode=Hasim decode
 hasim_alu=Hasim ALU
-hasim_branch_pred_alg=2 Bit
+hasim_branch_pred_alg=n-Bit Branch Predictor Algorithm
+model_structures_base_types=Model Structures Base Types
 
 [OOO pipeline types/Params]
 ALU_NUM=1
 FETCH_NUM=1
 
-[2 Bit]
-File=modules/hasim/timing-models/structures/branch/predictor/2bit/2bit-bp-alg.awb
+
+[Model Structures Base Types]
+File=modules/hasim/timing-models/structures/base-types/model-structures-base-types.awb
+Packagehint=hasim-models
+
+[n-Bit Branch Predictor Algorithm]
+File=modules/hasim/timing-models/structures/branch/predictor/n-bit/n-bit-bp-alg.awb
 Packagehint=hasim-models

@@ -20,33 +20,16 @@ import FIFO::*;
 import FIFOF::*;
 import SpecialFIFOs::*;
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/fpga_components.bsh"
-`include "asim/provides/hasim_isa.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/hasim_modellib.bsh"
+`include "awb/provides/fpga_components.bsh"
+`include "awb/provides/hasim_isa.bsh"
 
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/funcp_base_types.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/pipeline_base_types.bsh"
-
-typedef enum
-{
-    BPRED_PATH_UPDATE,
-    BPRED_PATH_PREDICT
-}
-    BPRED_PATH
-        deriving (Eq, Bits);
-
-
-typedef Bit#(`BRANCH_TABLE_SIZE) BRANCH_INDEX;
-
-interface BRANCH_PREDICTOR_ALG;
-    method Action upd(CPU_INSTANCE_ID iid, ISA_ADDRESS addr, Bool pred, Bool actual);
-    method Action getPredReq(CPU_INSTANCE_ID iid, ISA_ADDRESS addr);
-    method ActionValue#(Bool) getPredRsp(CPU_INSTANCE_ID iid);
-    method Action abort(CPU_INSTANCE_ID iid, ISA_ADDRESS addr);
-endinterface
+`include "awb/provides/model_structures_base_types.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/funcp_base_types.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/pipeline_base_types.bsh"
 
 
 //
@@ -58,20 +41,22 @@ endinterface
 
 module mkBranchPredAlg
     // interface:
-        (BRANCH_PREDICTOR_ALG);
+    (BRANCH_PREDICTOR_ALG)
+    provisos (Alias#(t_PRED_CNT, Bit#(`BP_COUNTER_SIZE)),
+              Alias#(t_TABLE_IDX, Bit#(`BP_TABLE_IDX_SIZE)));
 
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, BRANCH_INDEX, Bit#(2))
-        branchPredTablePool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, 1));
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, t_TABLE_IDX, t_PRED_CNT)
+        branchPredTablePool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, ~0 >> 1));
 
-    FIFO#(Tuple4#(CPU_INSTANCE_ID, ISA_ADDRESS, Bool, Bool)) newUpdQ <- mkBypassFIFO();
-    FIFOF#(Tuple4#(CPU_INSTANCE_ID, BRANCH_INDEX, Bool, Bool)) updQ <- mkFIFOF();
+    FIFO#(Tuple3#(CPU_INSTANCE_ID, ISA_ADDRESS, Bool)) newUpdQ <- mkBypassFIFO();
+    FIFOF#(Tuple3#(CPU_INSTANCE_ID, t_TABLE_IDX, Bool)) updQ <- mkFIFOF();
 
     FIFO#(Tuple2#(CPU_INSTANCE_ID, ISA_ADDRESS)) newReqQ <- mkBypassFIFO();
     FIFO#(CPU_INSTANCE_ID) reqQ <- mkFIFO();
-    FIFO#(Bool) rspQ <- mkSizedFIFO(valueof(NUM_CPUS));
+    FIFO#(Bool) rspQ <- mkSizedFIFO(valueof(NEXT_ADDR_PRED_MIN_RSP_BUFFER_SLOTS));
 
-    function BRANCH_INDEX getIdx(ISA_ADDRESS addr);
-        return truncate(hashBits(addr[31:2]));
+    function t_TABLE_IDX getIdx(ISA_ADDRESS addr);
+        return resize(hashBits(pcAddrWithoutAlignmentBits(addr)));
     endfunction
 
     //
@@ -111,7 +96,7 @@ module mkBranchPredAlg
         reqQ.deq();
 
         let counter <- branchPredTablePool.readPorts[`PORT_PRED].readRsp(iid);
-        rspQ.enq(counter > 1);
+        rspQ.enq(msb(counter) == 1);
     endrule
 
 
@@ -120,25 +105,25 @@ module mkBranchPredAlg
     //     Update prediction table.  Only one update per CPU is permitted.
     //
     rule startUpd (! cpuIsLockedForUpdate(tpl_1(newUpdQ.first())));
-        match {.iid, .addr, .pred, .actual} = newUpdQ.first();
+        match {.iid, .addr, .actual} = newUpdQ.first();
         newUpdQ.deq();
 
         // Read current table value
         let idx = getIdx(addr);
         branchPredTablePool.readPorts[`PORT_UPD].readReq(iid, idx);
 
-        updQ.enq(tuple4(iid, idx, pred, actual));
+        updQ.enq(tuple3(iid, idx, actual));
     endrule
 
     rule finishUpd (True);
-        match {.iid, .idx, .pred, .actual} = updQ.first();
+        match {.iid, .idx, .actual} = updQ.first();
         updQ.deq();
 
         let counter <- branchPredTablePool.readPorts[`PORT_UPD].readRsp(iid);
         
-        let new_counter = 0;
+        t_PRED_CNT new_counter;
         if (actual)
-            new_counter = (counter == 3) ? 3 : counter + 1;
+            new_counter = (counter == maxBound) ? maxBound : counter + 1;
         else
             new_counter = (counter == 0) ? 0 : counter - 1;
 
@@ -146,29 +131,24 @@ module mkBranchPredAlg
     endrule
 
 
-    method Action upd(CPU_INSTANCE_ID iid, ISA_ADDRESS addr, Bool pred, Bool actual);
-    
-        newUpdQ.enq(tuple4(iid, addr, pred, actual));
-
-    endmethod
-
     method Action getPredReq(CPU_INSTANCE_ID iid, ISA_ADDRESS addr);
-
         newReqQ.enq(tuple2(iid, addr));
-
     endmethod
 
     method ActionValue#(Bool) getPredRsp(CPU_INSTANCE_ID iid);
-
         rspQ.deq();
         return rspQ.first();
-        
+    endmethod
+
+    method Action upd(CPU_INSTANCE_ID iid,
+                      ISA_ADDRESS addr,
+                      Bool wasCorrect,
+                      Bool actual);
+        newUpdQ.enq(tuple3(iid, addr, actual));
     endmethod
 
     method Action abort(CPU_INSTANCE_ID iid, ISA_ADDRESS addr);
-    
         noAction;
-        
     endmethod
 
 endmodule

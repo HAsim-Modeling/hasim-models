@@ -1,0 +1,9 @@
+%name Static Branch Predictor Algorithm
+%desc Static Branch Predictor Algorithm
+%provides hasim_branch_pred_alg
+
+%attributes hasim model branch_pred algorithm
+
+%public static-bp-alg.bsv
+
+%param BP_STATIC_TAKEN   1   "Static branch prediction:  0 not taken, 1 taken."

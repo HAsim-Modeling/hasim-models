@@ -1,20 +1,10 @@
-#/********************************************************************
-# *
-# * Awb module specification
-# *
-# *******************************************************************/
+%name Multi Entry Target Buffer
+%desc Multi Entry Target Buffer
+%provides hasim_branch_target_buffer
 
-#/*
-# %AWB_START
-#
-# %name Multi Entry
-# %desc Multi Entry Target Buffer
-# %provides hasim_branch_target_buffer
-#
-# %attributes hasim model
-#
-# %public btb-multi-entry.bsv
-#
-# %AWB_END
-# */
+%attributes hasim model
 
+%public btb-multi-entry.bsv
+
+%param BTB_SET_IDX_SIZE 7 "Number of bits for branch target buffer set index."
+%param BTB_NUM_WAYS     4 "Number of ways per branch target buffer set."

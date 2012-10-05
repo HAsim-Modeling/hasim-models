@@ -1,0 +1,9 @@
+%name Model Structures Base Types
+%desc Model Structures Base Types
+%provides model_structures_base_types
+
+%attributes hasim model structures
+
+%public next-address-predictor-base.bsv
+
+%param NEXT_ADDR_PRED_MIN_RSP_BUFFER_SLOTS   8    "Minimum buffer slots in the request/response path of a next address predictor."

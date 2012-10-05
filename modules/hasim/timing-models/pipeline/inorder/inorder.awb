@@ -4,6 +4,7 @@
 %desc Inorder Pipeline
 %provides hasim_pipeline
 %requires inorder_pipeline_front_end inorder_pipeline_back_end pipeline_base_types 
+%requires model_structures_base_types
 
 %attributes hasim model pipeline inorder
 
