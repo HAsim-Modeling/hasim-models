@@ -3,7 +3,7 @@
 %name Inorder Pipeline Front End
 %desc Inorder Pipeline Front End
 %provides inorder_pipeline_front_end
-%requires fetch_stage imem_stage pccalc_stage instq_stage decode_stage branch_predictor line_predictor
+%requires fetch_stage imem_stage pccalc_stage instq_stage decode_stage branch_predictor
 
 %attributes hasim model pipeline inorder
 

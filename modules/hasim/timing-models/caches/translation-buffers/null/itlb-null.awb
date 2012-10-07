@@ -1,19 +1,9 @@
-#/********************************************************************
-# *
-# * Awb module specification
-# *
-# *******************************************************************/
+%name Null ITLB
+%desc Null ITLB
+%provides hasim_itlb
 
-#/*
-# %AWB_START
-#
-# %name Null ITLB
-# %desc Null ITLB
-# %provides hasim_itlb
-#
-# %attributes hasim model caches
-#
-# %public itlb-null.bsv
-#
-# %AWB_END
-# */
+%attributes hasim model caches
+
+%public itlb-null.bsv
+
+%param CPU_TO_ITLB_LATENCY   2   "Address generator latency (either line predictor or branch predictor/BTB latency)"

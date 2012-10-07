@@ -116,7 +116,11 @@ module [HASIM_MODULE] mkDecode ();
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, TOKEN_FAULT_EPOCH)) mispredictFromExe    <- mkPortRecv_Multiplexed("Exe_to_Dec_mispredict", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             faultFromCom         <- mkPortRecv_Multiplexed("Com_to_Dec_fault", 1);
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1);
+    // 0 latency on notification that tokens are ready implies full bypass
+    // of register updates, permitting back-to-back execution of register
+    // dependent instructions.
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 0);
+
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);

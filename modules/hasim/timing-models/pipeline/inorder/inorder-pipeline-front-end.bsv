@@ -24,7 +24,6 @@
 `include "asim/provides/instq_stage.bsh"
 `include "asim/provides/decode_stage.bsh"
 
-`include "asim/provides/line_predictor.bsh"
 `include "asim/provides/branch_predictor.bsh"
 
 module [HASIM_MODULE] mkPipelineFrontEnd ();
@@ -35,8 +34,7 @@ module [HASIM_MODULE] mkPipelineFrontEnd ();
     let iq      <- mkInstructionQueue();
     let decode  <- mkDecode();
 
-    let lp     <- mkLinePredictor();
-    let bp     <- mkBranchPredictor();
+    let bp      <- mkBranchPredictor();
 
 endmodule
 

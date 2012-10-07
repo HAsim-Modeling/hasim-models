@@ -82,9 +82,6 @@ Packagehint=hasim-models
 File=modules/hasim/timing-models/pipeline/inorder/commitq/inorder-commitq-stage.awb
 Packagehint=hasim-models
 
-[No Branch Line Predictor]
-File=modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch/nobranch-line-predictor.awb
-Packagehint=hasim-models
 
 [Inorder Pipeline Front End/Requires]
 decode_stage=Inorder Decode/Issue Stage
@@ -92,7 +89,6 @@ fetch_stage=Inorder Fetch Stage
 instq_stage=Inorder Instruction Queue Stage
 pccalc_stage=Inorder PCCalc Stage
 imem_stage=Inorder IMem Stage
-line_predictor=No Branch Line Predictor
 branch_predictor=Branch Predictor with Target Buffer
 
 [Inorder Pipeline Back End]
@@ -118,7 +114,6 @@ Packagehint=hasim-models
 [Multi Entry Target Buffer]
 File=modules/hasim/timing-models/structures/branch/target_buffer/multi-entry/btb-multi-entry.awb
 Packagehint=hasim-models
-
 
 [n-Bit Branch Predictor Algorithm]
 File=modules/hasim/timing-models/structures/branch/predictor/n-bit/n-bit-bp-alg.awb

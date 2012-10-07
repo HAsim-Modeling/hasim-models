@@ -49,20 +49,19 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)       pcFromFet <- mkPortRecv_Multiplexed("Fet_to_BP_pc", 1);
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)       predToFet <- mkPortSend_Multiplexed("BP_to_Fet_pred");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)       attrToFet <- mkPortSend_Multiplexed("BP_to_Fet_attr");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)       pcFromFet <- mkPortRecv_Multiplexed("Fet_to_BP_pc", 0);
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)       predToFet <- mkPortSend_Multiplexed("BP_to_Fet_newpc");
+
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN) trainingFromExe <- mkPortRecv_Multiplexed("Exe_to_BP_training", 1);
 
 
     // ****** Local Controller ******
 
     Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(1, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = pcFromFet.ctrl;
     inports[1]  = trainingFromExe.ctrl;
     outports[0] = predToFet.ctrl;
-    outports[1] = attrToFet.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Branch Predictor", inports, outports);
 
@@ -116,7 +115,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
     
     // Ports written:
     // * predToFet
-    // * attrToFet
 
     rule stage2_predRsp (True);
         // Get the active instance from the previous stage.
@@ -136,8 +134,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
                     debugLog.record(cpu_iid, $format("2: PRED: %h -> taken; tgt=%h", pc, tgt));
 
                     // Send the responses to the Fetch unit.
-                    predToFet.send(cpu_iid, tagged Valid tgt);
-                    attrToFet.send(cpu_iid, tagged Valid (tagged BranchTaken tgt));
+                    predToFet.send(cpu_iid, tagged Valid (tagged BranchTaken tgt));
                 end
                 else
                 begin
@@ -146,23 +143,20 @@ module [HASIM_MODULE] mkBranchPredictor ();
                     debugLog.record(cpu_iid, $format("2: PRED: %h -> not-taken; taken-tgt=%h", pc, tgt));
 
                     // Send the responses to the Fetch unit.
-                    predToFet.send(cpu_iid, tagged Valid (pc + 4));
-                    attrToFet.send(cpu_iid, tagged Valid (tagged BranchNotTaken tgt));
+                    predToFet.send(cpu_iid, tagged Valid (tagged BranchNotTaken tgt));
                 end
             end
             else
             begin
                 // The BTB doesn't know about it, so we'll go with PC+4.
                 debugLog.record(cpu_iid, $format("2: PRED: %h -> entry invalid", pc));
-                predToFet.send(cpu_iid, tagged Valid (pc + 4));
-                attrToFet.send(cpu_iid, tagged Valid NotBranch);
+                predToFet.send(cpu_iid, tagged Valid NotBranch);
             end
         end
         else
         begin
             // No instruction -- just propagate the bubble.
             predToFet.send(cpu_iid, tagged Invalid);
-            attrToFet.send(cpu_iid, tagged Invalid);
         end
 
         // Proceed to the next stage.

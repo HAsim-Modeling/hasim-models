@@ -89,20 +89,18 @@ module [HASIM_MODULE] mkPCCalc
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindFromExe <- mkPortRecv_Multiplexed("Exe_to_Fet_rewind", 1);
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_OUTPUT) rspFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_response", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) predFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_pred", 2);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR) attrFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 2);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR) attrFromBP  <- mkPortRecv_Multiplexed("Fet_to_PCCALC_attr", 4);
 
 
     // ****** Local Controller ******
 
-    Vector#(5, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
+    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
 
     inctrls[0] = faultFromCom.ctrl;
     inctrls[1] = rewindFromExe.ctrl;
     inctrls[2] = rspFromIMem.ctrl;
-    inctrls[3] = predFromBP.ctrl;
-    inctrls[4] = attrFromBP.ctrl;
+    inctrls[3] = attrFromBP.ctrl;
     outctrls[0]  = enqToInstQ.ctrl;
     outctrls[1]  = nextPCToFetch.ctrl;
     outctrls[2]  = clearToInstQ.ctrl;
@@ -123,7 +121,6 @@ module [HASIM_MODULE] mkPCCalc
     // * rewindFromExe
     // * faultFromCom
     // * rspFromIMem
-    // * predFromBP
     // * attrFromBP
     //
     // Ports written:
@@ -142,11 +139,10 @@ module [HASIM_MODULE] mkPCCalc
         IMEM_EPOCH epoch = epochReg;
 
         // Receive potential new PCs from our incoming ports.
-        let m_rewind     <- rewindFromExe.receive(cpu_iid);
-        let m_fault      <- faultFromCom.receive(cpu_iid);
-        let m_imem_rsp  <- rspFromIMem.receive(cpu_iid);
-        let m_pred_pc    <- predFromBP.receive(cpu_iid);
-        let m_attr <- attrFromBP.receive(cpu_iid);
+        let m_rewind   <- rewindFromExe.receive(cpu_iid);
+        let m_fault    <- faultFromCom.receive(cpu_iid);
+        let m_imem_rsp <- rspFromIMem.receive(cpu_iid);
+        let m_attr     <- attrFromBP.receive(cpu_iid);
 
         PCC_STAGE2_STATE stage2_redirect_state = tagged STAGE2_noredirect;
 
@@ -199,10 +195,16 @@ module [HASIM_MODULE] mkPCCalc
         if (m_imem_rsp matches tagged Valid .imem_rsp)
         begin
 
-            // If m_imem_rsp is valid, it means m_pred_pc and m_attr must be
-            // valid.
-            // assert isValid(m_pred_pc);
-            let pred_pc = validValue(m_pred_pc);
+            // If m_imem_rsp is valid, it means m_attr must be valid.  The direct
+            // path from fetch to here must be the same latency as the path
+            // through the ITLB and ICACHE.  Since this is a static property,
+            // we check only in simulation.
+            if (! isValid(m_attr))
+            begin
+                $display("Branch attr invalid!  Fet_to_PCCALC_attr latency is probably wrong.");
+                $stop(1);
+            end
+
             let attr = validValue(m_attr);
 
             // Check for problems with this bundle.
@@ -241,21 +243,6 @@ module [HASIM_MODULE] mkPCCalc
 
                 redirect = tagged Valid imem_rsp.bundle.virtualAddress;
                 epoch.iCache = epoch.iCache + 1;
-            end
-            else if (imem_rsp.bundle.linePrediction != pred_pc)
-            begin
-                // Line prediction doesn't match branch prediction.
-                // Increment the epoch (we use iCache epoch for this).
-                // Redirect to the branch prediction.
-                // Even though the line prediction was wrong, this instruction
-                // is still correct, so we still want to enqueue it on the
-                // INSTQ.
-                enqueue = True;
-                statLpBpMismatches.incr(cpu_iid);
-                debugLog.record_next_cycle(cpu_iid, $format("1: LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
-
-                redirect = tagged Valid pred_pc;
-                epoch.prediction = epoch.prediction + 1;
             end
             else
             begin

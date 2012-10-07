@@ -5517,3 +5517,54 @@ Directory modules/hasim/timing-models/structures/branch/predictor/n-bit
   Moved PLRU to its own storage.
 
 - Add debugging output.
+
+----------
+mcadler     Date: Sun Oct  7 08:29:58 EDT 2012  CSN: CSN-hasim-models-185
+                  Sun Oct  7 12:29:58 UTC 2012
+
+
+Directory config/pm/hasim-models/pipeline/inorder
+ inorder.apm               Locally Modified          184 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          184 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          184 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          184 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline-front-end.bsv Locally Modified          184 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          184 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          184 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline-front-end.awb Locally Modified          184 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ itlb-null.awb             Locally Modified          184 
+ itlb-null.bsv             Locally Modified          184 
+
+Changes to inorder model:
+
+- Back to back write then read of a register caused a one cycle bubble.
+  Change the target machine to add a bypass for this case by setting
+  "Exe_to_Dec_writeback" port latency to 0.
+
+- Move branch predictor and BTB to the head of the pipeline, replacing
+  the line predictor.
+
+- Change fetch to ITLB latency to 2 to simulate 2 cycle branch prediction.
+
+In typical programs, removing the terrible line predictor (always PC+4)
+and replacing it with a branch predictor has no effect on performance!
+This was especially true before adding the bypass for register-to-register.
+The change does cause fewer rewinds, but the 3 cycle load to use bubble
+slows the machine and the instruction queue hides many front end address
+prediction problems.

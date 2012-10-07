@@ -36,7 +36,7 @@ module [HASIM_MODULE] mkITLB();
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_BUNDLE) reqFromFet <- mkPortRecv_Multiplexed("CPU_to_ITLB_req", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_BUNDLE) reqFromFet <- mkPortRecv_Multiplexed("CPU_to_ITLB_req", `CPU_TO_ITLB_LATENCY);
 
     // Outgoing ports to CPU
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT) rspToIMem <- mkPortSend_Multiplexed("ITLB_to_CPU_rsp");

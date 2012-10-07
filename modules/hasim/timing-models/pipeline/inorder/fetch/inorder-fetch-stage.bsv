@@ -82,15 +82,15 @@ module [HASIM_MODULE] mkFetch ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT_COUNT)                     creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_CREDIT_COUNT) creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(ISA_ADDRESS, IMEM_EPOCH)) newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
 
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) pcToLP <- mkPortSend_Multiplexed("Fet_to_LP_pc");
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR) attrToPCCALC <- mkPortSend_Multiplexed("Fet_to_PCCALC_attr");
 
     // Zero-latency response ports for stage 2.
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) newPCFromLP     <- mkPortRecvDependent_Multiplexed("LP_to_Fet_newpc");
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR) newPCFromBP <- mkPortRecvDependent_Multiplexed("BP_to_Fet_newpc");
 
     // ****** Local Controller ******
         
@@ -100,10 +100,10 @@ module [HASIM_MODULE] mkFetch ();
     inports[0]  = creditFromInstQ.ctrl;
     inports[1]  = newPCFromPCCalc.ctrl;
     inports[2]  = statePool.ctrl;
-    depports[0] = newPCFromLP.ctrl;
+    depports[0] = newPCFromBP.ctrl;
     outports[0] = pcToITLB.ctrl;
     outports[1] = pcToBP.ctrl;
-    outports[2] = pcToLP.ctrl;
+    outports[2] = attrToPCCALC.ctrl;
     
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Fetch", inports, depports, outports);
 
@@ -137,7 +137,7 @@ module [HASIM_MODULE] mkFetch ();
     // * newPCFromPCCalc
     //
     // Ports written:
-    // * pcToLP
+    // * pcToBP
 
     (* conservative_implicit_conditions *)
     rule stage1_LPReq (True);
@@ -170,7 +170,7 @@ module [HASIM_MODULE] mkFetch ();
         // Send the pc to the line predictor
         // We always request a line prediction, even if we don't have a credit
         // in the instruction queue. (Is this OKAY?)
-        pcToLP.send(cpu_iid, tagged Valid local_state.pc);
+        pcToBP.send(cpu_iid, tagged Valid local_state.pc);
 
         stage2Ctrl.ready(cpu_iid, local_state);
 
@@ -181,34 +181,41 @@ module [HASIM_MODULE] mkFetch ();
     // ITLB and Branch Predictors.
     //
     // Ports read:
-    // * newPCFromLP
+    // * newPCFromBP
     //
     // Ports written:
     // * pcToITLB
-    // * pcToBP
+    // * attrToPCCALC
 
     (* conservative_implicit_conditions *)
     rule stage2_fetchReq (True);
 
         match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
 
-        // Get the line prediction
-        // assert isValid(m_line_prediction)
-        let m_line_prediction <- newPCFromLP.receive(cpu_iid);
-        let line_prediction = validValue(m_line_prediction);
+        // Get the branch prediction
+        let m_branch_prediction <- newPCFromBP.receive(cpu_iid);
         
         // See if we have any credits for the instruction queue.
         if (local_state.credits != 0)
         begin
         
-            // The instructionQ still has room...
-            // Send the current PC to the ITLB and Branch predictor and line
-            // predictor
-            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(local_state.epoch, local_state.pc, line_prediction, cpu_iid));
-            pcToBP.send(cpu_iid, tagged Valid local_state.pc);
-
             // Set the pc as predicted
-            local_state.pc = line_prediction;
+            ISA_ADDRESS next_pc;
+            if (m_branch_prediction matches tagged Valid .pred &&&
+                pred matches tagged BranchTaken .tgt)
+            begin
+                next_pc = tgt;
+            end
+            else
+            begin
+                next_pc = local_state.pc + 4;
+            end
+
+            // The instructionQ still has room...
+            // Send the current PC to the ITLB
+            pcToITLB.send(cpu_iid, tagged Valid initIMemBundle(local_state.epoch, local_state.pc, next_pc, cpu_iid));
+            // Send details of the branch prediction to PCCALC
+            attrToPCCALC.send(cpu_iid, m_branch_prediction);
 
             // Use the credit
             local_state.credits = local_state.credits - 1;
@@ -217,6 +224,10 @@ module [HASIM_MODULE] mkFetch ();
             eventFet.recordEvent(cpu_iid, tagged Valid truncate(local_state.pc));
             statFet.incr(cpu_iid);
             debugLog.record(cpu_iid, $format("FETCH ADDR:0x%h", local_state.pc));
+
+            // Update local state for next cycle
+            local_state.pc = next_pc;
+
             localCtrl.endModelCycle(cpu_iid, 1);
 
         end
@@ -232,7 +243,7 @@ module [HASIM_MODULE] mkFetch ();
             
             // Don't request a new address translation or branch prediction.
             pcToITLB.send(cpu_iid, tagged Invalid);
-            pcToBP.send(cpu_iid, tagged Invalid);
+            attrToPCCALC.send(cpu_iid, tagged Invalid);
 
             // End of model cycle. (Path 2)
             localCtrl.endModelCycle(cpu_iid, 2);

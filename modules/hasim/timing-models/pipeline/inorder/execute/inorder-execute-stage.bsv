@@ -294,7 +294,7 @@ module [HASIM_MODULE] mkExecute ();
         begin
 
             // A bubble. 
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
+            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE") + $format(" (IQ: %d, MQ: %d)", isValid(m_bundle), can_enq));
             
             // Tell the next stage to propogate the bubble.
             stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_bubble, epoch));
