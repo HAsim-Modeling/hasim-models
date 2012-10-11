@@ -5568,3 +5568,26 @@ This was especially true before adding the bypass for register-to-register.
 The change does cause fewer rewinds, but the 3 cycle load to use bubble
 slows the machine and the instruction queue hides many front end address
 prediction problems.
+
+----------
+mcadler     Date: Thu Oct 11 08:05:06 EDT 2012  CSN: CSN-hasim-models-186
+                  Thu Oct 11 12:05:06 UTC 2012
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-prf-scoreboard.bsv Locally Modified          185 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          185 
+
+Improve performance by eliminating pipeline hazards in the timing model:
+
+- More buffering in commit queue
+
+- PRF valid tracking in decode stage serialized over 4 stages, making the
+  minimum FMR 4.  There is a version of the tracker that eliminates the
+  serialization completely, but it is much too expensive and takes hours
+  to compile.  The new version reduces the conflict to a minimum of 2
+  cycles by replicating the LUTRAM used to store valid bits -- effectively
+  adding 2 more write ports.  A register is considered valid if its valid
+  bit is set in any LUTRAM.

@@ -32,16 +32,25 @@ interface DECODE_PRF_SCOREBOARD;
 
 endinterface
 
-// mkPRFScoreboardLUTRAM
 
-// A PRF scoreboard that LUTRAM with a single write port.
-// This means all updates to it conflict. Multiple simultaneous
-// updates are buffered and then serially committed.
+//
+// mkPRFScoreboardLUTRAM --
+//     A compromise PRF scoreboard between one with multiple write ports that
+//     support parallel updates of all writebacks and a simple implementation
+//     with only one port.
+//
+//     This version maintains separate LUTRAMs for each source of updates
+//     (execute, cache hit, and cache miss).  A PRF is valid if any one of
+//     those LUTRAMs says it is valid.
+//
+//     While committing buffered updates the scoreboard may not be accessed.
+//
+//     This has significantly better scaling properties than the multi-write-
+//     port version below, which clobbers Bluespec as the number of PRFs
+//     grows large.
+//
 
-// While committing buffered updates the scoreboard may not
-// be accessed.
-
-// This is likely to scale well, but could result in bad performance.
+typedef 3 DEC_PRF_PORTS;
 
 module [HASIM_MODULE] mkPRFScoreboardLUTRAM (DECODE_PRF_SCOREBOARD);
 
@@ -49,107 +58,117 @@ module [HASIM_MODULE] mkPRFScoreboardLUTRAM (DECODE_PRF_SCOREBOARD);
     Integer numFuncpPhyRegisters = valueof(FUNCP_NUM_PHYSICAL_REGS);
     let maxInitReg = numIsaArchRegisters * valueOf(NUM_CONTEXTS);
     
-    
     function Bool initPRFValid(FUNCP_PHYSICAL_REG_INDEX pr);
-    
         return (pr <= fromInteger(maxInitReg - 1));
-    
     endfunction
     
-    LUTRAM#(FUNCP_PHYSICAL_REG_INDEX, Bool) prfValids <- mkLUTRAMWith(initPRFValid);
-    Vector#(TSub#(ISA_MAX_DSTS, 1), FIFOF#(Tuple2#(FUNCP_PHYSICAL_REG_INDEX, Bool))) stalledOps = newVector();
-    
-    Bool stalled = False;
+    // Separate PRF valid arrays for each source of register writes.
+    Vector#(DEC_PRF_PORTS,
+            LUTRAM#(FUNCP_PHYSICAL_REG_INDEX,
+                    Bool)) prfValids <- replicateM(mkLUTRAMWith(initPRFValid));
 
-    for (Integer i = 0; i < (valueof(ISA_MAX_DSTS)-1); i = i + 1)
+    // FIFOs holding pending updates
+    Vector#(DEC_PRF_PORTS,
+            Vector#(TSub#(ISA_MAX_DSTS, 1),
+                    FIFOF#(Tuple2#(FUNCP_PHYSICAL_REG_INDEX, Bool)))) stalledOps = replicate(newVector());
+    
+    // Stall flag indicating pending writes to a specific LUTRAM
+    Vector#(DEC_PRF_PORTS, Bool) stalled = replicate(False);
+
+    function Bool fifoNotEmpty(FIFOF#(t) f) = f.notEmpty();
+
+    // All pending writes must eventually write the prfValids flags
+    for (Integer port = 0; port < valueOf(DEC_PRF_PORTS); port = port + 1)
     begin
+        for (Integer i = 0; i < (valueof(ISA_MAX_DSTS)-1); i = i + 1)
+        begin
+            stalledOps[port][i] <- mkUGLFIFOF();
     
-        stalledOps[i] <- mkFIFOF();
-    
-        rule unstall (stalledOps[i].notEmpty()); // Make the implicit condition explicit.
-        
-            match {.prf, .new_val} = stalledOps[i].first();
+            rule unstall (stalledOps[port][i].notEmpty()); // Make the implicit condition explicit.
+                match {.prf, .new_val} = stalledOps[port][i].first();
             
-            prfValids.upd(prf, new_val);
-            stalledOps[i].deq();
-        
-        endrule
-        
-        stalled = stalled || stalledOps[i].notEmpty();
+                prfValids[port].upd(prf, new_val);
+                stalledOps[port][i].deq();
+            endrule
+        end
+
+        // Is some write pending for LUTRAM "port"
+        stalled[port] = Vector::any(fifoNotEmpty, stalledOps[port]);
     end
 
+    // Is some write pending for any LUTRAM?
+    function Bool anyStalled() = (pack(stalled) != 0);
 
-    Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wb_exe_port = newVector();
-    Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wb_hit_port = newVector();
-    Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wb_miss_port = newVector();
+    //
+    // Instantiate separate interfaces for all possible sources of writes.
+    //
 
-    Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_ISSUE_PORT) issue_port = newVector();
+    Vector#(DEC_PRF_PORTS,
+            Vector#(ISA_MAX_DSTS,
+                    DECODE_PRF_SCOREBOARD_WB_PORT)) wbPorts = replicate(newVector());
 
-    wb_exe_port[0] = interface DECODE_PRF_SCOREBOARD_WB_PORT;
-                    
-                     method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled)  = prfValids.upd(prf, True);
+    Vector#(ISA_MAX_DSTS,
+            DECODE_PRF_SCOREBOARD_ISSUE_PORT) issue_port = newVector();
 
-                 endinterface;
+    // The first register in every group of ISA_MAX_DSTS gets immediate access
+    // to a prfValids write port.
+    for (Integer port = 0; port < valueOf(DEC_PRF_PORTS); port = port + 1)
+    begin
+        wbPorts[port][0] =
+            interface DECODE_PRF_SCOREBOARD_WB_PORT;
+                method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled[port])  = prfValids[port].upd(prf, True);
+            endinterface;
+    end
 
-    wb_hit_port[0] = interface DECODE_PRF_SCOREBOARD_WB_PORT;
-                    
-                     method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled)  = prfValids.upd(prf, True);
+    issue_port[0] =
+        interface DECODE_PRF_SCOREBOARD_ISSUE_PORT;
+            method Action unready(FUNCP_PHYSICAL_REG_INDEX prf) if (!anyStalled);
+                for (Integer port = 0; port < valueOf(DEC_PRF_PORTS); port = port + 1)
+                begin
+                    prfValids[port].upd(prf, False);
+                end
+            endmethod
+        endinterface;
 
-                 endinterface;
-
-
-    wb_miss_port[0] = interface DECODE_PRF_SCOREBOARD_WB_PORT;
-                    
-                     method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled)  = prfValids.upd(prf, True);
-
-                 endinterface;
-
-
-    issue_port[0] = interface DECODE_PRF_SCOREBOARD_ISSUE_PORT;
-                    
-                     method Action unready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled) = prfValids.upd(prf, False);
-
-                 endinterface;
-
+    // Other registers in ISA_MAX_DSTS groups are buffered in stallOps ports
+    // and will be written later.  In order to maintain proper order, no new
+    // requests will be accepted until these writes complete.
     for (Integer i = 1; i < valueof(ISA_MAX_DSTS); i = i + 1)
     begin
-    
-        wb_exe_port[i] = interface DECODE_PRF_SCOREBOARD_WB_PORT;
-                    
-                     method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled)   = stalledOps[i-1].enq(tuple2(prf, True));
-
-                 endinterface;
+        for (Integer port = 0; port < valueOf(DEC_PRF_PORTS); port = port + 1)
+        begin
+            wbPorts[port][i] =
+                interface DECODE_PRF_SCOREBOARD_WB_PORT;
+                    method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled[port])   = stalledOps[port][i-1].enq(tuple2(prf, True));
+                endinterface;
+        end
         
-        wb_hit_port[i] = interface DECODE_PRF_SCOREBOARD_WB_PORT;
-                    
-                     method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled)   = stalledOps[i-1].enq(tuple2(prf, True));
-
-                 endinterface;
-
-        wb_miss_port[i] = interface DECODE_PRF_SCOREBOARD_WB_PORT;
-                    
-                     method Action ready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled)   = stalledOps[i-1].enq(tuple2(prf, True));
-
-                 endinterface;
-        
-        issue_port[i] = interface DECODE_PRF_SCOREBOARD_ISSUE_PORT;
-                    
-                     method Action unready(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled) = stalledOps[i-1].enq(tuple2(prf, False));
-
-                 endinterface;
-
+        issue_port[i] =
+            interface DECODE_PRF_SCOREBOARD_ISSUE_PORT;
+                method Action unready(FUNCP_PHYSICAL_REG_INDEX prf) if (!anyStalled);
+                    for (Integer port = 0; port < valueOf(DEC_PRF_PORTS); port = port + 1)
+                    begin
+                        stalledOps[port][i-1].enq(tuple2(prf, False));
+                    end
+                endmethod
+            endinterface;
     end
     
-    interface wbExe = wb_exe_port;
-    interface wbHit = wb_hit_port;
-    interface wbMiss = wb_miss_port;
+    interface wbExe = wbPorts[0];
+    interface wbHit = wbPorts[1];
+    interface wbMiss = wbPorts[2];
     
     interface issue = issue_port;
 
-    method Bool isReady(FUNCP_PHYSICAL_REG_INDEX prf) if (!stalled) = prfValids.sub(prf);
-    
+    method Bool isReady(FUNCP_PHYSICAL_REG_INDEX prf) if (!anyStalled);
+        function Bool regIsValid(LUTRAM#(FUNCP_PHYSICAL_REG_INDEX,
+                                         Bool) v) = v.sub(prf);
+
+        return Vector::any(regIsValid, prfValids);
+    endmethod
 
 endmodule
+
 
 // mkPRFScoreboardMultiWrite
 

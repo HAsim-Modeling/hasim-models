@@ -109,9 +109,9 @@ module [HASIM_MODULE] mkCommitQueue
 
     LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkNamedLocalControllerWithUncontrolled("Commit Queue", inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(COMMITQ_SLOT_ID)) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(COMMITQ_SLOT_ID)) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkBufferedStageControllerVoid();
 
 
     // ****** Rules ******
