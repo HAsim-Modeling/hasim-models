@@ -25,7 +25,7 @@ module [HASIM_MODULE] mkChip();
     outctrls[0]  = reqFromCore.ctrl.out;
     outctrls[1]  = rspToCore.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Single Core Chip", inctrls, outctrls);
 
     rule stage1_delay (True);
     

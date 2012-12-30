@@ -5591,3 +5591,13 @@ Improve performance by eliminating pipeline hazards in the timing model:
   cycles by replicating the LUTRAM used to store valid bits -- effectively
   adding 2 more write ports.  A register is considered valid if its valid
   bit is set in any LUTRAM.
+
+----------
+mcadler     Date: Sun Dec 30 09:36:38 EST 2012  CSN: CSN-hasim-models-187
+                  Sun Dec 30 14:36:38 UTC 2012
+
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.bsv      Locally Modified          186 
+
+Add a name to the single core chip's local controller node.
