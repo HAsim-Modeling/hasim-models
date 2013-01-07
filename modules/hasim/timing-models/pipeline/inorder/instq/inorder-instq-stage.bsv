@@ -143,8 +143,12 @@ module [HASIM_MODULE] mkInstructionQueue
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Instruction Queue", inctrls, unctrl_ctrls, outctrls);
 
     STAGE_CONTROLLER#(NUM_CPUS, Bool) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
+
+    // Stages 2 -> 3 flows through a pair of 0 latency (and therefore unbuffered)
+    // ports:  InstQ_to_Dec_first -> decode stage -> Dec_to_InstQ_deq.  The
+    // stage controller must leave buffer space for the multi-FPGA-cycle path
+    // to avoid simulator pipeline bubbles.
+    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkBufferedStageController();
 
     // ****** Rules ******
 

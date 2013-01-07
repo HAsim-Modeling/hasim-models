@@ -5601,3 +5601,16 @@ Directory modules/hasim/timing-models/chip
  single-core-chip.bsv      Locally Modified          186 
 
 Add a name to the single core chip's local controller node.
+
+----------
+mcadler     Date: Mon Jan  7 13:59:17 EST 2013  CSN: CSN-hasim-models-188
+                  Mon Jan  7 18:59:17 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          187 
+
+Messy flow of 0 latency ports from instq->dec->instq (later pipeline stage)
+works, but was creating a pipeline bubble because the FIFO inside instq
+between the stages had less buffering than the path through decode.  Changed
+stage3Ctrl to be buffered.
