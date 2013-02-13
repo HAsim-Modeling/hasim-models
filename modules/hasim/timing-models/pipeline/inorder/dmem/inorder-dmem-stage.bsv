@@ -298,7 +298,8 @@ module [HASIM_MODULE] mkDMem ();
                 debugLog.record(cpu_iid, fshow("2: SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
                 // Send the writeback to decode.
-                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token,
+                                                                        rsp.bundle.dests));
 
                 // Pass it to the next stage through the functional partition, 
                 // which actually retrieves the data.
@@ -316,7 +317,8 @@ module [HASIM_MODULE] mkDMem ();
                 debugLog.record(cpu_iid, fshow("2: SB MISS/WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
                 // Send the writeback to decode.
-                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token, rsp.bundle.dests));
+                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token,
+                                                                        rsp.bundle.dests));
 
                 // Pass it to the next stage through the functional partition, 
                 // which actually retrieves the data.

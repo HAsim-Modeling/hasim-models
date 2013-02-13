@@ -1,3 +1,4 @@
+import Vector::*;
 import FShow::*;
 
 `include "asim/provides/hasim_common.bsh"
@@ -167,9 +168,28 @@ instance FShow#(DMEM_BUNDLE);
     endfunction
 endinstance
 
-function DMEM_BUNDLE initDMemBundle(TOKEN tok, ISA_ADDRESS va, TOKEN_FAULT_EPOCH epoch, Bool isL, Bool isS, Maybe#(Bool) isT, ISA_INST_DSTS dests);
+function DMEM_BUNDLE initDMemBundle(TOKEN tok,
+                                    ISA_ADDRESS va,
+                                    TOKEN_FAULT_EPOCH epoch,
+                                    Bool isL,
+                                    Bool isS,
+                                    Maybe#(Bool) isT,
+                                    ISA_INST_DSTS destRegs,
+                                    ISA_INST_DSTS_MASK writeMask);
 
-    return DMEM_BUNDLE {token: tok, virtualAddress: va, physicalAddress: ?, faultEpoch: epoch, isLoad: isL, isStore: isS, isTerminate: isT, dests: dests};
+    function Maybe#(FUNCP_PHYSICAL_REG_INDEX) destRegIfEnabled(Maybe#(FUNCP_PHYSICAL_REG_INDEX) dst, Bool mask) =
+        (mask ? dst : tagged Invalid);
+       
+    let dests = zipWith(destRegIfEnabled, destRegs, writeMask);
+
+    return DMEM_BUNDLE { token: tok,
+                         virtualAddress: va,
+                         physicalAddress: ?,
+                         faultEpoch: epoch,
+                         isLoad: isL,
+                         isStore: isS,
+                         isTerminate: isT,
+                         dests: dests };
  
 endfunction
 

@@ -333,15 +333,20 @@ module [HASIM_MODULE] mkCommit ();
                 rewindToDec.send(cpu_iid, tagged Invalid);
 
                 // Stores should actually update memory.
-                if (bundle.isStore) 
+                if (rsp.storeToken matches tagged Valid .st_tok)
                 begin
-
-                    // assert .storeToken isValid
-                    let st_tok = validValue(rsp.storeToken);
 
                     // Tell the store buffer to deallocate and do the store.
                     debugLog.record(cpu_iid, fshow("2: SB STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress) + fshow("STORE TOKEN: ") + fshow(st_tok));
                     deallocToSB.send(cpu_iid, tagged Valid initSBWriteback(tok, st_tok));
+
+                end
+                else if (bundle.isStore)
+                begin
+
+                    // Squashed store
+                    debugLog.record(cpu_iid, fshow("2: SB SQUASHED STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress));
+                    deallocToSB.send(cpu_iid, tagged Valid initSBDrop(tok));
 
                 end
                 else

@@ -102,7 +102,10 @@ module mkBranchTargetPredAlg
     FIFO#(Tuple4#(CPU_INSTANCE_ID,
                   t_SET_IDX,
                   t_ADDR_TAG,
-                  Maybe#(t_ADDR_IDX))) updQ <- mkFIFO();
+                  Maybe#(t_ADDR_IDX))) upd0Q <- mkFIFO();
+    FIFO#(Tuple3#(CPU_INSTANCE_ID,
+                  t_SET_IDX,
+                  t_PRED)) upd1Q <- mkFIFO();
 
     function Bool isTrue(Bool b) = b;
 
@@ -241,18 +244,16 @@ module mkBranchTargetPredAlg
         btbPool.readPorts[`PORT_UPD].readReq(iid, set);
         plruPool.readPorts[`PORT_UPD].readReq(iid, set);
 
-        updQ.enq(tuple4(iid, set, tag, actual));
+        upd0Q.enq(tuple4(iid, set, tag, actual));
     endrule
 
     //
-    // finishUpd --
+    // pickWay --
     //     Pick a victim way in the BTB set and update it.
     //
-    rule finishUpd (True);
-        match {.iid, .set, .tag, .actual} = updQ.first();
-        updQ.deq();
-
-        unlockCPU(iid);
+    rule pickWay (True);
+        match {.iid, .set, .tag, .actual} = upd0Q.first();
+        upd0Q.deq();
 
         let btb_entry <- btbPool.readPorts[`PORT_UPD].readRsp(iid);
         let plru <- plruPool.readPorts[`PORT_UPD].readRsp(iid);
@@ -292,7 +293,20 @@ module mkBranchTargetPredAlg
             btb_entry[w_idx] = tagged Invalid;
         end
 
+        upd1Q.enq(tuple3(iid, set, btb_entry));
+    endrule
+
+    //
+    // finishUpd --
+    //     Write the updated BTB entry back to memory.  Separated from previous
+    //     rule for FPGA timing.
+    //
+    rule finishUpd (True);
+        match {.iid, .set, .btb_entry} = upd1Q.first();
+        upd1Q.deq();
+
         btbPool.write(iid, set, btb_entry);
+        unlockCPU(iid);
     endrule
 
 

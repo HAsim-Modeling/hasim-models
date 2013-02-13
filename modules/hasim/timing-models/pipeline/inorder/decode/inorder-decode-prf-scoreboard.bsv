@@ -25,6 +25,7 @@ interface DECODE_PRF_SCOREBOARD;
     interface Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wbExe;
     interface Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wbHit;
     interface Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wbMiss;
+    interface Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wbStore;
     
     interface Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_ISSUE_PORT) issue;
 
@@ -50,7 +51,7 @@ endinterface
 //     grows large.
 //
 
-typedef 3 DEC_PRF_PORTS;
+typedef 4 DEC_PRF_PORTS;
 
 module [HASIM_MODULE] mkPRFScoreboardLUTRAM (DECODE_PRF_SCOREBOARD);
 
@@ -157,6 +158,7 @@ module [HASIM_MODULE] mkPRFScoreboardLUTRAM (DECODE_PRF_SCOREBOARD);
     interface wbExe = wbPorts[0];
     interface wbHit = wbPorts[1];
     interface wbMiss = wbPorts[2];
+    interface wbStore = wbPorts[3];
     
     interface issue = issue_port;
 
@@ -197,6 +199,7 @@ module [HASIM_MODULE] mkPRFScoreboardMultiWrite (DECODE_PRF_SCOREBOARD);
     Vector#(ISA_MAX_DSTS, RWire#(FUNCP_PHYSICAL_REG_INDEX)) wbExeW = newVector();
     Vector#(ISA_MAX_DSTS, RWire#(FUNCP_PHYSICAL_REG_INDEX)) wbMemHitW = newVector();
     Vector#(ISA_MAX_DSTS, RWire#(FUNCP_PHYSICAL_REG_INDEX)) wbMemMissW = newVector();
+    Vector#(ISA_MAX_DSTS, RWire#(FUNCP_PHYSICAL_REG_INDEX)) wbStoreW = newVector();
     Vector#(ISA_MAX_DSTS, RWire#(FUNCP_PHYSICAL_REG_INDEX)) allocW = newVector();
 
     for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
@@ -205,6 +208,7 @@ module [HASIM_MODULE] mkPRFScoreboardMultiWrite (DECODE_PRF_SCOREBOARD);
         wbExeW[x] <- mkRWire();
         wbMemHitW[x] <- mkRWire();
         wbMemMissW[x] <- mkRWire();
+        wbStoreW[x] <- mkRWire();
         allocW[x] <- mkRWire();
     
     end
@@ -259,6 +263,11 @@ module [HASIM_MODULE] mkPRFScoreboardMultiWrite (DECODE_PRF_SCOREBOARD);
                 pushing_ready[prf] = True;
             end
 
+            if (wbStoreW[x].wget() matches tagged Valid .prf)
+            begin
+                pushing_ready[prf] = True;
+            end
+
         end
 
         for (Integer x = 0; x < valueof(FUNCP_NUM_PHYSICAL_REGS); x = x + 1)
@@ -278,6 +287,7 @@ module [HASIM_MODULE] mkPRFScoreboardMultiWrite (DECODE_PRF_SCOREBOARD);
     Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wb_exe_port = newVector();
     Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wb_hit_port = newVector();
     Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wb_miss_port = newVector();
+    Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_WB_PORT) wb_store_port = newVector();
 
     Vector#(ISA_MAX_DSTS, DECODE_PRF_SCOREBOARD_ISSUE_PORT) issue_port = newVector();
 
@@ -302,6 +312,12 @@ module [HASIM_MODULE] mkPRFScoreboardMultiWrite (DECODE_PRF_SCOREBOARD);
 
                  endinterface;
         
+        wb_store_port[i] = interface DECODE_PRF_SCOREBOARD_WB_PORT;
+                    
+                     method Action ready(FUNCP_PHYSICAL_REG_INDEX prf)   = wbStoreW[i].wset(prf);
+
+                 endinterface;
+        
         issue_port[i] = interface DECODE_PRF_SCOREBOARD_ISSUE_PORT;
                     
                      method Action unready(FUNCP_PHYSICAL_REG_INDEX prf)   = allocW[i].wset(prf);
@@ -313,6 +329,7 @@ module [HASIM_MODULE] mkPRFScoreboardMultiWrite (DECODE_PRF_SCOREBOARD);
     interface wbExe = wb_exe_port;
     interface wbHit = wb_hit_port;
     interface wbMiss = wb_miss_port;
+    interface wbStore = wb_store_port;
     
     interface issue = issue_port;
 

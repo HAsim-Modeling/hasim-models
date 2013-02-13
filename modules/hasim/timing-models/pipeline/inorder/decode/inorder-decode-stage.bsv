@@ -123,6 +123,7 @@ module [HASIM_MODULE] mkDecode ();
 
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromStore   <- mkPortRecv_Multiplexed("SB_to_Dec_writeback", 1);
     PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
 
     // ****** Soft Connections ******
@@ -150,9 +151,10 @@ module [HASIM_MODULE] mkDecode ();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbExeCtrl  <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbHitCtrl  <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
+    DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbStoreCtrl  <- mkDependenceController();
 
     Vector#(7, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
+    Vector#(8, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleToIssueQ.ctrl.in;
     inports[1]  = creditFromSB.ctrl;
@@ -164,9 +166,11 @@ module [HASIM_MODULE] mkDecode ();
     depports[0] = writebackFromExe.ctrl;
     depports[1] = writebackFromMemHit.ctrl;
     depports[2] = writebackFromMemMiss.ctrl;
-    depports[3] = wbExeCtrl.ctrl;
-    depports[4] = wbHitCtrl.ctrl;
-    depports[5] = wbMissCtrl.ctrl;
+    depports[3] = writebackFromStore.ctrl;
+    depports[4] = wbExeCtrl.ctrl;
+    depports[5] = wbHitCtrl.ctrl;
+    depports[6] = wbMissCtrl.ctrl;
+    depports[7] = wbStoreCtrl.ctrl;
     outports[0] = bundleToIssueQ.ctrl.out;
     outports[1] = deqToInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
@@ -256,16 +260,23 @@ module [HASIM_MODULE] mkDecode ();
             else
                 dests[i] = Invalid;
         end
+
+        let is_load = isaIsLoad(fbndl.inst);
+        let is_store = isaIsStore(fbndl.inst);
+
         return BUNDLE { token:   tok,
                         branchEpoch: fbndl.branchEpoch,
                         faultEpoch: fbndl.faultEpoch,
-                        isLoad:  isaIsLoad(fbndl.inst),
-                        isStore: isaIsStore(fbndl.inst),
+                        isLoad: is_load,
+                        isStore: is_store,
                         isTerminate: Invalid,
                         pc: fbndl.pc,
                         branchAttr: fbndl.branchAttr,
                         effAddr: ?,
-                        dests: dests };
+                        dests: dests,
+                        writtenAtEXE: isaWrittenAtEXE(fbndl.inst),
+                        writtenAtMEM: (is_store ? isaWrittenAtST(fbndl.inst) :
+                                                  isaWrittenAtLD(fbndl.inst)) };
     endfunction
 
     // ****** Rules ******
@@ -279,6 +290,7 @@ module [HASIM_MODULE] mkDecode ();
     // * writebackFromExe
     // * writebackFromMemHit
     // * writebackFromMemMiss
+    // * writebackFromStore
     // * writebackFromCom
     
     // Ports written:
@@ -365,6 +377,33 @@ module [HASIM_MODULE] mkDecode ();
         
     endrule
 
+    (* conservative_implicit_conditions *)
+    rule stage1_writebackStore (writebackFromStore.ctrl.nextReadyInstance() matches tagged Valid .iid 
+                                &&& wbStoreCtrl.producerCanStart());
+    
+        // Process writes from STORE
+        let bus_store <- writebackFromStore.receive(iid);
+        wbStoreCtrl.producerStart();
+        wbStoreCtrl.producerDone();
+
+        if (bus_store matches tagged Valid .msg)
+        begin
+        
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+            begin
+            
+                if (msg.destRegs[x] matches tagged Valid .pr)
+                begin
+                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- STORE", pr));
+                    prfScoreboard.wbStore[x].ready(pr);
+                end
+
+            end
+        
+        end
+        
+    endrule
+    
         
     // stage2_dependencies
     
@@ -591,7 +630,10 @@ module [HASIM_MODULE] mkDecode ();
     // * deqToInstQ
     // * allocToSB
 
-    let writebacksFinished = wbExeCtrl.consumerCanStart() && wbHitCtrl.consumerCanStart() && wbMissCtrl.consumerCanStart();
+    let writebacksFinished = wbExeCtrl.consumerCanStart() &&
+                             wbHitCtrl.consumerCanStart() &&
+                             wbMissCtrl.consumerCanStart() &&
+                             wbStoreCtrl.consumerCanStart();
 
     // Specify a rule urgency so that if the Scoreboard has less parallelism there are no
     // compiler warnings.
@@ -609,6 +651,8 @@ module [HASIM_MODULE] mkDecode ();
         wbHitCtrl.consumerDone();
         wbMissCtrl.consumerStart();
         wbMissCtrl.consumerDone();
+        wbStoreCtrl.consumerStart();
+        wbStoreCtrl.consumerDone();
 
         // Get the store buffer credit in case we're dealing with a store...
         let m_credit <- creditFromSB.receive(cpu_iid);

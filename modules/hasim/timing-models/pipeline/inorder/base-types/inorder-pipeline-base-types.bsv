@@ -68,9 +68,39 @@ typedef struct
 BUS_MESSAGE
     deriving (Bits, Eq);
 
+//
+// genBusMessage --
+//     Simplest generator for BUS_MESSAGE.  Just fill in the structure.
+//
 function BUS_MESSAGE genBusMessage(TOKEN tok,
-                                   Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs);
+                                   Vector#(ISA_MAX_DSTS,
+                                           Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs);
+
     return BUS_MESSAGE { token: tok, destRegs: destRegs };
+endfunction
+
+
+//
+// genBusMessageMasked --
+//     Fill in a BUS_MESSAGE, but apply writeMask to the set of destRegs.
+//
+function BUS_MESSAGE genBusMessageMasked(TOKEN tok,
+                                         Vector#(ISA_MAX_DSTS,
+                                            Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs,
+                                         ISA_INST_DSTS_MASK writeMask);
+    // Send only the registers allowed by writeMask
+    function Maybe#(FUNCP_PHYSICAL_REG_INDEX) destRegIfEnabled(Maybe#(FUNCP_PHYSICAL_REG_INDEX) dst, Bool mask) =
+        (mask ? dst : tagged Invalid);
+
+    return genBusMessage(tok, zipWith(destRegIfEnabled, destRegs, writeMask));
+endfunction
+
+//
+// genBusMessageEXE --
+//     Generate a BUS_MESSAGE for the EXE phase, given a bundle.
+//
+function BUS_MESSAGE genBusMessageEXE(BUNDLE bundle);
+    return genBusMessageMasked(bundle.token, bundle.dests, bundle.writtenAtEXE);
 endfunction
 
 
@@ -117,7 +147,14 @@ typedef struct {
     Bool isStore;
     ISA_ADDRESS effAddr;
     Maybe#(Bool) isTerminate;
+
+    // All physical register destinations for instruction
     Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) dests;
+
+    // Masks indicating when a destination is written.  Each destination will appear
+    // only once.
+    ISA_INST_DSTS_MASK writtenAtEXE;
+    ISA_INST_DSTS_MASK writtenAtMEM;
 } BUNDLE deriving (Bits, Eq);
 
 typedef union tagged 

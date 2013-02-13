@@ -5614,3 +5614,49 @@ Messy flow of 0 latency ports from instq->dec->instq (later pipeline stage)
 works, but was creating a pipeline bubble because the FIFO inside instq
 between the stages had less buffering than the path through decode.  Changed
 stage3Ctrl to be buffered.
+
+----------
+mcadler     Date: Wed Feb 13 09:26:09 EST 2013  CSN: CSN-hasim-models-189
+                  Wed Feb 13 14:26:09 UTC 2013
+
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multi-entry
+ btb-multi-entry.bsv       Locally Modified          188 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          188 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-prf-scoreboard.bsv Locally Modified          188 
+ inorder-decode-stage.bsv  Locally Modified          188 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          188 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          188 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          188 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/commit
+ ooo-commit-stage.bsv      Locally Modified          188 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.bsv      Locally Modified          188 
+
+Directory modules/hasim/timing-models/caches/l1-caches/base-types
+ l1-cache-base-types.bsv   Locally Modified          188 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          188 
+
+- Support Alpha store conditional
+  - Register written as a side effect of doSpeculativeStore.  Add a port from
+    store stage back to decode to note the register write (inorder model).
+  - Handle squashed memory writes when store conditional fails.
+  - Use new ISA destination register write masks to figure out when
+    registers are written.  Replaces code that made assumptions based on
+    instruction type.
+
+- Change BTB pipeline to relax timing.

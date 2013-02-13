@@ -100,6 +100,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
     PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_ENTRY)       storeToWriteQ <- mkPortSend_Multiplexed("SB_to_WB_enq");
 
+    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("SB_to_Dec_writeback");
+
     // ****** Soft Connections ******
     
     Connection_Client#(FUNCP_REQ_DO_STORES, FUNCP_RSP_DO_STORES) doStores <- mkConnection_Client("funcp_doSpeculativeStores");
@@ -107,7 +109,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     // ****** Local Controller ******
 
     Vector#(5, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = reqFromDMem.ctrl;
     inports[1]  = allocFromDec.ctrl;
     inports[2]  = deallocFromCom.ctrl;
@@ -116,6 +118,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     outports[0] = rspToDMem.ctrl;
     outports[1] = creditToDecode.ctrl;
     outports[2] = storeToWriteQ.ctrl;
+    outports[3] = writebackToDec.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Store Buffer", inports, outports);
     
@@ -243,6 +246,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         debugLog.record(cpu_iid, fshow("LOAD HIT ") + fshow(req.bundle.token));
 
                         rspToDMem.send(cpu_iid, tagged Valid initSBHit(req.bundle));
+                        writebackToDec.send(cpu_iid, tagged Invalid);
 
                     end
                     else
@@ -251,6 +255,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         // We don't have it.
                         debugLog.record(cpu_iid, fshow("LOAD MISS ") + fshow(req.bundle.token));
                         rspToDMem.send(cpu_iid, tagged Valid initSBMiss(req.bundle));
+                        writebackToDec.send(cpu_iid, tagged Invalid);
 
                     end
                     
@@ -282,6 +287,10 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     // No need for a response.
                     rspToDMem.send(cpu_iid, tagged Invalid);
 
+                    // In some architectures, store may update a register (e.g. Alpha stq_c)
+                    writebackToDec.send(cpu_iid, tagged Valid genBusMessage(req.bundle.token,
+                                                                            req.bundle.dests));
+
                     // Get the store respone in the next stage.
                     stage3Ctrl.ready(cpu_iid, tuple2(local_state, True));
 
@@ -295,6 +304,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
             // Propogate the bubble.
             debugLog.record(cpu_iid, fshow("NO SEARCH"));
             rspToDMem.send(cpu_iid, Invalid);
+            writebackToDec.send(cpu_iid, tagged Invalid);
             stage3Ctrl.ready(cpu_iid, tuple2(local_state, False));
 
         end
@@ -309,10 +319,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
         // See if we need to get a store response.
         if (get_rsp)
         begin
-        
             let rsp = doStores.getResp();
             doStores.deq();
-
         end
 
         // See if we're getting a deallocation request.
