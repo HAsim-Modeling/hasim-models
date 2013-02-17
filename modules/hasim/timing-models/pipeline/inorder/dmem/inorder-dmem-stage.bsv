@@ -109,16 +109,21 @@ module [HASIM_MODULE] mkDMem ();
     // ****** Local Controller ******
 
     Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(5, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromDMemQ.ctrl.in;
     inports[1]  = creditFromCommitQ.ctrl;
+    depports[0] = loadRspFromDCache.ctrl;
+    depports[1] = rspFromWB.ctrl;
+    depports[2] = rspFromSB.ctrl;
     outports[0] = loadToDCache.ctrl;
     outports[1] = reqToSB.ctrl;
     outports[2] = allocToCommitQ.ctrl;
     outports[3] = searchToWB.ctrl;
     outports[4] = bundleFromDMemQ.ctrl.out;
+    outports[5] = writebackToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("DMem", inports, outports);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("DMem", inports, depports, outports);
 
     STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE3_STATE) stage3Ctrl <- mkBufferedStageController();

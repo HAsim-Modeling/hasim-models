@@ -101,7 +101,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
     Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
     inports[0]  = enqFromSB.ctrl;
     inports[1]  = loadReqFromDMem.ctrl;
     inports[2]  = delayedRspFromDCache.ctrl;
@@ -109,6 +109,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
     depports[0] = immediateRspFromDCache.ctrl;
     outports[0] = creditToSB.ctrl;
     outports[1] = storeReqToDCache.ctrl;
+    outports[2] = rspToDMem.ctrl;
 
     LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Write Buffer", inports, depports, outports);
 

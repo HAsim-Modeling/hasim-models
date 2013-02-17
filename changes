@@ -5660,3 +5660,25 @@ Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
     instruction type.
 
 - Change BTB pipeline to relax timing.
+
+----------
+mcadler     Date: Sat Feb 16 19:55:23 EST 2013  CSN: CSN-hasim-models-190
+                  Sun Feb 17 00:55:23 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          189 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          189 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          189 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          189 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          189 
+
+Fix some A-Ports that were not connected to local controllers.

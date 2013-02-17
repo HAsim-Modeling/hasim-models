@@ -81,14 +81,16 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Local Controller ******
         
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls  = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
-    inctrls[0]  = rspFromITLB.ctrl;
-    inctrls[1]  = statePool.ctrl;
-    outctrls[0] = physAddrToICache.ctrl;
-    outctrls[1] = iMemToPCCalc.ctrl;
+    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    inports[0]  = rspFromITLB.ctrl;
+    inports[1]  = statePool.ctrl;
+    depports[0] = immRspFromICache.ctrl;
+    outports[0] = physAddrToICache.ctrl;
+    outports[1] = iMemToPCCalc.ctrl;
     
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("IMem", inctrls, outctrls);
+    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("IMem", inports, depports, outports);
 
     // Stage 2 data.
     // If Invalid, means there was a bubble input to this stage.

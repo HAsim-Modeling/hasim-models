@@ -238,9 +238,22 @@ module [HASIM_MODULE] mkInterconnect
     depports[0] <- mkConvertControllerInstances_IN(enqFromCores.ctrl);
     depports[1] <- mkConvertControllerInstances_IN(creditFromCores.ctrl);
 
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_STATIONS)) outportsR = newVector();
+    Vector#(10, INSTANCE_CONTROL_OUT#(NUM_STATIONS)) outportsR = newVector();
     outportsR[0] = enqTo[portLocal].ctrl;
     outportsR[1] = creditTo[portLocal].ctrl;
+    //
+    // enqTo and creditTo for the router to router ports (not portLocal) are
+    // not strictly necessary.  We will be doing a deq from each port, so there
+    // will always be space available to write.
+    //
+    outportsR[2] <- mkConvertControllerAlwaysReady_OUT(enqTo[portNorth].ctrl);
+    outportsR[3] <- mkConvertControllerAlwaysReady_OUT(enqTo[portSouth].ctrl);
+    outportsR[4] <- mkConvertControllerAlwaysReady_OUT(enqTo[portEast].ctrl);
+    outportsR[5] <- mkConvertControllerAlwaysReady_OUT(enqTo[portWest].ctrl);
+    outportsR[6] <- mkConvertControllerAlwaysReady_OUT(creditTo[portNorth].ctrl);
+    outportsR[7] <- mkConvertControllerAlwaysReady_OUT(creditTo[portSouth].ctrl);
+    outportsR[8] <- mkConvertControllerAlwaysReady_OUT(creditTo[portEast].ctrl);
+    outportsR[9] <- mkConvertControllerAlwaysReady_OUT(creditTo[portWest].ctrl);
 
     LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <-
         mkNamedLocalControllerWithActive("Mesh Network",

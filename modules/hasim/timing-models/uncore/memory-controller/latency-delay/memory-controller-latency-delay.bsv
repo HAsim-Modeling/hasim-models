@@ -73,8 +73,18 @@ module [HASIM_MODULE] mkMemoryController();
     Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) needLoadRsp <- mkReg(replicate(replicate(False)));
     Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) notFulls <- mkReg(replicate(replicate(False)));
     
+    Vector#(2, INSTANCE_CONTROL_IN#(1))  inports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(1)) outports = newVector();
+    inports[0] = enqFromOCN.ctrl;
+    inports[1] = creditFromOCN.ctrl;
+    outports[0] = enqToOCN.ctrl;
+    outports[1] = creditToOCN.ctrl;
+
     // Coordinate between the pipeline stages.
-    MULTIPLEX_CONTROLLER#(1)  runCtrl <- mkNamedMultiplexController("Memory Controller", Vector::nil);
+    MULTIPLEX_CONTROLLER#(1)  runCtrl <- mkNamedMultiplexController("Memory Controller",
+                                                                    inports,
+                                                                    Vector::nil,
+                                                                    outports);
     DEPENDENCE_CONTROLLER#(1) stage2Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage3Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage4Ctrl <- mkDependenceController();
