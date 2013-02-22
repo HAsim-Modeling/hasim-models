@@ -179,6 +179,7 @@ module [HASIM_MODULE] mkDecode ();
 
     STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(DEC_STAGE3_STATE, DECODE_STATE)) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(DEC_STAGE4_STATE, DECODE_STATE)) stage4Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(Tuple2#(TOKEN, ISA_DST_MAPPING))) stage5Ctrl <- mkStageController();
 
     // ****** Events ******
     EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventDec <- mkEventRecorder_Multiplexed(`EVENTS_DECODE_INSTRUCTION_DECODE);
@@ -629,30 +630,10 @@ module [HASIM_MODULE] mkDecode ();
     // * bundleToIssueQ
     // * deqToInstQ
     // * allocToSB
-
-    let writebacksFinished = wbExeCtrl.consumerCanStart() &&
-                             wbHitCtrl.consumerCanStart() &&
-                             wbMissCtrl.consumerCanStart() &&
-                             wbStoreCtrl.consumerCanStart();
-
-    // Specify a rule urgency so that if the Scoreboard has less parallelism there are no
-    // compiler warnings.
-
-    (* conservative_implicit_conditions, descending_urgency = "stage1_writebackMemMiss, stage1_writebackMemHit, stage1_writebackExe, stage4_attemptIssue" *)
-    rule stage4_attemptIssue (writebacksFinished);
+    rule stage4_attemptIssue (True);
     
         // Extract the next active instance.
         match {.cpu_iid, {.stage4state, .local_state}} <- stage4Ctrl.nextReadyInstance();
-
-        // Make sure all previous dependencies are taken care of.        
-        wbExeCtrl.consumerStart();
-        wbExeCtrl.consumerDone();
-        wbHitCtrl.consumerStart();
-        wbHitCtrl.consumerDone();
-        wbMissCtrl.consumerStart();
-        wbMissCtrl.consumerDone();
-        wbStoreCtrl.consumerStart();
-        wbStoreCtrl.consumerDone();
 
         // Get the store buffer credit in case we're dealing with a store...
         let m_credit <- creditFromSB.receive(cpu_iid);
@@ -660,6 +641,8 @@ module [HASIM_MODULE] mkDecode ();
         
         // See if the issueQ has any room.
         let can_enq <- bundleToIssueQ.canEnq(cpu_iid);
+
+        Maybe#(Tuple2#(TOKEN, ISA_DST_MAPPING)) stage5_msg = tagged Invalid;
 
         if (stage4state matches tagged STAGE4_bubble)
         begin
@@ -670,9 +653,6 @@ module [HASIM_MODULE] mkDecode ();
             // Don't enqueue anything to the IssueQ.
             eventDec.recordEvent(cpu_iid, tagged Invalid);
             bundleToIssueQ.noEnq(cpu_iid);
-
-            // End of model cycle. (Path 1)
-            localCtrl.endModelCycle(cpu_iid, 1);
                 
         end
         else if (stage4state matches tagged STAGE4_depsCheck)
@@ -711,19 +691,9 @@ module [HASIM_MODULE] mkDecode ();
                         allocToSB.send(cpu_iid, tagged Invalid);
                     end
 
-                    // Update the scoreboard to reflect this instruction issuing.
-                    // Mark its destination registers as unready until it commits.
-
-                    for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
-                    begin
-
-                        if (deps.dstMap[x] matches tagged Valid { .ar, .pr })
-                        begin
-                            prfScoreboard.issue[x].unready(pr);
-                            debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
-                        end
-
-                    end
+                    // The scoreboard can now be updated.  This is delayed to
+                    // the next stage for FPGA timing.
+                    stage5_msg = tagged Valid tuple2(tok, deps.dstMap);
 
                     // Update the number of instructions in flight.
                     local_state.numInstrsInFlight = local_state.numInstrsInFlight + 1;
@@ -733,9 +703,6 @@ module [HASIM_MODULE] mkDecode ();
 
                     // Enqueue the decoded instruction in the IssueQ.
                     bundleToIssueQ.doEnq(cpu_iid, bundle);
-
-                    // End of model cycle. (Path 3)
-                    localCtrl.endModelCycle(cpu_iid, 3);
 
                 end
                 else
@@ -748,9 +715,6 @@ module [HASIM_MODULE] mkDecode ();
                     // Propogate the bubble.
                     bundleToIssueQ.noEnq(cpu_iid);
                     allocToSB.send(cpu_iid, tagged Invalid);
-
-                    // End of model cycle. (Path 4)
-                    localCtrl.endModelCycle(cpu_iid, 4);
 
                 end
             end
@@ -765,15 +729,59 @@ module [HASIM_MODULE] mkDecode ();
                 bundleToIssueQ.noEnq(cpu_iid);
                 allocToSB.send(cpu_iid, tagged Invalid);
 
-                // End of model cycle. (Path 5)
-                localCtrl.endModelCycle(cpu_iid, 5);
-
             end
 
         end
         
         statePool.insertState(cpu_iid, local_state);
+        stage5Ctrl.ready(cpu_iid, stage5_msg);
 
     endrule
         
+
+    //
+    // stage5_completeIssue --
+    //   Logic continuation of previous stage, extracted merely for FPGA
+    //   timing.
+    //
+
+    let writebacksFinished = wbExeCtrl.consumerCanStart() &&
+                             wbHitCtrl.consumerCanStart() &&
+                             wbMissCtrl.consumerCanStart() &&
+                             wbStoreCtrl.consumerCanStart();
+
+    // Specify a rule urgency so that if the Scoreboard has less
+    // parallelism so there are no compiler warnings.
+    (* conservative_implicit_conditions, descending_urgency = "stage1_writebackMemMiss, stage1_writebackMemHit, stage1_writebackExe, stage5_completeIssue" *)
+    rule stage5_completeIssue (writebacksFinished);
+        // Extract the next active instance.
+        match {.cpu_iid, .cmd} <- stage5Ctrl.nextReadyInstance();
+
+        // Make sure all previous dependencies are taken care of.        
+        wbExeCtrl.consumerStart();
+        wbExeCtrl.consumerDone();
+        wbHitCtrl.consumerStart();
+        wbHitCtrl.consumerDone();
+        wbMissCtrl.consumerStart();
+        wbMissCtrl.consumerDone();
+        wbStoreCtrl.consumerStart();
+        wbStoreCtrl.consumerDone();
+
+        if (cmd matches tagged Valid {.tok, .dst_map})
+        begin
+            // Update the scoreboard to reflect this instruction issuing.
+            // Mark its destination registers as unready until it commits.
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+            begin
+                if (dst_map[x] matches tagged Valid { .ar, .pr })
+                begin
+                    prfScoreboard.issue[x].unready(pr);
+                    debugLog.record(cpu_iid, fshow(tok) + $format(": PR %0d (AR %0d) locked", pr, ar));
+                end
+            end
+        end
+
+        localCtrl.endModelCycle(cpu_iid, 1);
+    endrule
+
 endmodule

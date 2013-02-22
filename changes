@@ -5682,3 +5682,13 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
  icn-mesh.bsv              Locally Modified          189 
 
 Fix some A-Ports that were not connected to local controllers.
+
+----------
+mcadler     Date: Fri Feb 22 15:57:17 EST 2013  CSN: CSN-hasim-models-191
+                  Fri Feb 22 20:57:17 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          190 
+
+Add a pipeline stage to relax FPGA timing.
