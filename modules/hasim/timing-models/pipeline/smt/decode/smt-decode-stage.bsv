@@ -83,22 +83,22 @@ DEC_STAGE4_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkDecode ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_decode.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_decode.out");
 
 
     // ****** Ports *****
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, BUNDLE)        bundleToIssueQ <- mkPortStallSend_Multiplexed("IssueQ");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)                    deqToInstQ <- mkPortSend_Multiplexed("Dec_to_InstQ_deq");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN)                    allocToSB <- mkPortSend_Multiplexed("Dec_to_SB_alloc");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUNDLE)        bundleToIssueQ <- mkPortStallSend_Multiplexed("IssueQ");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID)                    deqToInstQ <- mkPortSend_Multiplexed("Dec_to_InstQ_deq");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, TOKEN)                    allocToSB <- mkPortSend_Multiplexed("Dec_to_SB_alloc");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)      bundleFromInstQ      <- mkPortRecv_Multiplexed("InstQ_to_Dec_first", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, MULTITHREADED#(Bool))              creditFromSB         <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN_FAULT_EPOCH, THREAD_ID)) mispredictFromExe    <- mkPortRecv_Multiplexed("Exe_to_Dec_mispredict", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, THREAD_ID)              faultFromCom         <- mkPortRecv_Multiplexed("Com_to_Dec_fault", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, FETCH_BUNDLE)      bundleFromInstQ      <- mkPortRecv_Multiplexed("InstQ_to_Dec_first", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)       writebackFromExe     <- mkPortRecv_Multiplexed("Exe_to_Dec_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)       writebackFromMemHit  <- mkPortRecv_Multiplexed("DMem_to_Dec_hit_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MULTITHREADED#(Bool))              creditFromSB         <- mkPortRecv_Multiplexed("SB_to_Dec_credit", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(TOKEN_FAULT_EPOCH, THREAD_ID)) mispredictFromExe    <- mkPortRecv_Multiplexed("Exe_to_Dec_mispredict", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, THREAD_ID)              faultFromCom         <- mkPortRecv_Multiplexed("Com_to_Dec_fault", 1);
 
 
     // ****** Soft Connections ******
@@ -115,9 +115,9 @@ module [HASIM_MODULE] mkDecode ();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbHitCtrl  <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
 
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inports  = newVector();
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  depports = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inports  = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  depports = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = bundleToIssueQ.ctrl.in;
     inports[1]  = creditFromSB.ctrl;
     inports[2]  = mispredictFromExe.ctrl;
@@ -134,19 +134,19 @@ module [HASIM_MODULE] mkDecode ();
     outports[1] = deqToInstQ.ctrl;
     outports[2] = allocToSB.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE3_STATE) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DEC_STAGE4_STATE) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DEC_STAGE3_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DEC_STAGE4_STATE) stage4Ctrl <- mkStageController();
 
     // ****** Events ******
-    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventDec <- mkEventRecorder_Multiplexed(`EVENTS_DECODE_INSTRUCTION_DECODE);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventDec <- mkEventRecorder_Multiplexed(`EVENTS_DECODE_INSTRUCTION_DECODE);
 
     // ****** Model State (per Instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, COUNTER#(TOKEN_INDEX_SIZE))              numInstrsInFlightPool <- mkMultiplexed(mkLCounter(0));
-    MULTIPLEXED_REG#(NUM_CPUS, Bool)                                  drainingAfterPool <- mkMultiplexedReg(False);
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssuePool <- mkMultiplexedRegMultiWrite(Invalid);
+    MULTIPLEXED#(MAX_NUM_CPUS, COUNTER#(TOKEN_INDEX_SIZE))              numInstrsInFlightPool <- mkMultiplexed(mkLCounter(0));
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Bool)                                  drainingAfterPool <- mkMultiplexedReg(False);
+    MULTIPLEXED_REG_MULTI_WRITE#(MAX_NUM_CPUS, 2, Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssuePool <- mkMultiplexedRegMultiWrite(Invalid);
 
     // PRF valid bits.
 
@@ -154,7 +154,7 @@ module [HASIM_MODULE] mkDecode ();
     // DECODE_PRF_SCOREBOARD prfScoreboard <- mkPRFScoreboardMultiWrite(); // Can be switched for expensive version.
 
 
-    MULTIPLEXED_REG#(NUM_CPUS, MULTITHREADED#(TOKEN_EPOCH)) epochsPool <- mkMultiplexedReg(initEpoch(0, 0));
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, MULTITHREADED#(TOKEN_EPOCH)) epochsPool <- mkMultiplexedReg(initEpoch(0, 0));
 
 
     // ***** Helper Functions ******

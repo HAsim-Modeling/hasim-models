@@ -39,9 +39,9 @@ HASIM_INTERCONNECT_CLASS::Init()
     //    2 - South
     //    3 - West
     //
-    // There are NUM_CPUS + 1 stations in the table.
+    // There are MAX_NUM_CPUS + 1 stations in the table.
     //
-    for (int s = 0; s < NUM_CPUS + 1; s++)
+    for (int s = 0; s < MAX_NUM_CPUS + 1; s++)
     {
         UINT8 rt = 0;
         int chunks = 0;
@@ -49,7 +49,7 @@ HASIM_INTERCONNECT_CLASS::Init()
         UINT64 s_col = s % MESH_WIDTH;
         UINT64 s_row = s / MESH_WIDTH;
 
-        for (int d = 0; d < NUM_CPUS + 1; d++)
+        for (int d = 0; d < MAX_NUM_CPUS + 1; d++)
         {
             UINT64 d_col = d % MESH_WIDTH;
             UINT64 d_row = d / MESH_WIDTH;

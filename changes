@@ -5692,3 +5692,176 @@ Directory modules/hasim/timing-models/pipeline/inorder/decode
  inorder-decode-stage.bsv  Locally Modified          190 
 
 Add a pipeline stage to relax FPGA timing.
+
+----------
+mcadler     Date: Fri Mar  1 14:06:01 EST 2013  CSN: CSN-hasim-models-192
+                  Fri Mar  1 19:06:01 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.bsv      Locally Modified          191 
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          191 
+ chip-base-types.bsv       Locally Modified          191 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multi-entry
+ btb-multi-entry.bsv       Locally Modified          191 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/n-bit
+ n-bit-bp-alg.bsv          Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch
+ nobranch-line-predictor.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.h        Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/execute
+ ooo-execute-stage.bsv     Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/decode
+ ooo-decode-stage-sequential.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/commit
+ ooo-commit-stage.bsv      Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/smt/execute
+ smt-execute-stage.bsv     Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/smt/decode
+ smt-decode-stage.bsv      Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/smt/pccalc
+ smt-pccalc-stage.bsv      Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.bsv      Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.bsv       Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.h            Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/smt/instq
+ smt-instq-stage.bsv       Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.h Locally Modified          191 
+ unpipelined-pipeline-with-cache.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.h    Locally Modified          191 
+ unpipelined-pipeline.bsv  Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-always-hit.bsv Locally Modified          191 
+ l1-icache-alg-direct-mapped.bsv Locally Modified          191 
+ l1-icache-alg-pseudorandom.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-arbiters/static-priority
+ l1-cache-arbiter-static-priority.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.bsv Locally Modified          191 
+ l1-dcache-alg-pseudorandom.bsv Locally Modified          191 
+ l1-dcache-alg-always-hit.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ dcache-direct-mapped-writeback.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.bsv   Locally Modified          191 
+ dcache-pseudorandom.bsv   Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/store-buffers/smt-multi-entry
+ store-buffer-smt-multi-entry.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          191 
+ itlb-null.bsv             Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.bsv   Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-set-associative.bsv Locally Modified          191 
+ last-level-cache-no-coherence.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/null
+ last-level-cache-null.bsv Locally Modified          191 
+
+Directory modules/hasim/timing-models/caches/null-caches
+ dcache-null.bsv           Locally Modified          191 
+ icache-null.bsv           Locally Modified          191 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.bsv         Locally Modified          191 
+
+Directory modules/hasim/timing-models/memory
+ memory-magic.bsv          Locally Modified          191 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-magic-memory.bsv   Locally Modified          191 
+
+Directory modules/hasim/timing-models/uncore/interconnects/ring
+ icn-ring.bsv              Locally Modified          191 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Modified          191 
+ icn-mesh.bsv              Locally Modified          191 
+
+Directory modules/hasim/timing-models/uncore/interconnects/crossbar
+ icn-crossbar.bsv          Locally Modified          191 
+
+- Add AWB parameter MAX_NUM_MEM_CTRLS to allow more than one memory controller.
+- Change NUM_CPUS to MAX_NUM_CPUS.

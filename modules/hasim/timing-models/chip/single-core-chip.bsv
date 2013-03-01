@@ -14,18 +14,18 @@ module [HASIM_MODULE] mkChip();
     // Tie off dangling core mem ports, since there's no uncore.
 
     // Queues to/from Cache hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("L1_Cache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("L1_Cache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("L1_Cache_OutQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("L1_Cache_InQ");
     
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     
     inctrls[0]  = reqFromCore.ctrl.in;
     inctrls[1]  = rspToCore.ctrl.in;
     outctrls[0]  = reqFromCore.ctrl.out;
     outctrls[1]  = rspToCore.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Single Core Chip", inctrls, outctrls);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("Single Core Chip", inctrls, outctrls);
 
     rule stage1_delay (True);
     

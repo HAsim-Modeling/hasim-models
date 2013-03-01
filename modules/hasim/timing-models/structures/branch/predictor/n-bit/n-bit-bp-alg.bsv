@@ -47,7 +47,7 @@ module mkBranchPredAlg
 
     DEBUG_FILE debugLog <- mkDebugFile("alg_bp_n_bit.out");
 
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, t_TABLE_IDX, t_PRED_CNT)
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(MAX_NUM_CPUS, 2, t_TABLE_IDX, t_PRED_CNT)
         branchPredTablePool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, ~0 >> 1));
 
     FIFO#(Tuple3#(CPU_INSTANCE_ID, ISA_ADDRESS, Bool)) newUpdQ <- mkBypassFIFO();

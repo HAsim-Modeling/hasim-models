@@ -33,18 +33,18 @@ module [HASIM_MODULE] mkLastLevelCache();
     let ccifc <- mkCacheCoherenceInterface();
 
     // Queues to/from Cache hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("L1_Cache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("L1_Cache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("L1_Cache_OutQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("L1_Cache_InQ");
     
     // Queues to/from coherence engine.
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, LLC_CC_REQ) reqFromCC <- mkPortStallRecv_Multiplexed("CC_to_LLC_req");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, CC_REQ)     reqToCC   <- mkPortStallSend_Multiplexed("LLC_to_CC_req");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_REQ) reqFromCC <- mkPortStallRecv_Multiplexed("CC_to_LLC_req");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CC_REQ)     reqToCC   <- mkPortStallSend_Multiplexed("LLC_to_CC_req");
     
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, CC_RSP)     rspFromCC <- mkPortStallRecv_Multiplexed("CC_to_LLC_rsp");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, LLC_CC_RSP) rspToCC   <- mkPortStallSend_Multiplexed("LLC_to_CC_rsp");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CC_RSP)     rspFromCC <- mkPortStallRecv_Multiplexed("CC_to_LLC_rsp");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_RSP) rspToCC   <- mkPortStallSend_Multiplexed("LLC_to_CC_rsp");
     
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     
     inctrls[0]  = reqFromCore.ctrl.in;
     inctrls[1]  = rspToCore.ctrl.in;
@@ -59,7 +59,7 @@ module [HASIM_MODULE] mkLastLevelCache();
     outctrls[4]  = rspFromCC.ctrl.out;
     outctrls[5]  = rspToCC.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
     
     (* conservative_implicit_conditions *)
@@ -144,20 +144,20 @@ endmodule
 module [HASIM_MODULE] mkCacheCoherenceInterface();
 
     // Queues to/from last level cache.
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, LLC_CC_REQ) reqToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_req");
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, CC_REQ)     reqFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_req");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_REQ) reqToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_req");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CC_REQ)     reqFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_req");
     
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, LLC_CC_RSP) rspFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_rsp");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, CC_RSP)     rspToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_rsp");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_RSP) rspFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_rsp");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CC_RSP)     rspToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_rsp");
     
     // Interface to OCN looks like lanes and virtual channels.   
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, OCN_MSG)        enqFromOCN    <- mkPortRecv_Multiplexed("CoreMemInQ_enq", 1);
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, OCN_MSG)        enqToOCN      <- mkPortSend_Multiplexed("CoreMemOutQ_enq");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VC_CREDIT_INFO) creditFromOCN <- mkPortRecv_Multiplexed("CoreMemInQ_credit", 1);
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VC_CREDIT_INFO) creditToOCN   <- mkPortSend_Multiplexed("CoreMemOutQ_credit");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqFromOCN    <- mkPortRecv_Multiplexed("CoreMemInQ_enq", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqToOCN      <- mkPortSend_Multiplexed("CoreMemOutQ_enq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditFromOCN <- mkPortRecv_Multiplexed("CoreMemInQ_credit", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditToOCN   <- mkPortSend_Multiplexed("CoreMemOutQ_credit");
 
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
 
     inctrls[0]  = reqToLLC.ctrl.in;
     inctrls[1]  = reqFromLLC.ctrl.in;
@@ -172,16 +172,16 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
     outctrls[4]  = enqToOCN.ctrl;
     outctrls[5]  = creditToOCN.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
 
-    MULTIPLEXED_REG#(NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputCreditsPool  <- mkMultiplexedReg(replicate(replicate(False)));
-    MULTIPLEXED_REG#(NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputNotFullsPool <- mkMultiplexedReg(replicate(replicate(False)));
-    MULTIPLEXED_REG#(NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingRspPool <- mkMultiplexedReg(tagged Invalid);
-    MULTIPLEXED_REG#(NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingReqPool <- mkMultiplexedReg(tagged Invalid);
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS)         physAddrPool       <- mkMultiplexedLUTRAM(~0);
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputCreditsPool  <- mkMultiplexedReg(replicate(replicate(False)));
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputNotFullsPool <- mkMultiplexedReg(replicate(replicate(False)));
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingRspPool <- mkMultiplexedReg(tagged Invalid);
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingReqPool <- mkMultiplexedReg(tagged Invalid);
+    MULTIPLEXED_LUTRAM#(MAX_NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS)         physAddrPool       <- mkMultiplexedLUTRAM(~0);
 
-    function Maybe#(VC_IDX) vcToEnq(INSTANCE_ID#(NUM_CPUS) iid, LANE_IDX ln);
+    function Maybe#(VC_IDX) vcToEnq(INSTANCE_ID#(MAX_NUM_CPUS) iid, LANE_IDX ln);
     
         Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) notFulls = outputNotFullsPool.getReg(iid);
         Maybe#(VC_IDX) res = tagged Invalid;

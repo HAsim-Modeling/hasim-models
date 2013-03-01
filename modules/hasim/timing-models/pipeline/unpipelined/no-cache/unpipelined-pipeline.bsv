@@ -54,7 +54,7 @@ module [HASIM_MODULE] mkPipeline
     //interface:
         ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_cpu.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_cpu.out");
 
     // Debugging output stream, useful for getting a stream of status messages
     // when running on an FPGA.
@@ -77,11 +77,11 @@ module [HASIM_MODULE] mkPipeline
     //********* State Elements *********//
 
     // Program counters
-    MULTIPLEXED#(NUM_CPUS, Reg#(ISA_ADDRESS)) pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(ISA_ADDRESS)) pcPool <- mkMultiplexed(mkReg(`PROGRAM_START_ADDR));
     
     //********* UnModel State *******//
     
-    Reg#(Maybe#(INSTANCE_ID#(NUM_CPUS))) dTransStall <- mkReg(tagged Invalid);
+    Reg#(Maybe#(INSTANCE_ID#(MAX_NUM_CPUS))) dTransStall <- mkReg(tagged Invalid);
 
     //********* Connections *********//
 
@@ -123,23 +123,23 @@ module [HASIM_MODULE] mkPipeline
 
 
     // Events
-    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_CPU_INSTRUCTION_COMMIT);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_CPU_INSTRUCTION_COMMIT);
 
     // Stats
-    STAT_VECTOR#(NUM_CPUS) statCom <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statCom <-
         mkStatCounter_Multiplexed(statName("CPU_INSTRUCTION_COMMIT",
                                            "Committed Instructions"));
 
-    Vector#(0, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(0, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(0, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(0, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
     
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage4Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage6Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage7Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, TOKEN) stage8Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Bool, Bool)) stage10Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(Bool, Bool)) stage4Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, TOKEN) stage6Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, TOKEN) stage7Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, TOKEN) stage8Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(Bool, Bool)) stage10Ctrl <- mkBufferedStageController();
 
     //********* Rules *********//
 

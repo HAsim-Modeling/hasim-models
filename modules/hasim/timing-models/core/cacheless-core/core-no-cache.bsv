@@ -7,7 +7,7 @@
 module [HASIM_MODULE] mkCore();
     let pipeline <- mkPipeline;
     // Queues to/from the the memory system, which are never used.
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqToMem <- mkPortStallSend_Multiplexed("L1_Cache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) rspFromMem <- mkPortStallRecv_Multiplexed("L1_Cache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMem <- mkPortStallSend_Multiplexed("L1_Cache_OutQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromMem <- mkPortStallRecv_Multiplexed("L1_Cache_InQ");
     
 endmodule

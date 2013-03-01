@@ -62,16 +62,16 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED_STATE_POOL#(NUM_CPUS, IMEM_EPOCH) statePool <- mkMultiplexedStatePool(initialIMemEpoch);
+    MULTIPLEXED_STATE_POOL#(MAX_NUM_CPUS, IMEM_EPOCH) statePool <- mkMultiplexedStatePool(initialIMemEpoch);
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT)                           rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ITLB_OUTPUT)                           rspFromITLB <- mkPortRecv_Multiplexed("ITLB_to_CPU_rsp", 1);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                     physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_load");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, IMEM_OUTPUT)                       iMemToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_response");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_INPUT)                     physAddrToICache <- mkPortSend_Multiplexed("CPU_to_ICache_load");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, IMEM_OUTPUT)                       iMemToPCCalc    <- mkPortSend_Multiplexed("IMem_to_Fet_response");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_load_immediate");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_load_immediate");
 
     // ****** Soft Connections *******
 
@@ -81,22 +81,22 @@ module [HASIM_MODULE] mkIMem
 
     // ****** Local Controller ******
         
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports  = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = rspFromITLB.ctrl;
     inports[1]  = statePool.ctrl;
     depports[0] = immRspFromICache.ctrl;
     outports[0] = physAddrToICache.ctrl;
     outports[1] = iMemToPCCalc.ctrl;
     
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("IMem", inports, depports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("IMem", inports, depports, outports);
 
     // Stage 2 data.
     // If Invalid, means there was a bubble input to this stage.
     // Otherwise contains output that should be sent to pccalc if icache
     // responds with a bubble.
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(Maybe#(IMEM_OUTPUT), IMEM_EPOCH)) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(Maybe#(IMEM_OUTPUT), IMEM_EPOCH)) stage2Ctrl <- mkBufferedStageController();
 
     // ****** Rules ******
 

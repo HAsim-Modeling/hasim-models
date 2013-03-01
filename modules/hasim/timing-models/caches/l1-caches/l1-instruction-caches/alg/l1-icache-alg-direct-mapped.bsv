@@ -39,18 +39,18 @@ typedef `L1_ICACHE_ALG_INDEX_SIZE IDX_SIZE;
 
 module [HASIM_MODULE] mkL1ICacheAlg
     // interface:
-        (CACHE_ALG#(NUM_CPUS, t_OPAQUE))
+        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(t_OPAQUE_SZ, t_TMP, 8),
          Add#(IDX_SIZE, t_TMP2, LINE_ADDRESS_SIZE),
          // The following is brought to you courtesy of proviso hell:
-         Add#(t_TMP3, TAdd#(TSub#(TAdd#(TLog#(NUM_CPUS), IDX_SIZE), TLog#(TDiv#(64,
+         Add#(t_TMP3, TAdd#(TSub#(TAdd#(TLog#(MAX_NUM_CPUS), IDX_SIZE), TLog#(TDiv#(64,
          TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2)))))))),
          TLog#(TDiv#(TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2))))),
          64))), 32));
 
-    CACHE_ALG_INDEXED#(NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_ICACHE_ALG_SCRATCHPAD,
+    CACHE_ALG_INDEXED#(MAX_NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_ICACHE_ALG_SCRATCHPAD,
                                                                                    `L1_ICACHE_ALG_TAGS_USE_SCRATCHPAD != 0);
 
     return toCacheAlg(alg);

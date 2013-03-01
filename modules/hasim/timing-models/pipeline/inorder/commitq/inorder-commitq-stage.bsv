@@ -63,43 +63,43 @@ module [HASIM_MODULE] mkCommitQueue
     // interface:
         ();
     
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_commitq.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_commitq.out");
 
     // ****** Model State (per Context) ******
 
     // Which tokens are complete? (Ready to issue)
-    MULTIPLEXED_LUTRAM_MULTI_WRITE#(NUM_CPUS, 2, COMMITQ_SLOT_ID, Bool) completionsPool <- mkMultiplexedLUTRAMPseudoMultiWrite(False);
+    MULTIPLEXED_LUTRAM_MULTI_WRITE#(MAX_NUM_CPUS, 2, COMMITQ_SLOT_ID, Bool) completionsPool <- mkMultiplexedLUTRAMPseudoMultiWrite(False);
 
     // Queue to rendezvous with instructions.
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, COMMITQ_SLOT_ID, DMEM_BUNDLE)
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(MAX_NUM_CPUS, 2, COMMITQ_SLOT_ID, DMEM_BUNDLE)
         bundlesPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False));
 
     // Which slot should we allocate into?
-    MULTIPLEXED_REG#(NUM_CPUS, COMMITQ_SLOT_ID) nextFreeSlotPool    <- mkMultiplexedReg(0);
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, COMMITQ_SLOT_ID) nextFreeSlotPool    <- mkMultiplexedReg(0);
     
     // What's the oldest slot we know about? (The next one which should issue when it's ready.)
-    MULTIPLEXED_REG#(NUM_CPUS, COMMITQ_SLOT_ID) oldestSlotPool <- mkMultiplexedReg(0);
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, COMMITQ_SLOT_ID) oldestSlotPool <- mkMultiplexedReg(0);
 
     // Miss Address File (MAF).
     // Maps from DCache miss ID to commitq slot.
-    MULTIPLEXED_LUTRAM#(NUM_CPUS, L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) mafPool <- mkMultiplexedLUTRAM(?);
+    MULTIPLEXED_LUTRAM#(MAX_NUM_CPUS, L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) mafPool <- mkMultiplexedLUTRAM(?);
     
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)                       deqFromCom       <- mkPortRecvDependent_Multiplexed("commitQ_deq");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID)                       deqFromCom       <- mkPortRecvDependent_Multiplexed("commitQ_deq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 1);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToCom    <- mkPortSend_Multiplexed("commitQ_first");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID) creditToDMem   <- mkPortSend_Multiplexed("commitQ_credit");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)     writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_miss_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE)     bundleToCom    <- mkPortSend_Multiplexed("commitQ_first");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID) creditToDMem   <- mkPortSend_Multiplexed("commitQ_credit");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)     writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_miss_writeback");
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports  = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = allocateFromDMem.ctrl;
     inports[1]  = rspFromDCacheDelayed.ctrl;
     depports[0] = deqFromCom.ctrl;
@@ -107,11 +107,11 @@ module [HASIM_MODULE] mkCommitQueue
     outports[1] = bundleToCom.ctrl;
     outports[2] = writebackToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS)      localCtrl  <- mkNamedLocalControllerWithUncontrolled("Commit Queue", inports, depports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS)      localCtrl  <- mkNamedLocalControllerWithUncontrolled("Commit Queue", inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage2Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(COMMITQ_SLOT_ID)) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkBufferedStageControllerVoid();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(COMMITQ_SLOT_ID)) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage4Ctrl <- mkBufferedStageControllerVoid();
 
 
     // ****** Rules ******

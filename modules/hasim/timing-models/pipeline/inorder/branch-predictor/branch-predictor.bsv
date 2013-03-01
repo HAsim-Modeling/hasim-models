@@ -38,7 +38,7 @@ import FIFO::*;
 
 module [HASIM_MODULE] mkBranchPredictor ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_bp.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_bp.out");
 
 
     // ****** Model State (per instance) ******
@@ -49,24 +49,24 @@ module [HASIM_MODULE] mkBranchPredictor ();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)       pcFromFet <- mkPortRecv_Multiplexed("Fet_to_BP_pc", 0);
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR)       predToFet <- mkPortSend_Multiplexed("BP_to_Fet_newpc");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ISA_ADDRESS)       pcFromFet <- mkPortRecv_Multiplexed("Fet_to_BP_pc", 0);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BRANCH_ATTR)       predToFet <- mkPortSend_Multiplexed("BP_to_Fet_newpc");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN) trainingFromExe <- mkPortRecv_Multiplexed("Exe_to_BP_training", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BRANCH_PRED_TRAIN) trainingFromExe <- mkPortRecv_Multiplexed("Exe_to_BP_training", 1);
 
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(1, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = pcFromFet.ctrl;
     inports[1]  = trainingFromExe.ctrl;
     outports[0] = predToFet.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Branch Predictor", inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("Branch Predictor", inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(ISA_ADDRESS)) stage2Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(ISA_ADDRESS)) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
 
 
     // ****** Rules ******

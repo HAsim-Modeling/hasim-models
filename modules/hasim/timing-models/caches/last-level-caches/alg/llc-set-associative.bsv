@@ -37,17 +37,17 @@ typedef `LLC_ALG_INDEX_SIZE IDX_SIZE;
 
 module [HASIM_MODULE] mkLastLevelCacheAlg
     // interface:
-        (CACHE_ALG#(NUM_CPUS, t_OPAQUE))
+        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc_alg.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc_alg.out");
 
     // NUM_WAYS is passed as a pseudo-numeric parameter.
     NumTypeParam#(`LLC_ALG_NUM_WAYS) numWays = ?;
 
-    CACHE_ALG_INDEXED#(NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgSetAssociative(debugLog,
+    CACHE_ALG_INDEXED#(MAX_NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgSetAssociative(debugLog,
                                                                                      `VDEV_SCRATCH_HASIM_LAST_LEVEL_CACHE_ALG_SCRATCHPAD,
                                                                                      `LLC_ALG_TAGS_USE_SCRATCHPAD != 0,
                                                                                      numWays);

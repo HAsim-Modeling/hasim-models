@@ -71,26 +71,26 @@ WRITE_BUFF_STATE initWriteBuffState =
 
 module [HASIM_MODULE] mkWriteBuffer ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_writebuffer.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_writebuffer.out");
 
 
     // ****** Model State (per instance) ******
     
-    MULTIPLEXED_STATE_POOL#(NUM_CPUS, WRITE_BUFF_STATE) statePool <- mkMultiplexedStatePool(initWriteBuffState);
+    MULTIPLEXED_STATE_POOL#(MAX_NUM_CPUS, WRITE_BUFF_STATE) statePool <- mkMultiplexedStatePool(initWriteBuffState);
     
     function Bool empty(WRITE_BUFF_STATE s) = s.head == s.tail;
     function Bool full(WRITE_BUFF_STATE s)  = s.head == (s.tail + 1);
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_ENTRY)      enqFromSB  <- mkPortRecv_Multiplexed("SB_to_WB_enq", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_INPUT) loadReqFromDMem <- mkPortRecv_Multiplexed("DMem_to_WB_search", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, WB_ENTRY)      enqFromSB  <- mkPortRecv_Multiplexed("SB_to_WB_enq", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, WB_SEARCH_INPUT) loadReqFromDMem <- mkPortRecv_Multiplexed("DMem_to_WB_search", 0);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)          creditToSB <- mkPortSend_Multiplexed("WB_to_SB_credit");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)   rspToDMem     <- mkPortSend_Multiplexed("WB_to_DMem_rsp");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecv_Multiplexed("DCache_to_CPU_store_delayed", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID)          creditToSB <- mkPortSend_Multiplexed("WB_to_SB_credit");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_INPUT) storeReqToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, WB_SEARCH_OUTPUT)   rspToDMem     <- mkPortSend_Multiplexed("WB_to_DMem_rsp");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecv_Multiplexed("DCache_to_CPU_store_delayed", 1);
 
     // ****** Soft Connections ******
     
@@ -99,9 +99,9 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = enqFromSB.ctrl;
     inports[1]  = loadReqFromDMem.ctrl;
     inports[2]  = delayedRspFromDCache.ctrl;
@@ -111,10 +111,10 @@ module [HASIM_MODULE] mkWriteBuffer ();
     outports[1] = storeReqToDCache.ctrl;
     outports[2] = rspToDMem.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Write Buffer", inports, depports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Write Buffer", inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, WRITE_BUFF_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(WRITE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, WRITE_BUFF_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(WRITE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();
 
     // ****** Rules ******
 

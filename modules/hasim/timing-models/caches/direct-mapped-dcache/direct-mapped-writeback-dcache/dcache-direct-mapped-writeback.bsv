@@ -103,38 +103,38 @@ module [HASIM_MODULE] mkDCache();
     // ****** Model State ******
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, True);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(MAX_NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, True);
 
     
     // ****** Ports ******
 
     // Incoming port from CPU with speculative stores
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_load", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_load", 0);
 
     // Incoming port from CPU with committed stores
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_store", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_store", 0);
 
     // Outgoing port to CPU with speculative immediate response
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_immediate");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_immediate");
 
     // Outgoing port to CPU with speculative delayed response
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_delayed");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_delayed");
 
     // Outgpong port to CPU with commit immediate response
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_immediate");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_immediate");
 
     // Outgoing port to CPU with commit delayed response
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
 
     // Ports to simulate some latency to memory.
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_FILL) reqToMemory   <- mkPortSend_Multiplexed("DCache_to_memory");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_FILL) rspFromMemory <- mkPortRecv_Multiplexed("DCache_to_memory", `DCACHE_MISS_PENALTY);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_FILL) reqToMemory   <- mkPortSend_Multiplexed("DCache_to_memory");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_FILL) rspFromMemory <- mkPortRecv_Multiplexed("DCache_to_memory", `DCACHE_MISS_PENALTY);
 
 
     // ****** Local Controller ******
 
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(5, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = storeReqFromCPU.ctrl;
@@ -145,30 +145,30 @@ module [HASIM_MODULE] mkDCache();
     outports[3] = storeRspDelToCPU.ctrl;
     outports[4] = reqToMemory.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE3_STATE) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DCACHE_STAGE3_STATE) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DCACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DCACHE_STAGE3_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DCACHE_STAGE3_STATE) stage4Ctrl <- mkStageController();
 
     // ****** Stats ******
 
-    STAT_VECTOR#(NUM_CPUS) statLoadHits <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statLoadHits <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_READ_HITS",
                                            "DCache Read Hits"));
-    STAT_VECTOR#(NUM_CPUS) statLoadMisses <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statLoadMisses <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_READ_MISSES",
                                            "DCache Read Misses"));
-    STAT_VECTOR#(NUM_CPUS) statStoreHits <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statStoreHits <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_WRITE_HITS",
                                            "DCache Write Hits"));
-    STAT_VECTOR#(NUM_CPUS) statStoreMisses <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statStoreMisses <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_WRITE_MISSES",
                                            "DCache Write Misses"));
-    STAT_VECTOR#(NUM_CPUS) statPortCollisionsRead <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statPortCollisionsRead <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_PORT_COLLISIONS_READ",
                                            "DCache Port Collisions (Read/Read)"));
-    STAT_VECTOR#(NUM_CPUS) statPortCollisionsWrite <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statPortCollisionsWrite <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_WRITETHROUGH_DCACHE_PORT_COLLISIONS_WRITE",
                                            "DCache Port Collisions (Read/Write)"));
 

@@ -28,12 +28,12 @@
 
 module [HASIM_MODULE] mkL1ICacheAlg
     // interface:
-        (CACHE_ALG#(NUM_CPUS, t_OPAQUE))
+        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(t_OPAQUE_SZ, t_TMP, 8));
 
-    CACHE_ALG#(NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgAlwaysHit();
+    CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgAlwaysHit();
 
     return alg;
         

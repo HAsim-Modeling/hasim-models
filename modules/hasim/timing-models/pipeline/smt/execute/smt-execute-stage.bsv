@@ -70,23 +70,23 @@ EXE_STAGE2_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkExecute ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_execute.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_execute.out");
 
     // ****** Model State (per Context) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(TOKEN_EPOCH))) epochsPool <- mkMultiplexed(mkReg(multithreaded(initEpoch(0, 0))));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(TOKEN_EPOCH))) epochsPool <- mkMultiplexed(mkReg(multithreaded(initEpoch(0, 0))));
 
 
     // ****** Ports ******
 
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, BUNDLE) bundleFromIssueQ <- mkPortStallRecv_Multiplexed("IssueQ");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_Multiplexed("DTLBQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BUNDLE) bundleFromIssueQ <- mkPortStallRecv_Multiplexed("IssueQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE)     bundleToMemQ <- mkPortStallSend_Multiplexed("DTLBQ");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindToFet <- mkPortSend_Multiplexed("Exe_to_Fet_rewind");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN_FAULT_EPOCH, THREAD_ID)) rewindToDec  <- mkPortSend_Multiplexed("Exe_to_Dec_mispredict");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BRANCH_PRED_TRAIN) trainingToBP <- mkPortSend_Multiplexed("Exe_to_BP_training");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindToFet <- mkPortSend_Multiplexed("Exe_to_Fet_rewind");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(TOKEN_FAULT_EPOCH, THREAD_ID)) rewindToDec  <- mkPortSend_Multiplexed("Exe_to_Dec_mispredict");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BRANCH_PRED_TRAIN) trainingToBP <- mkPortSend_Multiplexed("Exe_to_BP_training");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("Exe_to_Dec_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("Exe_to_Dec_writeback");
 
 
     // ****** Soft Connections ******
@@ -97,8 +97,8 @@ module [HASIM_MODULE] mkExecute ();
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromIssueQ.ctrl.in;
     inports[1]  = bundleToMemQ.ctrl.in;
     outports[0] = bundleToMemQ.ctrl.out;
@@ -108,16 +108,16 @@ module [HASIM_MODULE] mkExecute ();
     outports[4] = bundleFromIssueQ.ctrl.out;
     outports[5] = rewindToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, EXE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, EXE_STAGE2_STATE) stage2Ctrl <- mkStageController();
 
 
     // ****** Events and Stats ******
 
-    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventExe <- mkEventRecorder_Multiplexed(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventExe <- mkEventRecorder_Multiplexed(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
 
-    STAT_VECTOR#(NUM_CPUS) statMispred <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statMispred <-
         mkStatCounter_Multiplexed(statName("EXECUTE_BPRED_MISPREDS",
                                            "Branch Mispredicts"));
 

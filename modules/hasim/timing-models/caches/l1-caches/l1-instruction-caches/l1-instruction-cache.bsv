@@ -73,35 +73,35 @@ endfunction
 
 module [HASIM_MODULE] mkL1ICache ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_instruction.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_instruction.out");
 
  
     // ****** Submodules ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    CACHE_ALG#(NUM_CPUS, VOID) iCacheAlg <- mkL1ICacheAlg();
+    CACHE_ALG#(MAX_NUM_CPUS, VOID) iCacheAlg <- mkL1ICacheAlg();
 
     // Track the next Miss ID to give out.
-    CACHE_MISS_TRACKER#(NUM_CPUS, ICACHE_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
+    CACHE_MISS_TRACKER#(MAX_NUM_CPUS, ICACHE_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
 
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_ICache_load", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_ICache_load", 0);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("ICache_to_CPU_load_immediate");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("ICache_to_CPU_load_immediate");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("ICache_to_CPU_load_delayed");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("ICache_to_CPU_load_delayed");
 
     // Queues to and from the memory hierarchy, encapsulated as StallPorts.
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqToMemQ      <- mkPortStallSend_Multiplexed("L1_ICache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_ICache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMemQ      <- mkPortStallSend_Multiplexed("L1_ICache_OutQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_ICache_InQ");
 
 
     // ****** Local Controller ******
 
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(4, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = fillFromMemory.ctrl.in;
@@ -111,20 +111,20 @@ module [HASIM_MODULE] mkL1ICache ();
     outports[2] = reqToMemQ.ctrl.out;
     outports[3] = fillFromMemory.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("L1 ICache", inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 ICache", inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, IC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, IC_LOCAL_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, IC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, IC_LOCAL_STATE) stage3Ctrl <- mkStageController();
 
     // ****** Stats ******
 
-    STAT_VECTOR#(NUM_CPUS) statHits <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statHits <-
         mkStatCounter_Multiplexed(statName("L1_ICACHE_HIT",
                                            "L1 ICache Controller Read Hits"));
-    STAT_VECTOR#(NUM_CPUS) statMisses <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statMisses <-
         mkStatCounter_Multiplexed(statName("L1_ICACHE_MISS",
                                            "L1 ICache Controller Read Misses"));
-    STAT_VECTOR#(NUM_CPUS) statRetries <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statRetries <-
         mkStatCounter_Multiplexed(statName("L1_ICACHE_RETRY",
                                            "L1 ICache Controller Read Retries"));
 

@@ -74,24 +74,24 @@ COM_STAGE2_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkCommit ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_commit.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_commit.out");
 
 
     // ****** Model State (per Context) ******
 
-    MULTIPLEXED_REG#(NUM_CPUS, MULTITHREADED#(TOKEN_FAULT_EPOCH)) faultEpochsPool <- mkMultiplexedReg(multithreaded(0));
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, MULTITHREADED#(TOKEN_FAULT_EPOCH)) faultEpochsPool <- mkMultiplexedReg(multithreaded(0));
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) bundleFromCommitQ  <- mkPortRecv_Multiplexed("commitQ_first", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE) bundleFromCommitQ  <- mkPortRecv_Multiplexed("commitQ_first", 0);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, TOKEN) writebackToDec <- mkPortSend_Multiplexed("Com_to_Dec_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, TOKEN) writebackToDec <- mkPortSend_Multiplexed("Com_to_Dec_writeback");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, THREAD_ID)  rewindToDec <- mkPortSend_Multiplexed("Com_to_Dec_fault");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) faultToFet <- mkPortSend_Multiplexed("Com_to_Fet_fault");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, THREAD_ID)  rewindToDec <- mkPortSend_Multiplexed("Com_to_Dec_fault");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS)) faultToFet <- mkPortSend_Multiplexed("Com_to_Fet_fault");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_DEALLOC_INPUT) deallocToSB <- mkPortSend_Multiplexed("Com_to_SB_dealloc");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID) deqToCommitQ <- mkPortSend_Multiplexed("commitQ_deq");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, SB_DEALLOC_INPUT) deallocToSB <- mkPortSend_Multiplexed("Com_to_SB_dealloc");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID) deqToCommitQ <- mkPortSend_Multiplexed("commitQ_deq");
 
 
     // ****** Soft Connections ******
@@ -104,8 +104,8 @@ module [HASIM_MODULE] mkCommit ();
 
     // ****** Local Controller ******
 
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(5, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromCommitQ.ctrl;
     outports[0] = writebackToDec.ctrl;
     outports[1] = faultToFet.ctrl;
@@ -113,16 +113,16 @@ module [HASIM_MODULE] mkCommit ();
     outports[3] = deqToCommitQ.ctrl;
     outports[4] = rewindToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, COM_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, COM_STAGE2_STATE) stage2Ctrl <- mkStageController();
 
 
     // ****** Events and Stats *****
 
-    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_COMMIT_INSTRUCTION_WRITEBACK);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_COMMIT_INSTRUCTION_WRITEBACK);
 
-    STAT_VECTOR#(NUM_CPUS) statCom <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statCom <-
         mkStatCounter_Multiplexed(statName("COMMIT_INSTS_COMMITTED",
                                            "Instructions Committed"));
 

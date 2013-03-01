@@ -31,7 +31,7 @@
 
 module [HASIM_MODULE] mkL1ICacheAlg
     // interface:
-        (CACHE_ALG#(NUM_CPUS, t_OPAQUE))
+        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(t_OPAQUE_SZ, t_TMP, 8));
@@ -46,7 +46,7 @@ module [HASIM_MODULE] mkL1ICacheAlg
     Param#(8) missChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_MISS_CHANCE, paramNode);
 
     // All unused parameters are set to zero.
-    CACHE_ALG#(NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom
+    CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom
     (
         seedParam,
         0,

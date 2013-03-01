@@ -31,7 +31,7 @@ module [HASIM_MODULE] mkDTLB();
 
     // ****** UnModel State ******
     
-    Reg#(Maybe#(Tuple2#(INSTANCE_ID#(NUM_CPUS), DMEM_BUNDLE))) dTransStall <- mkReg(tagged Invalid);
+    Reg#(Maybe#(Tuple2#(INSTANCE_ID#(MAX_NUM_CPUS), DMEM_BUNDLE))) dTransStall <- mkReg(tagged Invalid);
 
     // ****** Soft Connections *******
 
@@ -42,24 +42,24 @@ module [HASIM_MODULE] mkDTLB();
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) reqFromInQ <- mkPortStallRecv_Multiplexed("DTLBQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE) reqFromInQ <- mkPortStallRecv_Multiplexed("DTLBQ");
 
     // Outgoing ports to CPU
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) rspToOutQ <- mkPortStallSend_Multiplexed("DMemQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE) rspToOutQ <- mkPortStallSend_Multiplexed("DMemQ");
 
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0] = reqFromInQ.ctrl.in;
     inports[1] = rspToOutQ.ctrl.in;
     outports[0] = rspToOutQ.ctrl.out;
     outports[1] = reqFromInQ.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("DTLB", inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("DTLB", inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DTLB_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DTLB_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
 
 
     (* conservative_implicit_conditions *)

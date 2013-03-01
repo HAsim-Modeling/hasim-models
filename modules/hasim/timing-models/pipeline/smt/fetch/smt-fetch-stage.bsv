@@ -57,16 +57,16 @@ endinterface
 
 module [HASIM_MODULE] mkFetch (SMTFetch);
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_fetch.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_fetch.out");
 
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(ISA_ADDRESS)))    pcsPool <- mkMultiplexed(mkReg(multithreaded(`PROGRAM_START_ADDR)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initialIMemEpoch)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_CREDIT_COUNT))) creditsPool <- mkMultiplexed(mkReg(multithreaded(fromInteger(valueof(NUM_INSTQ_CREDITS)))));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(ISA_ADDRESS)))    pcsPool <- mkMultiplexed(mkReg(multithreaded(`PROGRAM_START_ADDR)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initialIMemEpoch)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_CREDIT_COUNT))) creditsPool <- mkMultiplexed(mkReg(multithreaded(fromInteger(valueof(NUM_INSTQ_CREDITS)))));
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(THREAD_ID)) curThreadPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(THREAD_ID)) curThreadPool <- mkMultiplexed(mkReg(0));
     Reg#(THREAD_ID) maxThreadId <- mkReg(maxBound);
 
     // ****** Soft Connections ******
@@ -76,40 +76,40 @@ module [HASIM_MODULE] mkFetch (SMTFetch);
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, MULTITHREADED#(INSTQ_CREDIT_COUNT))                creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MULTITHREADED#(INSTQ_CREDIT_COUNT))                creditFromInstQ <- mkPortRecv_Multiplexed("InstQ_to_Fet_credit", 1);
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(THREAD_ID, ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, Tuple3#(THREAD_ID, ISA_ADDRESS, IMEM_EPOCH))  newPCFromPCCalc <- mkPortRecv_Multiplexed("PCCalc_to_Fet_newpc", 1);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) pcToLP <- mkPortSend_Multiplexed("Fet_to_LP_pc");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ITLB_INPUT) pcToITLB <- mkPortSend_Multiplexed("CPU_to_ITLB_req");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ISA_ADDRESS) pcToBP <- mkPortSend_Multiplexed("Fet_to_BP_pc");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ISA_ADDRESS) pcToLP <- mkPortSend_Multiplexed("Fet_to_LP_pc");
 
     // Zero-latency response ports for stage 2.
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) newPCFromLP     <- mkPortRecvDependent_Multiplexed("LP_to_Fet_newpc");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ISA_ADDRESS) newPCFromLP     <- mkPortRecvDependent_Multiplexed("LP_to_Fet_newpc");
 
     // ****** Local Controller ******
         
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = creditFromInstQ.ctrl;
     inports[1]  = newPCFromPCCalc.ctrl;
     outports[0] = pcToITLB.ctrl;
     outports[1] = pcToBP.ctrl;
     outports[2] = pcToLP.ctrl;
     
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
 
 
     // ****** Events and Stats ******
 
-    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventFet <- mkEventRecorder_Multiplexed(`EVENTS_FETCH_INSTRUCTION_FET);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventFet <- mkEventRecorder_Multiplexed(`EVENTS_FETCH_INSTRUCTION_FET);
 
-    STAT_VECTOR#(NUM_CPUS) statCycles <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statCycles <-
         mkStatCounter_Multiplexed(statName("FETCH_TOTAL_CYCLES",
                                            "Total Cycles"));
-    STAT_VECTOR#(NUM_CPUS) statFet <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statFet <-
         mkStatCounter_Multiplexed(statName("FETCH_INSTS_FETCHED",
                                            "Instructions Fetched"));
 

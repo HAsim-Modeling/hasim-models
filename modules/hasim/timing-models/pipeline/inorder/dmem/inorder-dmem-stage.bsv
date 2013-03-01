@@ -81,7 +81,7 @@ DMEM_STAGE3_STATE deriving (Bits, Eq);
 
 module [HASIM_MODULE] mkDMem ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_mem.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_mem.out");
 
     // ****** Soft Connections ******
 
@@ -89,28 +89,28 @@ module [HASIM_MODULE] mkDMem ();
 
     // ****** Ports *****
     
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, DMEM_BUNDLE) bundleFromDMemQ   <- mkPortStallRecv_Multiplexed("DMemQ");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)              creditFromCommitQ <- mkPortRecv_Multiplexed("commitQ_credit", 1);
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE) bundleFromDMemQ   <- mkPortStallRecv_Multiplexed("DMemQ");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID)              creditFromCommitQ <- mkPortRecv_Multiplexed("commitQ_credit", 1);
 
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_Multiplexed("CPU_to_DCache_load");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_INPUT)                   reqToSB        <- mkPortSend_Multiplexed("DMem_to_SB_req");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_Multiplexed("DMem_to_WB_search");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_Multiplexed("CPU_to_DCache_load");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, SB_INPUT)                   reqToSB        <- mkPortSend_Multiplexed("DMem_to_SB_req");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_Multiplexed("DMem_to_WB_search");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
 
     // Zero-latency response ports for stage 2.
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_load_immediate");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvDependent_Multiplexed("WB_to_DMem_rsp");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)                     rspFromSB         <- mkPortRecvDependent_Multiplexed("SB_to_DMem_rsp");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_load_immediate");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, WB_SEARCH_OUTPUT)              rspFromWB         <- mkPortRecvDependent_Multiplexed("WB_to_DMem_rsp");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, SB_OUTPUT)                     rspFromSB         <- mkPortRecvDependent_Multiplexed("SB_to_DMem_rsp");
 
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromDMemQ.ctrl.in;
     inports[1]  = creditFromCommitQ.ctrl;
     depports[0] = loadRspFromDCache.ctrl;
@@ -123,15 +123,15 @@ module [HASIM_MODULE] mkDMem ();
     outports[4] = bundleFromDMemQ.ctrl.out;
     outports[5] = writebackToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("DMem", inports, depports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("DMem", inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DMEM_STAGE3_STATE) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DMEM_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DMEM_STAGE3_STATE) stage3Ctrl <- mkBufferedStageController();
 
 
     // ****** Events and Stats ******
 
-    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventMem <- mkEventRecorder_Multiplexed(`EVENTS_DMEM_INSTRUCTION_MEM);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventMem <- mkEventRecorder_Multiplexed(`EVENTS_DMEM_INSTRUCTION_MEM);
 
     
     // ****** Rules ******

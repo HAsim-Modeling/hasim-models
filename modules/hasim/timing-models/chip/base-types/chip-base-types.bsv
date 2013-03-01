@@ -24,9 +24,13 @@ import FShow::*;
 `include "asim/provides/memory_base_types.bsh"
 
 
-typedef `NUM_CPUS NUM_CPUS;
-typedef INSTANCE_ID#(NUM_CPUS) CPU_INSTANCE_ID;
-typedef INSTANCE_ID_BITS#(NUM_CPUS) CPU_INSTANCE_ID_SZ;
+typedef `MAX_NUM_CPUS MAX_NUM_CPUS;
+typedef INSTANCE_ID#(MAX_NUM_CPUS) CPU_INSTANCE_ID;
+typedef INSTANCE_ID_BITS#(MAX_NUM_CPUS) CPU_INSTANCE_ID_SZ;
+
+typedef `MAX_NUM_MEM_CTRLS MAX_NUM_MEM_CTRLS;
+typedef INSTANCE_ID#(MAX_NUM_MEM_CTRLS) MEM_CTRL_INSTANCE_ID;
+typedef INSTANCE_ID_BITS#(MAX_NUM_MEM_CTRLS) MEM_CTRL_INSTANCE_ID_SZ;
 
 typedef `NUM_LANES NUM_LANES;
 typedef INSTANCE_ID#(NUM_LANES) LANE_IDX;
@@ -41,9 +45,11 @@ typedef Vector#(NUM_LANES, Vector#(VCS_PER_LANE, t_DATA)) VC_INFO#(parameter typ
 // First Bool is credit, second Bool is NotFull.
 typedef VC_INFO#(Tuple2#(Bool, Bool)) VC_CREDIT_INFO;
 
-// There is one more station because of the memory controller.
-// Different topologies may handle this differently in the future.
-typedef TAdd#(NUM_CPUS, 1) NUM_STATIONS;
+//
+// The number of stations is the number of CPUs plus the number of
+// memory controllers.
+//
+typedef TAdd#(MAX_NUM_CPUS, MAX_NUM_MEM_CTRLS) NUM_STATIONS;
 typedef INSTANCE_ID#(NUM_STATIONS) STATION_IID;
 typedef STATION_IID STATION_ID;
 

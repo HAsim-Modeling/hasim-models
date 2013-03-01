@@ -152,10 +152,10 @@ module [HASIM_MODULE] mkInterconnect
     // ******** Ports *******
 
     // Queues to/from cores
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, OCN_MSG)        enqToCores      <- mkPortSend_Multiplexed("CoreMemInQ_enq");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, OCN_MSG)        enqFromCores    <- mkPortRecv_Multiplexed("CoreMemOutQ_enq", 1);
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VC_CREDIT_INFO) creditToCores   <- mkPortSend_Multiplexed("CoreMemInQ_credit");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VC_CREDIT_INFO) creditFromCores <- mkPortRecv_Multiplexed("CoreMemOutQ_credit", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqToCores      <- mkPortSend_Multiplexed("CoreMemInQ_enq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqFromCores    <- mkPortRecv_Multiplexed("CoreMemOutQ_enq", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditToCores   <- mkPortSend_Multiplexed("CoreMemInQ_credit");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditFromCores <- mkPortRecv_Multiplexed("CoreMemOutQ_credit", 1);
 
     // Queues to/from memory controller
     // Note: non-multiplexed as there is only one memory controller.
@@ -218,7 +218,7 @@ module [HASIM_MODULE] mkInterconnect
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool))             outputNotFullsPool     <- mkMultiplexedReg(replicate(replicate(replicate(False))));
 
     // NOTE: The module uses a special local controller, as it has two sets of ports,
-    // one set is NUM_CPUS multiplexed, the other is NUM_STATIONS multiplexed.
+    // one set is MAX_NUM_CPUS multiplexed, the other is NUM_STATIONS multiplexed.
     // This local controller variant handles that.
 
     Vector#(11, INSTANCE_CONTROL_IN#(NUM_STATIONS)) inportsR = newVector();
@@ -257,7 +257,7 @@ module [HASIM_MODULE] mkInterconnect
 
     LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <-
         mkNamedLocalControllerWithActive("Mesh Network",
-                                         valueOf(TSub#(NUM_STATIONS, NUM_CPUS)),
+                                         valueOf(TSub#(NUM_STATIONS, MAX_NUM_CPUS)),
                                          inportsR, depports, outportsR);
     
     STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage2Ctrl <- mkStageControllerVoid();

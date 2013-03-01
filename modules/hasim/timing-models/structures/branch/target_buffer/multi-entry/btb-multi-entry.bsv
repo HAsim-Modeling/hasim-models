@@ -77,12 +77,12 @@ module mkBranchTargetPredAlg
 
     DEBUG_FILE debugLog <- mkDebugFile("alg_btb_multi_entry.out");
 
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, t_SET_IDX, t_PRED)
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(MAX_NUM_CPUS, 2, t_SET_IDX, t_PRED)
         btbPool <- mkMemoryMultiRead_Multiplexed(
                        mkBRAMBufferedPseudoMultiReadInitialized(False,
                                                                 replicate(tagged Invalid)));
 
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(NUM_CPUS, 2, t_SET_IDX, t_PLRU)
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(MAX_NUM_CPUS, 2, t_SET_IDX, t_PLRU)
         plruPool <- mkMemoryMultiRead_Multiplexed(
                        mkBRAMBufferedPseudoMultiReadInitialized(False,
                                                                 replicate(False)));
@@ -90,7 +90,7 @@ module mkBranchTargetPredAlg
     // Lock an entire CPU IID during an update.  This isn't a problem, since
     // HAsim multiplexed timing models only allow one operation per IID to
     // be live at a time.
-    MULTIPLEXED_REG#(NUM_CPUS, Bool) lock <- mkMultiplexedReg(False);
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Bool) lock <- mkMultiplexedReg(False);
 
     FIFO#(Tuple2#(CPU_INSTANCE_ID, t_ADDR_IDX)) newReqQ <- mkFIFO();
     FIFO#(Tuple3#(CPU_INSTANCE_ID, t_SET_IDX, t_ADDR_TAG)) reqQ <- mkFIFO();

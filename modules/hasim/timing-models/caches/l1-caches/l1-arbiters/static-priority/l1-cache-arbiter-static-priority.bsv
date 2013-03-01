@@ -16,27 +16,27 @@ import Vector::*;
 
 module [HASIM_MODULE] mkL1CacheArbiter ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_arbiter.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_arbiter.out");
 
     // Eventually this could be a dynamic parameter.
     Bool favorICache = `L1_ARBITER_FAVOR_ICACHE;
 
     // Queues to/from DCache
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqFromDCache <- mkPortStallRecv_Multiplexed("L1_DCache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) rspToDCache   <- mkPortStallSend_Multiplexed("L1_DCache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromDCache <- mkPortStallRecv_Multiplexed("L1_DCache_OutQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToDCache   <- mkPortStallSend_Multiplexed("L1_DCache_InQ");
 
     // Queues to/from ICache
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqFromICache <- mkPortStallRecv_Multiplexed("L1_ICache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) rspToICache   <- mkPortStallSend_Multiplexed("L1_ICache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromICache <- mkPortStallRecv_Multiplexed("L1_ICache_OutQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToICache   <- mkPortStallSend_Multiplexed("L1_ICache_InQ");
 
     // Queues to/from Memory
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqToMemory   <- mkPortStallSend_Multiplexed("L1_Cache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) rspFromMemory <- mkPortStallRecv_Multiplexed("L1_Cache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMemory   <- mkPortStallSend_Multiplexed("L1_Cache_OutQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromMemory <- mkPortStallRecv_Multiplexed("L1_Cache_InQ");
     
     // ******* Local Controller *******
     
-    Vector#(6, INSTANCE_CONTROL_IN#(NUM_CPUS))  inctrls = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     
     inctrls[0]  = reqFromDCache.ctrl.in;
     inctrls[1]  = rspToDCache.ctrl.in;
@@ -51,7 +51,7 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
     outctrls[4]  = reqToMemory.ctrl.out;
     outctrls[5]  = rspFromMemory.ctrl.out;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("L1 Cache Arbiter", inctrls, outctrls);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 Cache Arbiter", inctrls, outctrls);
     
     function Bool rspForIStream(MEM_OPAQUE opaque);
     

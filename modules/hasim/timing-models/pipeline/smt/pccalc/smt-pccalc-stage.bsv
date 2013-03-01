@@ -61,13 +61,13 @@ module [HASIM_MODULE] mkPCCalc
     // interface:
         ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_pccalc.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_pccalc.out");
 
     // ****** Model State (per instance) ******
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initialIMemEpoch)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(IMEM_EPOCH)))  epochsPool <- mkMultiplexed(mkReg(multithreaded(initialIMemEpoch)));
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Maybe#(PCC_REDIRECT)))) redirectsPool <- mkMultiplexed(mkReg(multithreaded(Invalid)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(Maybe#(PCC_REDIRECT)))) redirectsPool <- mkMultiplexed(mkReg(multithreaded(Invalid)));
 
     // ****** Soft Connections ******
 
@@ -81,22 +81,22 @@ module [HASIM_MODULE] mkPCCalc
     // ****** Ports ******
 
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)                  enqToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_enq");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, THREAD_ID)                      clearToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_clear");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, Tuple3#(THREAD_ID, ISA_ADDRESS, IMEM_EPOCH))  nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, INSTQ_ENQUEUE)                  enqToInstQ <- mkPortSend_Multiplexed("Fet_to_InstQ_enq");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, THREAD_ID)                      clearToInstQ  <- mkPortSend_Multiplexed("Fet_to_InstQ_clear");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, Tuple3#(THREAD_ID, ISA_ADDRESS, IMEM_EPOCH))  nextPCToFetch <- mkPortSend_Multiplexed("PCCalc_to_Fet_newpc");
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS))                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindFromExe <- mkPortRecv_Multiplexed("Exe_to_Fet_rewind", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(TOKEN, ISA_ADDRESS))                    faultFromCom  <- mkPortRecv_Multiplexed("Com_to_Fet_fault", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, Tuple3#(TOKEN, TOKEN_FAULT_EPOCH, ISA_ADDRESS)) rewindFromExe <- mkPortRecv_Multiplexed("Exe_to_Fet_rewind", 1);
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_OUTPUT) rspFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_response", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS) predFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_pred", 2);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, BRANCH_ATTR) attrFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 2);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, IMEM_OUTPUT) rspFromIMem <- mkPortRecv_Multiplexed("IMem_to_Fet_response", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ISA_ADDRESS) predFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_pred", 2);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BRANCH_ATTR) attrFromBP  <- mkPortRecv_Multiplexed("BP_to_Fet_attr", 2);
 
 
     // ****** Local Controller ******
 
-    Vector#(5, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(5, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inctrls  = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
 
     inctrls[0] = faultFromCom.ctrl;
     inctrls[1] = rewindFromExe.ctrl;
@@ -107,16 +107,16 @@ module [HASIM_MODULE] mkPCCalc
     outctrls[1]  = nextPCToFetch.ctrl;
     outctrls[2]  = clearToInstQ.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
 
     // True if we should get a rewind response, false otherwise.
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
 
 
     // ****** Stats ******
-    STAT_VECTOR#(NUM_CPUS) statLpBpMismatches <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statLpBpMismatches <-
         mkStatCounter_Multiplexed(statName("PCCALC_LP_BP_MISMATCHES",
                                            "Line Prediction/Branch Prediction Mismatches"));
 

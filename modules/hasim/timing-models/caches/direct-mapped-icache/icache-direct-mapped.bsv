@@ -76,38 +76,38 @@ module [HASIM_MODULE] mkICache();
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT) pcFromFet <- mkPortRecv_Multiplexed("CPU_to_ICache_req", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_INPUT) pcFromFet <- mkPortRecv_Multiplexed("CPU_to_ICache_req", 0);
 
     // Outgoing ports to CPU
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immToFet <- mkPortSend_Multiplexed("ICache_to_CPU_immediate");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)   delToFet <- mkPortSend_Multiplexed("ICache_to_CPU_delayed");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immToFet <- mkPortSend_Multiplexed("ICache_to_CPU_immediate");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED)   delToFet <- mkPortSend_Multiplexed("ICache_to_CPU_delayed");
 
     // Ports to simulate some latency to memory.
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED) reqToMemory   <- mkPortSend_Multiplexed("ICache_to_memory");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED) rspFromMemory <- mkPortRecv_Multiplexed("ICache_to_memory", `ICACHE_MISS_PENALTY);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED) reqToMemory   <- mkPortSend_Multiplexed("ICache_to_memory");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED) rspFromMemory <- mkPortRecv_Multiplexed("ICache_to_memory", `ICACHE_MISS_PENALTY);
 
 
     // ****** Local Controller ******
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = pcFromFet.ctrl;
     inports[1]  = rspFromMemory.ctrl;
     outports[0] = immToFet.ctrl;
     outports[1] = delToFet.ctrl;
     outports[2] = reqToMemory.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
     
-    STAGE_CONTROLLER#(NUM_CPUS, ICACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS)                 stage3Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, ICACHE_STAGE2_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS)                 stage3Ctrl <- mkStageControllerVoid();
 
     // ****** Stats ******
 
-    STAT_VECTOR#(NUM_CPUS) statHits <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statHits <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_ICACHE_HITS",
                                            "ICache Hits"));
-    STAT_VECTOR#(NUM_CPUS) statMisses <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statMisses <-
         mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_ICACHE_MISSES",
                                            "ICache Misses"));
    
@@ -118,13 +118,13 @@ module [HASIM_MODULE] mkICache();
     // let cachememory <- mkICacheMemory();
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_IFC_MULTIPLEXED#(NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, SCRATCHPAD_CACHED);
+    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, SCRATCHPAD_CACHED);
 
     // Track the next miss ID to give out.
-    MULTIPLEXED#(NUM_CPUS, COUNTER#(ICACHE_MISS_ID_SIZE)) nextMissIDPool <- mkMultiplexed(mkLCounter(0));
+    MULTIPLEXED#(MAX_NUM_CPUS, COUNTER#(ICACHE_MISS_ID_SIZE)) nextMissIDPool <- mkMultiplexed(mkLCounter(0));
 
     // A counter to track number of misses in flight. If we run out of IDs then we make the front-end retry.
-    MULTIPLEXED#(NUM_CPUS, COUNTER#(ICACHE_MISS_COUNT)) outstandingMissesPool <- mkMultiplexed(mkLCounter(0));
+    MULTIPLEXED#(MAX_NUM_CPUS, COUNTER#(ICACHE_MISS_COUNT)) outstandingMissesPool <- mkMultiplexed(mkLCounter(0));
 
 
     // ****** Rules ******

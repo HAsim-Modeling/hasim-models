@@ -36,7 +36,7 @@
 
 module [HASIM_MODULE] mkL1DCacheAlg
     // interface:
-        (CACHE_ALG#(NUM_CPUS, t_OPAQUE))
+        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(t_OPAQUE_SZ, t_TMP, 8));
@@ -55,7 +55,7 @@ module [HASIM_MODULE] mkL1DCacheAlg
     Param#(8) cleanEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_CLEAN_EVICT_CHANCE, paramNode);
     Param#(8) dirtyEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_DIRTY_EVICT_CHANCE, paramNode);
 
-    CACHE_ALG#(NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom
+    CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom
     (
         loadSeedParam,
         storeSeedParam,

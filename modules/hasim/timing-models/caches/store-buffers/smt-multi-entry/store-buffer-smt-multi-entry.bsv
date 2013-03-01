@@ -60,21 +60,21 @@ typedef Bit#(TLog#(`SB_NUM_ENTRIES)) SB_INDEX;
 
 module [HASIM_MODULE] mkStoreBuffer ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_storebuffer.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_storebuffer.out");
 
 
     // ****** Model State (per Context) ******
     
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))))) tokIDPool       <- mkMultiplexed(mkReg(multithreaded(replicate(Invalid))));
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN))))   storeTokenPool  <- mkMultiplexed(mkRegU());
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))))) physAddressPool <- mkMultiplexed(mkReg(multithreaded(replicate(Invalid))));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(TOKEN))))) tokIDPool       <- mkMultiplexed(mkReg(multithreaded(replicate(Invalid))));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, STORE_TOKEN))))   storeTokenPool  <- mkMultiplexed(mkRegU());
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(Vector#(`SB_NUM_ENTRIES, Maybe#(MEM_ADDRESS))))) physAddressPool <- mkMultiplexed(mkReg(multithreaded(replicate(Invalid))));
 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) oldestCommittedPool   <- mkMultiplexed(mkReg(multithreaded(0)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) numToCommitPool <- mkMultiplexed(mkReg(multithreaded(0)));
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) nextFreeSlotPool      <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) oldestCommittedPool   <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) numToCommitPool <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(SB_INDEX))) nextFreeSlotPool      <- mkMultiplexed(mkReg(multithreaded(0)));
 
     // The thread which well look at next for storing to the writeQ.
-    MULTIPLEXED#(NUM_CPUS, Reg#(THREAD_ID)) headThreadPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(THREAD_ID)) headThreadPool <- mkMultiplexed(mkReg(0));
 
     function Bool empty(CPU_INSTANCE_ID cpu_iid, THREAD_ID thread) = nextFreeSlotPool[cpu_iid][thread] == oldestCommittedPool[cpu_iid][thread];
     function Bool full(CPU_INSTANCE_ID cpu_iid, THREAD_ID thread)  = oldestCommittedPool[cpu_iid][thread] == nextFreeSlotPool[cpu_iid][thread] + 1;
@@ -86,18 +86,18 @@ module [HASIM_MODULE] mkStoreBuffer ();
     FIFO#(CPU_INSTANCE_ID) stage3Q <- mkFIFO();
     FIFO#(CPU_INSTANCE_ID) stage4Q <- mkFIFO();
     
-    Reg#(Vector#(NUM_CPUS, Bool)) stallForStoreRsp <- mkReg(replicate(False));
+    Reg#(Vector#(MAX_NUM_CPUS, Bool)) stallForStoreRsp <- mkReg(replicate(False));
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             allocFromDec    <- mkPortRecv_Multiplexed("Dec_to_SB_alloc", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_INPUT)          reqFromDMem     <- mkPortRecv_Multiplexed("DMem_to_SB_req", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_DEALLOC_INPUT)  deallocFromCom  <- mkPortRecv_Multiplexed("Com_to_SB_dealloc", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)            creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, TOKEN)             allocFromDec    <- mkPortRecv_Multiplexed("Dec_to_SB_alloc", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, SB_INPUT)          reqFromDMem     <- mkPortRecv_Multiplexed("DMem_to_SB_req", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, SB_DEALLOC_INPUT)  deallocFromCom  <- mkPortRecv_Multiplexed("Com_to_SB_dealloc", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID)            creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)      rspToDMem     <- mkPortSend_Multiplexed("SB_to_DMem_rsp");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, MULTITHREADED#(Bool))          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_ENTRY)       storeToWriteQ <- mkPortSend_Multiplexed("SB_to_WB_enq");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, SB_OUTPUT)      rspToDMem     <- mkPortSend_Multiplexed("SB_to_DMem_rsp");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MULTITHREADED#(Bool))          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, WB_ENTRY)       storeToWriteQ <- mkPortSend_Multiplexed("SB_to_WB_enq");
 
     // ****** Soft Connections ******
     
@@ -105,8 +105,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(4, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = reqFromDMem.ctrl;
     inports[1]  = allocFromDec.ctrl;
     inports[2]  = deallocFromCom.ctrl;
@@ -115,7 +115,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     outports[1] = creditToDecode.ctrl;
     outports[2] = storeToWriteQ.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inports, outports);
 
 
     // ****** Rules ******

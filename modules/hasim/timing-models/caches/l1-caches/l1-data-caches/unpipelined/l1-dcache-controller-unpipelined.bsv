@@ -116,7 +116,7 @@ endfunction
 
 module [HASIM_MODULE] mkL1DCache ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_data.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_data.out");
 
     // ****** Dynamic Parameters ******
 
@@ -128,35 +128,35 @@ module [HASIM_MODULE] mkL1DCache ();
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    CACHE_ALG#(NUM_CPUS, VOID) dCacheAlg <- mkL1DCacheAlg();
+    CACHE_ALG#(MAX_NUM_CPUS, VOID) dCacheAlg <- mkL1DCacheAlg();
 
     // Track the next Miss ID to give out.
-    CACHE_MISS_TRACKER#(NUM_CPUS, DCACHE_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
+    CACHE_MISS_TRACKER#(MAX_NUM_CPUS, DCACHE_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_load", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_INPUT) loadReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_load", 0);
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_store", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_INPUT) storeReqFromCPU <- mkPortRecv_Multiplexed("CPU_to_DCache_store", 0);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_immediate");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_immediate");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_delayed");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_load_delayed");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_immediate");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImmToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_immediate");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
 
     // Queues to and from the memory hierarchy, encapsulated as StallPorts.
-    PORT_STALL_SEND_MULTIPLEXED#(NUM_CPUS, MEMORY_REQ) reqToMemQ      <- mkPortStallSend_Multiplexed("L1_DCache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(NUM_CPUS, MEMORY_RSP) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_DCache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMemQ      <- mkPortStallSend_Multiplexed("L1_DCache_OutQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_DCache_InQ");
 
 
     // ****** Local Controller ******
 
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports = newVector();
+    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = fillFromMemory.ctrl.in;
@@ -169,34 +169,34 @@ module [HASIM_MODULE] mkL1DCache ();
     outports[5] = fillFromMemory.ctrl.out;
     depports[0] = storeReqFromCPU.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("L1 DCache Controller", inports, depports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("L1 DCache Controller", inports, depports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage4Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage5Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage6Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, DC_LOCAL_STATE) stage7Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DC_LOCAL_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DC_LOCAL_STATE) stage4Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DC_LOCAL_STATE) stage5Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DC_LOCAL_STATE) stage6Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DC_LOCAL_STATE) stage7Ctrl <- mkStageController();
 
 
     // ****** Stats ******
 
-    STAT_VECTOR#(NUM_CPUS) statReadHit <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statReadHit <-
         mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_HIT",
                                            "L1 DCache Read Hits"));
-    STAT_VECTOR#(NUM_CPUS) statReadMiss <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statReadMiss <-
         mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_MISS",
                                            "L1 DCache Read Misses"));
-    STAT_VECTOR#(NUM_CPUS) statReadRetry <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statReadRetry <-
         mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_RETRY",
                                            "L1 DCache Read Retries"));
-    STAT_VECTOR#(NUM_CPUS) statWriteHit <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statWriteHit <-
         mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_HIT",
                                            "L1 DCache Write Hits"));
-    STAT_VECTOR#(NUM_CPUS) statWriteMiss <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statWriteMiss <-
         mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_MISS",
                                            "L1 DCache Write Misses"));
-    STAT_VECTOR#(NUM_CPUS) statWriteRetry <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statWriteRetry <-
         mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_RETRY",
                                            "L1 DCache Write Retries"));
 

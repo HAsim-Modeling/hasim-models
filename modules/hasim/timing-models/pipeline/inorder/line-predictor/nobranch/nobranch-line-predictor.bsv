@@ -21,23 +21,23 @@ import FIFO::*;
 
 module [HASIM_MODULE] mkLinePredictor ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_lp.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_lp.out");
 
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)                 pcFromFet <- mkPortRecv_Multiplexed("Fet_to_LP_pc", 0);
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ISA_ADDRESS)                 predToFet <- mkPortSend_Multiplexed("LP_to_Fet_newpc");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ISA_ADDRESS)                 pcFromFet <- mkPortRecv_Multiplexed("Fet_to_LP_pc", 0);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ISA_ADDRESS)                 predToFet <- mkPortSend_Multiplexed("LP_to_Fet_newpc");
 
 
     // ****** Local Controller ******
 
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
-    Vector#(1, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inctrls  = newVector();
+    Vector#(1, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     inctrls[0]  = pcFromFet.ctrl;
     outctrls[0] = predToFet.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Line Predictor", inctrls, outctrls);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("Line Predictor", inctrls, outctrls);
 
 
     // ****** Rules ******

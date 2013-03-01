@@ -82,25 +82,25 @@ STORE_BUFF_STATE initStoreBuffState =
 
 module [HASIM_MODULE] mkStoreBuffer ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_storebuffer.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_storebuffer.out");
 
 
     // ****** Model State (per Context) ******
     
-    MULTIPLEXED_STATE_POOL#(NUM_CPUS, STORE_BUFF_STATE) statePool <- mkMultiplexedStatePool(initStoreBuffState);
+    MULTIPLEXED_STATE_POOL#(MAX_NUM_CPUS, STORE_BUFF_STATE) statePool <- mkMultiplexedStatePool(initStoreBuffState);
     
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, TOKEN)             allocFromDec    <- mkPortRecv_Multiplexed("Dec_to_SB_alloc", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_INPUT)          reqFromDMem     <- mkPortRecv_Multiplexed("DMem_to_SB_req", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, SB_DEALLOC_INPUT)  deallocFromCom  <- mkPortRecv_Multiplexed("Com_to_SB_dealloc", 1);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID)            creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, TOKEN)             allocFromDec    <- mkPortRecv_Multiplexed("Dec_to_SB_alloc", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, SB_INPUT)          reqFromDMem     <- mkPortRecv_Multiplexed("DMem_to_SB_req", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, SB_DEALLOC_INPUT)  deallocFromCom  <- mkPortRecv_Multiplexed("Com_to_SB_dealloc", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID)            creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, SB_OUTPUT)      rspToDMem     <- mkPortSend_Multiplexed("SB_to_DMem_rsp");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VOID)          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, WB_ENTRY)       storeToWriteQ <- mkPortSend_Multiplexed("SB_to_WB_enq");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, SB_OUTPUT)      rspToDMem     <- mkPortSend_Multiplexed("SB_to_DMem_rsp");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID)          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, WB_ENTRY)       storeToWriteQ <- mkPortSend_Multiplexed("SB_to_WB_enq");
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("SB_to_Dec_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE) writebackToDec <- mkPortSend_Multiplexed("SB_to_Dec_writeback");
 
     // ****** Soft Connections ******
     
@@ -108,8 +108,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
     // ****** Local Controller ******
 
-    Vector#(5, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports  = newVector();
-    Vector#(4, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(5, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = reqFromDMem.ctrl;
     inports[1]  = allocFromDec.ctrl;
     inports[2]  = deallocFromCom.ctrl;
@@ -120,11 +120,11 @@ module [HASIM_MODULE] mkStoreBuffer ();
     outports[2] = storeToWriteQ.ctrl;
     outports[3] = writebackToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("Store Buffer", inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("Store Buffer", inports, outports);
     
-    STAGE_CONTROLLER#(NUM_CPUS, STORE_BUFF_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Tuple2#(STORE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, STORE_BUFF_STATE) stage4Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, STORE_BUFF_STATE) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(STORE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, STORE_BUFF_STATE) stage4Ctrl <- mkBufferedStageController();
 
 
 

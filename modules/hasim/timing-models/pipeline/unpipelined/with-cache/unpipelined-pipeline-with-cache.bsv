@@ -68,21 +68,21 @@ module [HASIM_MODULE] mkPipeline
     //interface:
         ();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_cpu.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_cpu.out");
 
     //********* State Elements *********//
 
     // Program counters
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 3, ISA_ADDRESS) pcPool <- mkMultiplexedRegMultiWrite(`PROGRAM_START_ADDR);
+    MULTIPLEXED_REG_MULTI_WRITE#(MAX_NUM_CPUS, 3, ISA_ADDRESS) pcPool <- mkMultiplexedRegMultiWrite(`PROGRAM_START_ADDR);
 
     // Processor state
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, STALL_FETCH) stalledFetchPool <- mkMultiplexedRegMultiWrite(tagged UNSTALLED);
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 2, STALL_LOAD)  stalledLoadPool  <- mkMultiplexedRegMultiWrite(tagged UNSTALLED);
-    MULTIPLEXED_REG_MULTI_WRITE#(NUM_CPUS, 3, STALL_STORE) stalledStorePool <- mkMultiplexedRegMultiWrite(tagged UNSTALLED);
+    MULTIPLEXED_REG_MULTI_WRITE#(MAX_NUM_CPUS, 2, STALL_FETCH) stalledFetchPool <- mkMultiplexedRegMultiWrite(tagged UNSTALLED);
+    MULTIPLEXED_REG_MULTI_WRITE#(MAX_NUM_CPUS, 2, STALL_LOAD)  stalledLoadPool  <- mkMultiplexedRegMultiWrite(tagged UNSTALLED);
+    MULTIPLEXED_REG_MULTI_WRITE#(MAX_NUM_CPUS, 3, STALL_STORE) stalledStorePool <- mkMultiplexedRegMultiWrite(tagged UNSTALLED);
     
     //********* UnModel State *******//
     
-    Reg#(Maybe#(INSTANCE_ID#(NUM_CPUS))) dTransStall <- mkReg(tagged Invalid);
+    Reg#(Maybe#(INSTANCE_ID#(MAX_NUM_CPUS))) dTransStall <- mkReg(tagged Invalid);
 
     //********* Connections *********//
 
@@ -125,31 +125,31 @@ module [HASIM_MODULE] mkPipeline
     // Ports
     
     // To/From ICache
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ICACHE_INPUT)                loadToICache <- mkPortSend_Multiplexed("CPU_to_ICache_load");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_load_immediate");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)   delRspFromICache <- mkPortRecv_Multiplexed("ICache_to_CPU_load_delayed", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_INPUT)                loadToICache <- mkPortSend_Multiplexed("CPU_to_ICache_load");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_IMMEDIATE) immRspFromICache <- mkPortRecvDependent_Multiplexed("ICache_to_CPU_load_immediate");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED)   delRspFromICache <- mkPortRecv_Multiplexed("ICache_to_CPU_load_delayed", 1);
 
     // To/From DCache
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_INPUT)                    loadToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_load");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) immLoadRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_load_immediate");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)   delLoadRspFromDCache <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_INPUT)                    loadToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_load");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) immLoadRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_load_immediate");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)   delLoadRspFromDCache <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 1);
 
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_INPUT)                    storeToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immStoreRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delStoreRspFromDCache <- mkPortRecv_Multiplexed("DCache_to_CPU_store_delayed", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_INPUT)                    storeToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immStoreRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delStoreRspFromDCache <- mkPortRecv_Multiplexed("DCache_to_CPU_store_delayed", 1);
 
     // Events
-    EVENT_RECORDER_MULTIPLEXED#(NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_CPU_INSTRUCTION_COMMIT);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_CPU_INSTRUCTION_COMMIT);
 
     // Stats
-    STAT_VECTOR#(NUM_CPUS) statCom <-
+    STAT_VECTOR#(MAX_NUM_CPUS) statCom <-
         mkStatCounter_Multiplexed(statName("CPU_INSTRUCTION_COMMIT",
                                            "Committed Instructions"));
 
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) depports = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports = newVector();
+    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0] = delRspFromICache.ctrl;
     inports[1] = delLoadRspFromDCache.ctrl;
     inports[2] = delStoreRspFromDCache.ctrl;
@@ -160,19 +160,19 @@ module [HASIM_MODULE] mkPipeline
     outports[1] = loadToDCache.ctrl;
     outports[2] = storeToDCache.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalControllerWithUncontrolled(inports, depports, outports);
     
-    STAGE_CONTROLLER#(NUM_CPUS, Bool)  stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(Tuple2#(Bool, Bool))) stage4Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(TOKEN)) stage5Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Bool)  stage6Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(TOKEN)) stage7Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(Tuple3#(TOKEN, Bool, MEM_ADDRESS))) stage8Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(Tuple2#(TOKEN,  MEM_ADDRESS))) stage9Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(Tuple3#(TOKEN, Bool, MEM_ADDRESS))) stage10Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Maybe#(TOKEN)) stage11Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(NUM_CPUS, Bool) stage12Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool)  stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(Bool, Bool))) stage4Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(TOKEN)) stage5Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool)  stage6Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(TOKEN)) stage7Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple3#(TOKEN, Bool, MEM_ADDRESS))) stage8Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(TOKEN,  MEM_ADDRESS))) stage9Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple3#(TOKEN, Bool, MEM_ADDRESS))) stage10Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(TOKEN)) stage11Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage12Ctrl <- mkStageController();
 
     //********* Rules *********//
 

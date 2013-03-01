@@ -68,10 +68,10 @@ module [HASIM_MODULE] mkInterconnect
     // ******** Ports *******
 
     // Queues to/from cores
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, OCN_MSG)        enqToCores      <- mkPortSend_Multiplexed("CoreMemInQ_enq");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, OCN_MSG)        enqFromCores    <- mkPortRecv_Multiplexed("CoreMemOutQ_enq", 1);
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, VC_CREDIT_INFO) creditToCores   <- mkPortSend_Multiplexed("CoreMemInQ_credit");
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VC_CREDIT_INFO) creditFromCores <- mkPortRecv_Multiplexed("CoreMemOutQ_credit", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqToCores      <- mkPortSend_Multiplexed("CoreMemInQ_enq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqFromCores    <- mkPortRecv_Multiplexed("CoreMemOutQ_enq", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditToCores   <- mkPortSend_Multiplexed("CoreMemInQ_credit");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditFromCores <- mkPortRecv_Multiplexed("CoreMemOutQ_credit", 1);
 
     // Queues to/from memory controller
     // Note: non-multiplexed as there is only one memory controller.
@@ -87,17 +87,17 @@ module [HASIM_MODULE] mkInterconnect
     // Note: We need an extra instance here for the memory controller's router.
     // Note: We have to control these ourselves since they have more instances than normal.
 
-    PORT_SEND_MULTIPLEXED#(TAdd#(NUM_CPUS, 1), OCN_MSG) enqToLocal   <- mkPortSend_Multiplexed_Split(enqToCores, enqToMemCtrl, `MEM_CTRL_LOCATION);
-    PORT_RECV_MULTIPLEXED#(TAdd#(NUM_CPUS, 1), OCN_MSG) enqFromLocal <- mkPortRecv_Multiplexed_Join(enqFromCores, enqFromMemCtrl, `MEM_CTRL_LOCATION);
+    PORT_SEND_MULTIPLEXED#(TAdd#(MAX_NUM_CPUS, 1), OCN_MSG) enqToLocal   <- mkPortSend_Multiplexed_Split(enqToCores, enqToMemCtrl, `MEM_CTRL_LOCATION);
+    PORT_RECV_MULTIPLEXED#(TAdd#(MAX_NUM_CPUS, 1), OCN_MSG) enqFromLocal <- mkPortRecv_Multiplexed_Join(enqFromCores, enqFromMemCtrl, `MEM_CTRL_LOCATION);
     
-    PORT_SEND_MULTIPLEXED#(TAdd#(NUM_CPUS, 1), VC_CREDIT_INFO) creditToLocal   <- mkPortSend_Multiplexed_Split(creditToCores, creditToMemCtrl, `MEM_CTRL_LOCATION);
-    PORT_RECV_MULTIPLEXED#(TAdd#(NUM_CPUS, 1), VC_CREDIT_INFO) creditFromLocal <- mkPortRecv_Multiplexed_Join(creditFromCores, creditFromMemCtrl, `MEM_CTRL_LOCATION);
+    PORT_SEND_MULTIPLEXED#(TAdd#(MAX_NUM_CPUS, 1), VC_CREDIT_INFO) creditToLocal   <- mkPortSend_Multiplexed_Split(creditToCores, creditToMemCtrl, `MEM_CTRL_LOCATION);
+    PORT_RECV_MULTIPLEXED#(TAdd#(MAX_NUM_CPUS, 1), VC_CREDIT_INFO) creditFromLocal <- mkPortRecv_Multiplexed_Join(creditFromCores, creditFromMemCtrl, `MEM_CTRL_LOCATION);
 
     // NOTE: The module does not use a local controller, as it has two sets of ports,
-    // one set is NUM_CPUS multiplexed, the other is NUM_STATIONS multiplexed.
+    // one set is MAX_NUM_CPUS multiplexed, the other is NUM_STATIONS multiplexed.
     // This local controller variant handles that.
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
+    Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
     inports[0] = enqFromCores.ctrl;
     inports[1] = creditFromCores.ctrl;
 

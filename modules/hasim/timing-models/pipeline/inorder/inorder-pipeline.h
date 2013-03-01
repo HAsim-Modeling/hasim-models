@@ -21,7 +21,7 @@ class CORES_SWITCH_CLASS : public COMMAND_SWITCH_INT_CLASS
         { 
             
             // Verify that the number is less than the static maximum.
-            VERIFY(arg <= NUM_CPUS, "Told to run more core instances than statically available!");
+            VERIFY(arg <= MAX_NUM_CPUS, "Told to run more core instances than statically available!");
             numCores = arg;
         }
         void ShowSwitch(std::ostream& ostr, const string& prefix)
@@ -45,7 +45,7 @@ class HASIM_PIPELINE_CLASS
         void MapContexts(int num_ctxts) 
         {
             // Verify that the number is less than the static maximum number of core instances.
-            VERIFY(num_ctxts <= NUM_CPUS, "Told to map more benchmark contexts than available hardware instances!");
+            VERIFY(num_ctxts <= MAX_NUM_CPUS, "Told to map more benchmark contexts than available hardware instances!");
             
             // See if the user over-rode the default mapping.
             UINT32 num_cores = numCoresSwitch.NumCores();

@@ -26,7 +26,7 @@ class CORES_SWITCH_CLASS : public COMMAND_SWITCH_INT_CLASS
             
             // Verify that the number is less than the static maximum.
             VERIFY(arg >= 0, "Told to run with negative number of cores");
-            VERIFY(arg <= NUM_CPUS, "Told to run more core instances than statically available!");
+            VERIFY(arg <= MAX_NUM_CPUS, "Told to run more core instances than statically available!");
             numCores = arg;
         }
         void ShowSwitch(std::ostream& ostr, const string& prefix)

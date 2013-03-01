@@ -95,48 +95,48 @@ module [HASIM_MODULE] mkInstructionQueue
     // interface:
         ();
     
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_instq.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_instq.out");
 
 
     // ****** Model State (per instance) ******
 
     // Queue to rendezvous with instructions.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, MULTITHREADED#(INSTQ_SLOT_DATA))) slotsPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED#(MAX_NUM_CPUS, LUTRAM#(INSTQ_SLOT_ID, MULTITHREADED#(INSTQ_SLOT_DATA))) slotsPool <- mkMultiplexed(mkLUTRAMU());
 
     // Record of which expected icache miss delayed updates we should ignore.
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(MISS_DROP_MAP))) shouldDropPool <- mkMultiplexed(mkRegU());
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(MISS_DROP_MAP))) shouldDropPool <- mkMultiplexed(mkRegU());
 
     // Miss Address File (MAF).
     // Maps from icache miss ID to thread and instq slot.
-    MULTIPLEXED#(NUM_CPUS, LUTRAM#(L1_ICACHE_MISS_ID, Tuple2#(THREAD_ID, INSTQ_SLOT_ID))) mafPool <- mkMultiplexed(mkLUTRAMU());
+    MULTIPLEXED#(MAX_NUM_CPUS, LUTRAM#(L1_ICACHE_MISS_ID, Tuple2#(THREAD_ID, INSTQ_SLOT_ID))) mafPool <- mkMultiplexed(mkLUTRAMU());
     
     // Pointer to the head slot, which contains the next bundle for the decode
     // stage to look at.
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_SLOT_ID))) headPtrPool <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_SLOT_ID))) headPtrPool <- mkMultiplexed(mkReg(multithreaded(0)));
     
     // Pointer to the tail slot, which is the next slot we'll use when
     // enqueuing a new bundle.
     // Note: Queue is EMPTY when headPtr == allocPtr 
-    MULTIPLEXED#(NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_SLOT_ID))) tailPtrPool <- mkMultiplexed(mkReg(multithreaded(0)));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(MULTITHREADED#(INSTQ_SLOT_ID))) tailPtrPool <- mkMultiplexed(mkReg(multithreaded(0)));
 
     // THREAD_ID of the thread currently used for the head of the instq.
-    MULTIPLEXED#(NUM_CPUS, Reg#(THREAD_ID)) headThreadPool <- mkMultiplexed(mkReg(0));
+    MULTIPLEXED#(MAX_NUM_CPUS, Reg#(THREAD_ID)) headThreadPool <- mkMultiplexed(mkReg(0));
 
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, INSTQ_ENQUEUE)          enqFromFetch         <- mkPortRecv_Multiplexed("Fet_to_InstQ_enq", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, THREAD_ID)                   clearFromFetch       <- mkPortRecv_Multiplexed("Fet_to_InstQ_clear", 0);
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, ICACHE_OUTPUT_DELAYED)  rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_load_delayed", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, INSTQ_ENQUEUE)          enqFromFetch         <- mkPortRecv_Multiplexed("Fet_to_InstQ_enq", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, THREAD_ID)                   clearFromFetch       <- mkPortRecv_Multiplexed("Fet_to_InstQ_clear", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED)  rspFromICacheDelayed <- mkPortRecv_Multiplexed("ICache_to_CPU_load_delayed", 1);
 
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, FETCH_BUNDLE)       bundleToDec   <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, MULTITHREADED#(INSTQ_CREDIT_COUNT)) creditToFetch <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, FETCH_BUNDLE)       bundleToDec   <- mkPortSend_Multiplexed("InstQ_to_Dec_first");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MULTITHREADED#(INSTQ_CREDIT_COUNT)) creditToFetch <- mkPortSend_Multiplexed("InstQ_to_Fet_credit");
     
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, VOID) deqFromDec <- mkPortRecvDependent_Multiplexed("Dec_to_InstQ_deq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID) deqFromDec <- mkPortRecvDependent_Multiplexed("Dec_to_InstQ_deq");
         
     // ****** Local Controller ******
 
-    Vector#(3, INSTANCE_CONTROL_IN#(NUM_CPUS)) inctrls  = newVector();
-    Vector#(2, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outctrls = newVector();
+    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inctrls  = newVector();
+    Vector#(2, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
 
     inctrls[0]  = enqFromFetch.ctrl;
     inctrls[1]  = clearFromFetch.ctrl;
@@ -144,11 +144,11 @@ module [HASIM_MODULE] mkInstructionQueue
     outctrls[0] = creditToFetch.ctrl;
     outctrls[1] = bundleToDec.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkLocalController(inctrls, outctrls);
 
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER_VOID#(NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage3Ctrl <- mkStageControllerVoid();
+    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage4Ctrl <- mkStageControllerVoid();
 
     // ****** Rules ******
 

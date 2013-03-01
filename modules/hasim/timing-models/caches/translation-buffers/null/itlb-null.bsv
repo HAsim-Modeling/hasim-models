@@ -36,22 +36,22 @@ module [HASIM_MODULE] mkITLB();
     // ****** Ports ******
 
     // Incoming port from CPU
-    PORT_RECV_MULTIPLEXED#(NUM_CPUS, IMEM_BUNDLE) reqFromFet <- mkPortRecv_Multiplexed("CPU_to_ITLB_req", `CPU_TO_ITLB_LATENCY);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, IMEM_BUNDLE) reqFromFet <- mkPortRecv_Multiplexed("CPU_to_ITLB_req", `CPU_TO_ITLB_LATENCY);
 
     // Outgoing ports to CPU
-    PORT_SEND_MULTIPLEXED#(NUM_CPUS, ITLB_OUTPUT) rspToIMem <- mkPortSend_Multiplexed("ITLB_to_CPU_rsp");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ITLB_OUTPUT) rspToIMem <- mkPortSend_Multiplexed("ITLB_to_CPU_rsp");
 
 
     // ****** Local Controller ******
 
-    Vector#(1, INSTANCE_CONTROL_IN#(NUM_CPUS)) inports = newVector();
-    Vector#(1, INSTANCE_CONTROL_OUT#(NUM_CPUS)) outports = newVector();
+    Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(1, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0] = reqFromFet.ctrl;
     outports[0] = rspToIMem.ctrl;
 
-    LOCAL_CONTROLLER#(NUM_CPUS) localCtrl <- mkNamedLocalController("ITLB", inports, outports);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("ITLB", inports, outports);
 
-    STAGE_CONTROLLER#(NUM_CPUS, ITLB_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, ITLB_STAGE2_STATE) stage2Ctrl <- mkBufferedStageController();
 
     (* conservative_implicit_conditions *)
     rule stage1_instReq (True);
