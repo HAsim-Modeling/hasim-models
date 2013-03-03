@@ -64,10 +64,10 @@ module [HASIM_MODULE] mkMemoryController();
     // Note: in the future these may be multiplexed if we
     // are simulating multiple memory controllers.
 
-    PORT_SEND#(OCN_MSG)        enqToOCN      <- mkPortSend("memctrl_to_ocn_enq");
-    PORT_RECV#(OCN_MSG)        enqFromOCN    <- mkPortRecv("ocn_to_memctrl_enq", 1);
-    PORT_SEND#(VC_CREDIT_INFO) creditToOCN   <- mkPortSend("memctrl_to_ocn_credit");
-    PORT_RECV#(VC_CREDIT_INFO) creditFromOCN <- mkPortRecv("ocn_to_memctrl_credit", 1);
+    PORT_SEND_MULTIPLEXED#(1, OCN_MSG)        enqToOCN      <- mkPortSend_Multiplexed("memctrl_to_ocn_enq");
+    PORT_RECV_MULTIPLEXED#(1, OCN_MSG)        enqFromOCN    <- mkPortRecv_Multiplexed("ocn_to_memctrl_enq", 1);
+    PORT_SEND_MULTIPLEXED#(1, VC_CREDIT_INFO) creditToOCN   <- mkPortSend_Multiplexed("memctrl_to_ocn_credit");
+    PORT_RECV_MULTIPLEXED#(1, VC_CREDIT_INFO) creditFromOCN <- mkPortRecv_Multiplexed("ocn_to_memctrl_credit", 1);
 
     Vector#(NUM_LANES, Vector#(VCS_PER_LANE, FIFOF#(OCN_FLIT))) qs <- replicateM(replicateM(mkUGSizedFIFOF(4)));
     Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) needLoadRsp <- mkReg(replicate(replicate(False)));
@@ -82,15 +82,22 @@ module [HASIM_MODULE] mkMemoryController();
 
     // Coordinate between the pipeline stages.
     MULTIPLEX_CONTROLLER#(1)  runCtrl <- mkNamedMultiplexController("Memory Controller",
-                                                                    inports,
                                                                     Vector::nil,
-                                                                    outports);
+//                                                                    inports,
+                                                                    Vector::nil,
+                                                                    Vector::nil);
+//                                                                    outports);
     DEPENDENCE_CONTROLLER#(1) stage2Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage3Ctrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(1) stage4Ctrl <- mkDependenceController();
     Reg#(Bool) initialized <- mkReg(False);
     
     rule initialize (!initialized && runCtrl.running);
+        enqFromOCN.ctrl.setMaxRunningInstance(0);
+        creditFromOCN.ctrl.setMaxRunningInstance(0);
+        enqToOCN.ctrl.setMaxRunningInstance(0);
+        creditToOCN.ctrl.setMaxRunningInstance(0);
+
         stage2Ctrl.ctrl.setMaxRunningInstance(0);
         stage3Ctrl.ctrl.setMaxRunningInstance(0);
         stage4Ctrl.ctrl.setMaxRunningInstance(0);
@@ -103,7 +110,7 @@ module [HASIM_MODULE] mkMemoryController();
         debugLog.nextModelCycle();
 
         Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool)) new_not_fulls = notFulls;
-        let m_credits <- creditFromOCN.receive();
+        let m_credits <- creditFromOCN.receive(0);
 
         // Update our notion of credits.
         if (m_credits matches tagged Valid .creds)
@@ -187,7 +194,7 @@ module [HASIM_MODULE] mkMemoryController();
         end
 
         // Send out the result.
-        enqToOCN.send(enq_to_send);
+        enqToOCN.send(0, enq_to_send);
 
         // Continue in the next stage.
         stage3Ctrl.producerDone();
@@ -200,7 +207,7 @@ module [HASIM_MODULE] mkMemoryController();
         stage4Ctrl.producerStart();
         
         // Read incoming ports.
-        let m_enq     <- enqFromOCN.receive();
+        let m_enq     <- enqFromOCN.receive(0);
 
         // Vectors to update our state.
         Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool)) new_need_load_rsp = needLoadRsp;
@@ -283,7 +290,7 @@ module [HASIM_MODULE] mkMemoryController();
         end
         debugLog.record($format("4: Send output credits."));
         
-        creditToOCN.send(tagged Valid creds);
+        creditToOCN.send(0, tagged Valid creds);
         
         // Go back to stage 1.
         stage4Ctrl.consumerDone();

@@ -5865,3 +5865,27 @@ Directory modules/hasim/timing-models/uncore/interconnects/crossbar
 
 - Add AWB parameter MAX_NUM_MEM_CTRLS to allow more than one memory controller.
 - Change NUM_CPUS to MAX_NUM_CPUS.
+
+----------
+mcadler     Date: Sun Mar  3 18:36:12 EST 2013  CSN: CSN-hasim-models-193
+                  Sun Mar  3 23:36:12 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          192 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Modified          192 
+ icn-mesh.rrr              Locally Modified          192 
+ icn-mesh.bsv              Locally Modified          192 
+
+- The combination of core and memory controller local port connections
+  in the mesh is now managed by the new join/split methods in hasim.
+  This will allow us to have multiple memory controllers.
+
+- Core vs. memory controller mapping is now computed in software and
+  streamed in to hardware.  In its present form it is more of a test.
+  Management of topology will move to a separate module.
+
+- The memory controller is now connected using multiplexed A-ports.  It
+  has not yet been tested managing more than one instance.

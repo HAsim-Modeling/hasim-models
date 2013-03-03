@@ -31,6 +31,25 @@ void
 HASIM_INTERCONNECT_CLASS::Init()
 {
     //
+    // Stream out map of network nodes to CPUs and memory controllers.  Nodes
+    // are walked in order (width then height) and each entry indicates the
+    // device attached to the node.
+    //
+    UINT64 node_id = 0;
+    for (int r = 0; r < MESH_WIDTH; r += 1)
+    {
+        for (int c = 0; c < MESH_HEIGHT; c += 1)
+        {
+            bool done = (r == MESH_WIDTH-1) && (c == MESH_HEIGHT-1);
+
+            // For now there is only one memory controller and all other
+            // nodes are CPUs.
+            clientStub->initLocalPortTypeMap(node_id == MESH_MEM_CTRL_LOC, done);
+            node_id += 1;
+        }
+    }
+
+    //
     // Stream in routing tables.  Each node has a table that is a vector
     // of next hops to all other nodes.  A route is stored as a 2-bit
     // entry:

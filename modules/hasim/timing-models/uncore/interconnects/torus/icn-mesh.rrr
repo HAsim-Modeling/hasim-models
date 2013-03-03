@@ -5,6 +5,7 @@ service ICN_MESH
     ##
     server hw (bsv, connection) <- sw (cpp, method)
     {
-        method initRoutingTable(in UINT8[8] marshalled_data);
+        method initRoutingTable(in UINT8[8] marshalledData);
+        method initLocalPortTypeMap(in UINT8[8] mapEntry, in UINT8[8] done);
     };
 };
