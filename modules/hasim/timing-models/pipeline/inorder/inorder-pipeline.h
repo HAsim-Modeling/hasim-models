@@ -1,68 +1,44 @@
-#include "asim/provides/chip_base_types.h"
+//
+// Copyright (C) 2013 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+#ifndef __INORDER_PIPELINE__
+#define __INORDER_PIPELINE__
+
+#include "awb/provides/chip_base_types.h"
+#include "awb/provides/hasim_chip_topology.h"
+
 
 // An inorder pipeline.
 
-// Multi-Instance: this pipeline can dynamically duplicate itself once per functional partiton context.
-// This is useful for simulating multiple contexts.
+// Multi-Instance: this pipeline can dynamically duplicate itself once
+// per functional partiton context.  This is useful for simulating
+// multiple contexts.
 
-// The num-cores switch can set the number of cores to be less than the number of contexts the benchmark expects.
-// If this is not set the default mapping is one core per context.
-
-class CORES_SWITCH_CLASS : public COMMAND_SWITCH_INT_CLASS
-{
-    private:
-        UINT32 numCores;
-    public:
-        CORES_SWITCH_CLASS() : numCores(0), COMMAND_SWITCH_INT_CLASS("num-cores") {}
-        ~CORES_SWITCH_CLASS() {}
-        UINT32 NumCores() { return numCores; }
-        
-        void ProcessSwitchInt(int arg) 
-        { 
-            
-            // Verify that the number is less than the static maximum.
-            VERIFY(arg <= MAX_NUM_CPUS, "Told to run more core instances than statically available!");
-            numCores = arg;
-        }
-        void ShowSwitch(std::ostream& ostr, const string& prefix)
-        {
-            ostr << prefix << "[--num-cores=<n>]        Number of cores to simulate." << endl;
-        }
-};
 
 typedef class HASIM_PIPELINE_CLASS* HASIM_PIPELINE;
 
 class HASIM_PIPELINE_CLASS
 {
-    private:
-        CORES_SWITCH_CLASS numCoresSwitch;
-    public:
-    
-        HASIM_PIPELINE_CLASS() : numCoresSwitch() {}
-        ~HASIM_PIPELINE_CLASS() {}
+  public:
+    HASIM_PIPELINE_CLASS() {}
+    ~HASIM_PIPELINE_CLASS() {}
 
-        void Init() {}
-        void MapContexts(int num_ctxts) 
-        {
-            // Verify that the number is less than the static maximum number of core instances.
-            VERIFY(num_ctxts <= MAX_NUM_CPUS, "Told to map more benchmark contexts than available hardware instances!");
-            
-            // See if the user over-rode the default mapping.
-            UINT32 num_cores = numCoresSwitch.NumCores();
-            
-            if (num_cores != 0)
-            {
-                // See if they are doing it with a sensible number. It must be less than the number of benchmark contexts.
-                VERIFY(num_cores <= num_ctxts, "Told to run more core instances than than available benchmark contexts!");
-                
-                // Go with the new smaller number.
-                COMMANDS_SERVER_CLASS::GetInstance()->SetNumHardwareThreads(num_cores);
-            
-            }
-            else
-            {
-                // The default mapping is one core instance per benchmark context.
-                COMMANDS_SERVER_CLASS::GetInstance()->SetNumHardwareThreads(num_ctxts);
-            }
-        }
+    void Init() {};
 };
+
+#endif // __INORDER_PIPELINE__

@@ -1,0 +1,9 @@
+//
+// The topology manager collects parameters across all clients (mappers),
+// using a dictionary to manage the namespace.
+//
+// Entires here are provided in all topologies.  At least one must be
+// defined in order to guarantee the dictionary isn't empty.
+//
+
+def TOPOLOGY.NUM_CONTEXTS    "Number of active software contexts";

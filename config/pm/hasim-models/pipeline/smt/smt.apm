@@ -63,7 +63,7 @@ Packagehint=hasim-models
 
 [Branch Predictor with Target Buffer/Requires]
 hasim_branch_pred_alg=n-Bit Branch Predictor Algorithm
-
+hasim_branch_target_buffer=Multi Entry Target Buffer
 
 [SMT Instruction Queue Stage]
 File=modules/hasim/timing-models/pipeline/smt/instq/smt-instq-stage.awb
@@ -103,4 +103,8 @@ Packagehint=hasim-models
 
 [n-Bit Branch Predictor Algorithm]
 File=modules/hasim/timing-models/structures/branch/predictor/n-bit/n-bit-bp-alg.awb
+Packagehint=hasim-models
+
+[Multi Entry Target Buffer]
+File=modules/hasim/timing-models/structures/branch/target_buffer/multi-entry/btb-multi-entry.awb
 Packagehint=hasim-models

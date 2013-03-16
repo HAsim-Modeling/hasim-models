@@ -7,5 +7,6 @@ service ICN_MESH
     {
         method initRoutingTable(in UINT8[8] marshalledData);
         method initLocalPortTypeMap(in UINT8[8] mapEntry, in UINT8[8] done);
+        method initNumActiveNodes(in UINT16[16] numActiveNodes);
     };
 };

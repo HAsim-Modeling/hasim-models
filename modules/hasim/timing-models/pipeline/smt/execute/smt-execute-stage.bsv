@@ -270,7 +270,14 @@ module [HASIM_MODULE] mkExecute ();
                     
                     // Mark the token as junk and send it on.
                     tok.dummy = True;
-                    let dmem_bundle = initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests);
+                    let dmem_bundle = initDMemBundle(tok,
+                                                     bundle.effAddr,
+                                                     bundle.faultEpoch,
+                                                     bundle.isLoad,
+                                                     bundle.isStore,
+                                                     bundle.isTerminate,
+                                                     bundle.dests,
+                                                     bundle.writtenAtMEM);
                     
                     // In the next stage we'll pass the junk instruction on, and mark its destinations ready.
                     stage2Ctrl.ready(cpu_iid, tagged STAGE2_junk dmem_bundle);
@@ -509,7 +516,14 @@ module [HASIM_MODULE] mkExecute ();
             new_bundle.token = tok;
 
             // Enqueue the instuction in the MemQ.
-            bundleToMemQ.doEnq(cpu_iid, initDMemBundle(new_bundle.token, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, new_bundle.isTerminate, bundle.dests));
+            bundleToMemQ.doEnq(cpu_iid, initDMemBundle(new_bundle.token,
+                                                       bundle.effAddr,
+                                                       bundle.faultEpoch,
+                                                       bundle.isLoad,
+                                                       bundle.isStore,
+                                                       new_bundle.isTerminate,
+                                                       bundle.dests,
+                                                       bundle.writtenAtMEM));
 
             // End the model cycle. (Path 3)
             eventExe.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));

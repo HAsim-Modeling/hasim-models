@@ -5889,3 +5889,103 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 - The memory controller is now connected using multiplexed A-ports.  It
   has not yet been tested managing more than one instance.
+
+----------
+mcadler     Date: Sat Mar 16 11:13:40 EDT 2013  CSN: CSN-hasim-models-194
+                  Sat Mar 16 15:13:40 UTC 2013
+
+
+Directory config/pm/hasim-models/pipeline/smt
+ smt.apm                   Locally Modified          193 
+
+Directory modules/hasim/timing-models/chip/multi-core
+ multi-core-chip.h         Locally Modified          193 
+ multi-core-chip.awb       Locally Modified          193 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.awb      Locally Modified          193 
+ topology/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/chip/topology
+ std/                      Locally Added               0 
+
+Directory modules/hasim/timing-models/chip/topology/std
+ topology-std.dic          Locally Added               0 
+ topology-std.cpp          Locally Added               0 
+ topology-std.h            Locally Added               0 
+ topology-std.awb          Locally Added               0 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.h        Locally Modified          193 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.h        Locally Modified          193 
+
+Directory modules/hasim/timing-models/pipeline/smt/execute
+ smt-execute-stage.bsv     Locally Modified          193 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.dic          Locally Added               0 
+ smt.awb                   Locally Modified          193 
+ smt-pipeline.h            Locally Modified          193 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ pipeline-6-stage.h        Locally Modified          193 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.h Locally Modified          193 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.h    Locally Modified          193 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          193 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.dic         Locally Added               0 
+ core-no-cache.h           Locally Modified          193 
+ core-no-cache.awb         Locally Modified          193 
+
+Directory modules/hasim/timing-models/core/core-with-cache
+ core-with-cache.dic       Locally Added               0 
+ core-with-cache.h         Locally Modified          193 
+ core-with-cache.awb       Locally Modified          193 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.h Locally Modified          193 
+ uncore-magic-memory.h     Locally Modified          193 
+ uncore-with-interconnect.awb Locally Modified          193 
+ uncore-with-interconnect.dic Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Modified          193 
+ icn-mesh.rrr              Locally Modified          193 
+ icn-mesh.h                Locally Modified          193 
+ icn-mesh.bsv              Locally Modified          193 
+
+- New topology manager replaces some of the hierarchical MapContexts() calls
+  used while setting up timing models.  The topology manager defines a top-level
+  class as well as a self assembling list of subordinate topology objects.
+  Topology objects are called by the toplogy manager, without having to
+  maintain any hierarchy.
+
+  - Management is in two passes:  InitTopology() and MapToplogy().
+  - The top level manager builds a database of properties, indexed by
+    dictionary entries within the TOPOLOGY domain.  This allows topology
+    objects to add properties (UINT32's) to the namespace.
+  - Topology objects must assume they will be called in an order unpredictable
+    relative to other objects.
+  - It is assumed that global properties will be set during the initialization
+    phase in order to be available to all during the mapping phase.
+  - Not yet done:  transmit properties to the FPGA.
+
+- Add topology objects to core and uncore, defining the number of multiplexed
+  cores and the number of memory controllers.
+
+- Mesh model is a topology client.  More work needed to generalize passing
+  of FPGA-side mesh setup.
+
+- Mesh model now can take flexible dimensions but still only one memory
+  controller.  The number of active CPUs must match the number of software
+  threads.  Network positions that aren't CPUs and aren't memory controllers
+  serve as pure routers with no locally connected device.

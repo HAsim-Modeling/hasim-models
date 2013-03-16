@@ -28,13 +28,14 @@
 
 #include "asim/syntax.h"
 
-#include "platforms-module.h"
 #include "awb/provides/rrr.h"
+#include "awb/provides/hasim_chip_topology.h"
 #include "awb/rrr/client_stub_ICN_MESH.h"
 
 typedef class HASIM_INTERCONNECT_CLASS* HASIM_INTERCONNECT;
 
-class HASIM_INTERCONNECT_CLASS: public PLATFORMS_MODULE_CLASS
+class HASIM_INTERCONNECT_CLASS : public PLATFORMS_MODULE_CLASS,
+                                 public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
 {
   private:
     // stub
@@ -45,6 +46,12 @@ class HASIM_INTERCONNECT_CLASS: public PLATFORMS_MODULE_CLASS
     ~HASIM_INTERCONNECT_CLASS() {};
 
     void Init();
+
+    //
+    // Topology
+    //
+
+    void MapTopology(HASIM_CHIP_TOPOLOGY topology);
 };
 
 #endif // _ICN_MESH_

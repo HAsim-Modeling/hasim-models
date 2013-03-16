@@ -16,23 +16,44 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
+#ifndef __UNCORE_WITH_INTERCONNECT__
+#define __UNCORE_WITH_INTERCONNECT__
+
 #include "awb/provides/hasim_interconnect.h"
+#include "awb/provides/hasim_chip_topology.h"
 
 // Uncore with an interconnect
 
 typedef class HASIM_UNCORE_CLASS* HASIM_UNCORE;
 
-class HASIM_UNCORE_CLASS
+class HASIM_UNCORE_CLASS : public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
 {
   private:
     HASIM_INTERCONNECT inter;
 
   public:
     HASIM_UNCORE_CLASS() :
+        HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS("uncore-with-interconnect"),
         inter(new HASIM_INTERCONNECT_CLASS())
     {}
 
     ~HASIM_UNCORE_CLASS() { delete inter; }
 
     void Init() { inter->Init(); }
+
+
+    //
+    // Topology
+    //
+
+    void InitTopology(HASIM_CHIP_TOPOLOGY topology)
+    {
+        topology->SetParam(TOPOLOGY_NUM_MEM_CONTROLLERS, NUM_MEM_CTRL);
+    }
+
+    void MapTopology(HASIM_CHIP_TOPOLOGY topology)
+    {
+    }
 };
+
+#endif // __UNCORE_WITH_INTERCONNECT__

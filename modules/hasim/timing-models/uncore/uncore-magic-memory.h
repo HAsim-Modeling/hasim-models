@@ -27,4 +27,5 @@ class HASIM_UNCORE_CLASS
     ~HASIM_UNCORE_CLASS() {}
 
     void Init() {}
+    void MapTopology(UINT32 numCores, UINT32 numMemCtrlrs) {}
 };

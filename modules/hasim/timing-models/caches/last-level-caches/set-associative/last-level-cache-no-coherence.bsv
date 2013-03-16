@@ -644,6 +644,8 @@ endmodule
 
 module [HASIM_MODULE] mkCacheCoherenceInterface();
 
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc_coherence.out");
+
     // Queues to/from last level cache.
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_REQ) reqToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_req");
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CC_REQ)     reqFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_req");
@@ -709,6 +711,8 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
     rule stage1_updateCredits (True);
 
         let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
+
         let m_credit <- creditFromOCN.receive(cpu_iid);
         
         Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) notFulls = outputNotFullsPool.getReg(cpu_iid);
@@ -719,28 +723,27 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         
         if (m_credit matches tagged Valid .creds)
         begin
-        
             for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
             begin
-                
                 for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
                 begin
-                
                     match {.credit, .not_full} = creds[ln][vc];
                     new_not_fulls[ln][vc] = not_full;
                     new_credits[ln][vc] = credit;
-                
+
+                    if ((not_full != notFulls[ln][vc]) ||
+                        (credit != outputCredits[ln][vc]))
+                    begin
+                       debugLog.record_next_cycle(cpu_iid, $format("1: Lane %0d, VC %0d: notFull %0d, credits %0d", ln, vc, not_full, credit));
+                    end
                 end
-                
             end
-        
         end
         
         notFulls <= new_not_fulls;
         outputCredits <= new_credits;
         
         stage2Ctrl.ready(cpu_iid);
-    
     endrule
     
     (* conservative_implicit_conditions *)

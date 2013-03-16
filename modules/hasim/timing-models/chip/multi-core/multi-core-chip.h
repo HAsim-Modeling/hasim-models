@@ -16,10 +16,14 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
+#ifndef __MULTI_CORE_CHIP__
+#define __MULTI_CORE_CHIP__
+
 #include "awb/provides/hasim_core.h"
 #include "awb/provides/hasim_uncore.h"
+#include "awb/provides/hasim_chip_topology.h"
 
-// A single-core chip
+// A multi-core chip and uncache
 
 typedef class HASIM_CHIP_CLASS* HASIM_CHIP;
 
@@ -28,15 +32,28 @@ class HASIM_CHIP_CLASS
   private:
     HASIM_CORE core;
     HASIM_UNCORE uncore;
+    HASIM_CHIP_TOPOLOGY chipTopology;
 
   public:
     HASIM_CHIP_CLASS() :
         core(new HASIM_CORE_CLASS()),
-        uncore(new HASIM_UNCORE_CLASS())
+        uncore(new HASIM_UNCORE_CLASS()),
+        chipTopology(new HASIM_CHIP_TOPOLOGY_CLASS())
     {}
 
     ~HASIM_CHIP_CLASS() { delete core; delete uncore; }
 
-    void Init() { uncore->Init(); core->Init(); }
-    void MapContexts(int num_ctxts) { core->MapContexts(num_ctxts); }
+    void Init()
+    {
+        uncore->Init();
+        core->Init();
+        chipTopology->Init();
+    }
+
+    void MapContexts(UINT32 numCtxts)
+    {
+        chipTopology->MapContexts(numCtxts);
+    }
 };
+
+#endif // __MULTI_CORE_CHIP__

@@ -1,0 +1,6 @@
+//
+// The topology manager collects parameters across all clients (mappers),
+// using a dictionary to manage the namespace.
+//
+
+def TOPOLOGY.NUM_MEM_CONTROLLERS    "Number of active memory controllers";

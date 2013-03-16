@@ -22,6 +22,7 @@
 
 // constructor
 HASIM_INTERCONNECT_CLASS::HASIM_INTERCONNECT_CLASS() :
+    HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS("icn-mesh"),
     clientStub(new ICN_MESH_CLIENT_STUB_CLASS(this))
 {
 }
@@ -30,11 +31,22 @@ HASIM_INTERCONNECT_CLASS::HASIM_INTERCONNECT_CLASS() :
 void
 HASIM_INTERCONNECT_CLASS::Init()
 {
+}
+
+void
+HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
+{
+    UINT32 num_cores = topology->GetParam(TOPOLOGY_NUM_CORES);
+    UINT32 num_mem_ctrl = topology->GetParam(TOPOLOGY_NUM_MEM_CONTROLLERS);
+
+    clientStub->initNumActiveNodes(MESH_WIDTH * MESH_HEIGHT - 1);
+
     //
     // Stream out map of network nodes to CPUs and memory controllers.  Nodes
     // are walked in order (width then height) and each entry indicates the
     // device attached to the node.
     //
+    UINT64 cpu_id = 0;
     UINT64 node_id = 0;
     for (int r = 0; r < MESH_WIDTH; r += 1)
     {
@@ -44,7 +56,21 @@ HASIM_INTERCONNECT_CLASS::Init()
 
             // For now there is only one memory controller and all other
             // nodes are CPUs.
-            clientStub->initLocalPortTypeMap(node_id == MESH_MEM_CTRL_LOC, done);
+            UINT32 t;
+            if (node_id == MESH_MEM_CTRL_LOC)
+            {
+                t = 1;
+            }
+            else if (cpu_id >= num_cores)
+            {
+                t = 2;
+            }
+            else
+            {
+                t = 0;
+                cpu_id += 1;
+            }
+            clientStub->initLocalPortTypeMap(t, done);
             node_id += 1;
         }
     }

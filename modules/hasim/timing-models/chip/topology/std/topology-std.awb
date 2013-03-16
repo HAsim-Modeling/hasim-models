@@ -1,0 +1,11 @@
+%name Standard Topology Manager
+%desc Top level of the topology manager
+
+%provides hasim_chip_topology
+
+%attributes hasim model
+
+%public topology-std.h
+%private topology-std.cpp
+
+%private topology-std.dic

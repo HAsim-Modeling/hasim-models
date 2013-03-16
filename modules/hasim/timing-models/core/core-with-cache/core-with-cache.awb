@@ -10,3 +10,7 @@
 
 %public core-with-cache.bsv
 %public core-with-cache.h
+
+%private core-with-cache.dic
+
+%param --dynamic NUM_CORES     0   "Number of cores per chip (0 means use the number of software contexts)"

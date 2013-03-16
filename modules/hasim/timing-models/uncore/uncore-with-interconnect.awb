@@ -11,5 +11,6 @@
 %public uncore-with-interconnect.bsv
 %public uncore-with-interconnect.h
 
+%private uncore-with-interconnect.dic
 
-%AWB_END
+%param --dynamic NUM_MEM_CTRL   1   "Number of memory controllers per chip"

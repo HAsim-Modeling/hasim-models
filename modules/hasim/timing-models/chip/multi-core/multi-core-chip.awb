@@ -5,6 +5,7 @@
 
 %requires hasim_core 
 %requires hasim_uncore
+%requires hasim_chip_topology
 %requires chip_base_types
 
 

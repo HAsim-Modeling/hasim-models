@@ -3,7 +3,9 @@
 
 %provides hasim_chip
 
-%requires hasim_core chip_base_types
+%requires hasim_core
+%requires hasim_chip_topology
+%requires chip_base_types
 
 %attributes hasim model chip
 

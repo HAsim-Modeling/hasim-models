@@ -126,17 +126,18 @@ endinstance
 // Get#() for local node map entry
 module [CONNECTED_MODULE] mkGetLocalPortTypeMap#(ServerStub_ICN_MESH serverStub)
     // Interface:
-    (Get#(Tuple2#(Bit#(1), Bool)));
+    (Get#(Tuple2#(Bit#(2), Bool)));
 
-    method ActionValue#(Tuple2#(Bit#(1), Bool)) get();
+    method ActionValue#(Tuple2#(Bit#(2), Bool)) get();
         let r <- serverStub.acceptRequest_initLocalPortTypeMap();
-        Bit#(1) m = truncate(r.mapEntry);
+        Bit#(2) m = truncate(r.mapEntry);
         Bool done = unpack(truncate(r.done));
         $display("Map Local: %0d", m);
         if (done) $display("Map Local Done");
         return tuple2(m, done);
     endmethod
 endmodule
+
 
 //
 // Mesh interconnection network timing.
@@ -179,6 +180,32 @@ module [HASIM_MODULE] mkInterconnect
     PORT_SEND_MULTIPLEXED#(1, VC_CREDIT_INFO) creditToMemCtrl   <- mkPortSend_Multiplexed("ocn_to_memctrl_credit");
     PORT_RECV_MULTIPLEXED#(1, VC_CREDIT_INFO) creditFromMemCtrl <- mkPortRecv_Multiplexed("memctrl_to_ocn_credit", 1);
 
+    // Local "NULL" connections when no CPU or memory controller is attached
+    // to a local port.  Not knowing in advance how many ports may be NULL,
+    // allocate the maximum number.  The only cost is an index bit.
+    PORT_SEND_MULTIPLEXED#(NUM_STATIONS, OCN_MSG)        enqToNull      <- mkPortSend_Multiplexed_NULL();
+    PORT_RECV_MULTIPLEXED#(NUM_STATIONS, OCN_MSG)        enqFromNull    <- mkPortRecv_Multiplexed_NULL();
+    PORT_SEND_MULTIPLEXED#(NUM_STATIONS, VC_CREDIT_INFO) creditToNull   <- mkPortSend_Multiplexed_NULL();
+    PORT_RECV_MULTIPLEXED#(NUM_STATIONS, VC_CREDIT_INFO) creditFromNull <- mkPortRecv_Multiplexed_NULL();
+
+    //
+    // Local ports are a dynamic combination of CPUs, memory controllers, and
+    // NULL connections.
+    //
+    // localPortMap indicates, for each multiplexed port instance ID, the type
+    // of local port attached (CPU, memory controller, NULL).
+    //
+    let localPortInit <- mkGetLocalPortTypeMap(serverStub);
+    LUTRAM#(Bit#(TLog#(TAdd#(TAdd#(MAX_NUM_CPUS, 1),
+                             NUM_STATIONS))),
+            Bit#(2)) localPortMap <- mkLUTRAMWithGet(localPortInit);
+
+    let enqToLocal      <- mkPortSend_Multiplexed_Split3(enqToCores, enqToMemCtrl, enqToNull, localPortMap);
+    let enqFromLocal    <- mkPortRecv_Multiplexed_Join3(enqFromCores, enqFromMemCtrl, enqFromNull, localPortMap);
+    let creditToLocal   <- mkPortSend_Multiplexed_Split3(creditToCores, creditToMemCtrl, creditToNull, localPortMap);
+    let creditFromLocal <- mkPortRecv_Multiplexed_Join3(creditFromCores, creditFromMemCtrl, creditFromNull, localPortMap);
+
+
     // Links to/from neighboring routers
     // Note: These ports actually connect together (they're the same port).
     // This is the main technique which makes this module work.
@@ -192,37 +219,34 @@ module [HASIM_MODULE] mkInterconnect
     Vector#(NUM_PORTS, PORT_RECV_MULTIPLEXED#(NUM_STATIONS, VC_CREDIT_INFO)) creditFrom = newVector();
 
     enqTo[portEast]       <- mkPortSend_Multiplexed("mesh_interconnect_enq_E");
-    enqFrom[portWest]     <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_enq_E", 1, paramWidth);
+    enqFrom[portWest]     <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_enq_E", 1, paramWidth, paramHeight);
 
     enqTo[portWest]       <- mkPortSend_Multiplexed("mesh_interconnect_enq_W");
-    enqFrom[portEast]     <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_enq_W", 1, paramWidth);
+    enqFrom[portEast]     <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_enq_W", 1, paramWidth, paramHeight);
 
     enqTo[portNorth]      <- mkPortSend_Multiplexed("mesh_interconnect_enq_N");
-    enqFrom[portSouth]    <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_enq_N", 1, paramHeight);
+    enqFrom[portSouth]    <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_enq_N", 1, paramWidth);
 
     enqTo[portSouth]      <- mkPortSend_Multiplexed("mesh_interconnect_enq_S");
-    enqFrom[portNorth]    <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_enq_S", 1, paramHeight);
+    enqFrom[portNorth]    <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_enq_S", 1, paramWidth);
 
-    let localPortInit <- mkGetLocalPortTypeMap(serverStub);
-    LUTRAM#(Bit#(TLog#(TAdd#(1, MAX_NUM_CPUS))), Bit#(1)) localPortType <- mkLUTRAMWithGet(localPortInit);
-
-    enqTo[portLocal]      <- mkPortSend_Multiplexed_Split2(enqToCores, enqToMemCtrl, localPortType);
-    enqFrom[portLocal]    <- mkPortRecv_Multiplexed_Join2(enqFromCores, enqFromMemCtrl, localPortType);
+    enqTo[portLocal]      <- mkPortSend_Multiplexed_Substr(enqToLocal);
+    enqFrom[portLocal]    <- mkPortRecv_Multiplexed_Substr(enqFromLocal);
     
     creditTo[portEast]    <- mkPortSend_Multiplexed("mesh_interconnect_credit_E");
-    creditFrom[portWest]  <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_credit_E", 1, paramWidth);
+    creditFrom[portWest]  <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_credit_E", 1, paramWidth, paramHeight);
 
     creditTo[portWest]    <- mkPortSend_Multiplexed("mesh_interconnect_credit_W");
-    creditFrom[portEast]  <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_credit_W", 1, paramWidth);
+    creditFrom[portEast]  <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_credit_W", 1, paramWidth, paramHeight);
 
     creditTo[portNorth]   <- mkPortSend_Multiplexed("mesh_interconnect_credit_N");
-    creditFrom[portSouth] <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_credit_N", 1, paramHeight);
+    creditFrom[portSouth] <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_credit_N", 1, paramWidth);
 
     creditTo[portSouth]   <- mkPortSend_Multiplexed("mesh_interconnect_credit_S");
-    creditFrom[portNorth] <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_credit_S", 1, paramHeight);
+    creditFrom[portNorth] <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_credit_S", 1, paramWidth);
 
-    creditTo[portLocal]   <- mkPortSend_Multiplexed_Split2(creditToCores, creditToMemCtrl, localPortType);
-    creditFrom[portLocal] <- mkPortRecv_Multiplexed_Join2(creditFromCores, creditFromMemCtrl, localPortType);
+    creditTo[portLocal]   <- mkPortSend_Multiplexed_Substr(creditToLocal);
+    creditFrom[portLocal] <- mkPortRecv_Multiplexed_Substr(creditFromLocal);
 
     // This module simulates by reading/writing it's multiplexed ports once for every CPU,
     // and reading/writing the (non-multiplexed) memory controller port once.
@@ -252,9 +276,7 @@ module [HASIM_MODULE] mkInterconnect
     inportsR[9] = creditFrom[portLocal].ctrl;
     inportsR[10] = virtualChannelsPool.ctrl;
 
-    Vector#(2, INSTANCE_CONTROL_IN#(NUM_STATIONS)) depports = newVector();
-    depports[0] <- mkConvertControllerInstances_IN(enqFromCores.ctrl);
-    depports[1] <- mkConvertControllerInstances_IN(creditFromCores.ctrl);
+    Vector#(0, INSTANCE_CONTROL_IN#(NUM_STATIONS)) depports = newVector();
 
     Vector#(10, INSTANCE_CONTROL_OUT#(NUM_STATIONS)) outportsR = newVector();
     outportsR[0] = enqTo[portLocal].ctrl;
@@ -275,8 +297,8 @@ module [HASIM_MODULE] mkInterconnect
 
     LOCAL_CONTROLLER#(NUM_STATIONS) localCtrl <-
         mkNamedLocalControllerWithActive("Mesh Network",
-                                         valueOf(TSub#(NUM_STATIONS, MAX_NUM_CPUS)),
-                                         True,
+                                         0,
+                                         False,
                                          inportsR, depports, outportsR);
     
     STAGE_CONTROLLER_VOID#(NUM_STATIONS) stage2Ctrl <- mkStageControllerVoid();
@@ -339,15 +361,13 @@ module [HASIM_MODULE] mkInterconnect
     endfunction
 
 
-    // ******* Rules *******
-
-    Reg#(Bool) didMemCtrlInit <- mkReg(False);
-
-    rule initMemCtrl (! didMemCtrlInit);
-        enqFromMemCtrl.ctrl.setMaxRunningInstance(0);
-        creditFromMemCtrl.ctrl.setMaxRunningInstance(0);
-        didMemCtrlInit <= True;
+    rule initNumActiveNodes (True);
+        let n <- serverStub.acceptRequest_initNumActiveNodes();
+        localCtrl.setMaxActiveInstance(truncate(n));
     endrule
+
+
+    // ******* Rules *******
 
     Reg#(STATION_ID) initRTStationID <- mkReg(0);
 
