@@ -46,13 +46,20 @@ class HASIM_PIPELINE_CLASS : public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
     //
     // Topology
     //
-
-    void MapTopology(HASIM_CHIP_TOPOLOGY topology)
+    bool MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
+        // Make sure state upon which this module depends is ready.
+        if (! topology->ParamIsSet(TOPOLOGY_NUM_CORES))
+        {
+            return false;
+        }
+
         UINT32 num_cores = topology->GetParam(TOPOLOGY_NUM_CORES);
 
         VERIFY(num_cores == 1,
                "Error: OOO pipeline currently supports only one functional partition context.");
+
+        return true;
     }
 };
 

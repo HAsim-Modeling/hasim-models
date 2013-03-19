@@ -49,12 +49,14 @@ class HASIM_CORE_CLASS : public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
     //
     // Topology
     //
-
-    void InitTopology(HASIM_CHIP_TOPOLOGY topology)
+    bool MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
-        // Normally it is illegal to count on a parameter being set during
-        // the initialization pass.  NUM_CONTEXTS is an exception, since it is
-        // set by the top-level manager.
+        // Make sure state upon which this module depends is ready.
+        if (! topology->ParamIsSet(TOPOLOGY_NUM_CONTEXTS))
+        {
+            return false;
+        }
+
         UINT32 num_ctxts = topology->GetParam(TOPOLOGY_NUM_CONTEXTS);
 
         // Verify that the number is less than the static maximum number
@@ -74,11 +76,9 @@ class HASIM_CORE_CLASS : public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
         }
 
         topology->SetParam(TOPOLOGY_NUM_CORES, NUM_CORES);
-    };
-
-    void MapTopology(HASIM_CHIP_TOPOLOGY topology)
-    {
         COMMANDS_SERVER_CLASS::GetInstance()->SetNumHardwareThreads(NUM_CORES);
+
+        return true;
     }
 };
 

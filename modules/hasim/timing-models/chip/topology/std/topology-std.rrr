@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2012 Intel Corporation
+// Copyright (C) 2013 Intel Corporation
 //
 // This program is free software; you can redistribute it and/or
 // modify it under the terms of the GNU General Public License
@@ -16,36 +16,15 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
-//
-// @file icn-mesh.h
-// @brief Configure the routing table
-//
-// @author Michael Adler
-//
-
-#ifndef _ICN_MESH_
-#define _ICN_MESH_
-
-#include "asim/syntax.h"
-
-#include "awb/provides/rrr.h"
-#include "awb/provides/hasim_chip_topology.h"
-
-typedef class HASIM_INTERCONNECT_CLASS* HASIM_INTERCONNECT;
-
-class HASIM_INTERCONNECT_CLASS : public PLATFORMS_MODULE_CLASS,
-                                 public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
+service TOPOLOGY
 {
-  public:
-    HASIM_INTERCONNECT_CLASS();
-    ~HASIM_INTERCONNECT_CLASS() {};
-
-    void Init();
-
-    //
-    // Topology
-    //
-    bool MapTopology(HASIM_CHIP_TOPOLOGY topology);
+    ##
+    ## Initialize the routing table, sending marshalled data.
+    ##
+    server hw (bsv, connection) <- sw (cpp, method)
+    {
+        method setParam(in UINT8[8] id,
+                        in UINT16[16] value,
+                        in UINT8[8] last);
+   };
 };
-
-#endif // _ICN_MESH_

@@ -56,22 +56,26 @@ class HASIM_PIPELINE_CLASS : public PLATFORMS_MODULE_CLASS,
     //
     // Topology
     //
-
-    void InitTopology(HASIM_CHIP_TOPOLOGY topology)
+    bool MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
-        topology->SetParam(TOPOLOGY_THREADS_PER_CORE,
-                           threadsSwitch.ThreadsPerCore());
-    }
+        // Make sure state upon which this module depends is ready.
+        if (! topology->ParamIsSet(TOPOLOGY_NUM_CONTEXTS) ||
+            ! topology->ParamIsSet(TOPOLOGY_NUM_CORES))
+        {
+            return false;
+        }
 
-    void MapTopology(HASIM_CHIP_TOPOLOGY topology)
-    {
         UINT32 num_ctxts = topology->GetParam(TOPOLOGY_NUM_CONTEXTS);
         UINT32 num_cores = topology->GetParam(TOPOLOGY_NUM_CORES);
-        UINT32 threads_per_core = topology->GetParam(TOPOLOGY_THREADS_PER_CORE);
+
+        UINT32 threads_per_core = threadsSwitch.ThreadsPerCore();
+        topology->SetParam(TOPOLOGY_THREADS_PER_CORE, threads_per_core);
 
         VERIFY(num_cores * threads_per_core <= num_ctxts,
                "Number of threads exceeds number of benchmark contexts");
             
         smtPipelineClient.SetNumThreadsPerCore(threads_per_core);
+
+        return true;
     }
 };

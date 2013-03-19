@@ -39,24 +39,58 @@ HASIM_CHIP_TOPOLOGY_CLASS::MapContexts(UINT32 numCtxts)
     // the value.
     SetParam(TOPOLOGY_NUM_CONTEXTS, numCtxts);
 
-    topo_obj = HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS::getAllMappers().cbegin();
-    while (topo_obj != topo_obj_end)
+    //
+    // Call all topology mappers until each of them is complete.  The
+    // iteration allows clients that depend on global state set by other
+    // clients to be called in arbitrary order.
+    //
+    UINT32 trips = 0;
+    bool done;
+    do
     {
-        (*topo_obj)->InitTopology(this);
-        topo_obj++;
-    }
+        done = true;
+        topo_obj = HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS::getAllMappers().cbegin();
+        while (topo_obj != topo_obj_end)
+        {
+            // Map client's topology if it hasn't been mapped already.
+            if (! (*topo_obj)->InitDone())
+            {
+                bool ok = (*topo_obj)->MapTopology(this);
+                done = done && ok;
+                if (ok)
+                {
+                    (*topo_obj)->SetInitDone();
+                }
+                else if (trips == 10)
+                {
+                    // Must terminate eventually
+                    ASIMERROR("MapTopology failed to terminate for client: " <<
+                              (*topo_obj)->GetName());
+                }
+            }
 
-    topo_obj = HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS::getAllMappers().cbegin();
-    while (topo_obj != topo_obj_end)
+            topo_obj++;
+        }
+
+        trips += 1;
+    }
+    while (! done);
+
+    //
+    // Send all the parameters to the hardware.
+    //
+    map<TOPOLOGY_DICT_ENUM, TOPOLOGY_VALUE>::const_iterator params;
+    params = topoParams.cbegin();
+    while (params != topoParams.end())
     {
-        (*topo_obj)->MapTopology(this);
-        topo_obj++;
+        SendParam(params->first, params->second);
+        params++;
     }
 }
 
 
 void
-HASIM_CHIP_TOPOLOGY_CLASS::SetParam(TOPOLOGY_DICT_ENUM param, UINT32 value)
+HASIM_CHIP_TOPOLOGY_CLASS::SetParam(TOPOLOGY_DICT_ENUM param, TOPOLOGY_VALUE value)
 {
     VERIFY(topoParams.find(param) == topoParams.end(),
            "Topology parameter " << param << " set twice!");
@@ -64,10 +98,10 @@ HASIM_CHIP_TOPOLOGY_CLASS::SetParam(TOPOLOGY_DICT_ENUM param, UINT32 value)
     topoParams[param] = value;
 }
 
-UINT32
+TOPOLOGY_VALUE
 HASIM_CHIP_TOPOLOGY_CLASS::GetParam(TOPOLOGY_DICT_ENUM param) const
 {
-    map<TOPOLOGY_DICT_ENUM, UINT32>::const_iterator p;
+    map<TOPOLOGY_DICT_ENUM, TOPOLOGY_VALUE>::const_iterator p;
 
     p = topoParams.find(param);
     VERIFY(p != topoParams.end(), "Failed to find topology parameter " << param);
@@ -79,4 +113,37 @@ bool
 HASIM_CHIP_TOPOLOGY_CLASS::ParamIsSet(TOPOLOGY_DICT_ENUM param) const
 {
     return (topoParams.find(param) != topoParams.end());
+}
+
+void
+HASIM_CHIP_TOPOLOGY_CLASS::SendParam(
+    TOPOLOGY_DICT_ENUM param,
+    TOPOLOGY_VALUE value)
+{
+    clientStub->setParam(param, value, 3);
+}
+
+void
+HASIM_CHIP_TOPOLOGY_CLASS::SendParam(
+    TOPOLOGY_DICT_ENUM param,
+    const void* value,
+    int len,
+    bool last)
+{
+    TOPOLOGY_VALUE* topo_vals = (TOPOLOGY_VALUE*) value;
+
+    while (len > 0)
+    {
+        len -= sizeof(TOPOLOGY_VALUE);
+
+        // Encode the last info (last in stream and last in this marshalled
+        // value.)
+        UINT8 last_enc = 0;
+        if (len <= 0)
+        {
+            last_enc = 1 + (last ? 2 : 0);
+        }
+
+        clientStub->setParam(param, *topo_vals++, last_enc);
+    }
 }

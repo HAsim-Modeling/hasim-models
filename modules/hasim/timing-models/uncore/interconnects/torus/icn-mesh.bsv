@@ -18,8 +18,6 @@
 
 // TODO: Evaluate, possibly switch to BlockRAM.
 
-`include "asim/dict/PARAMS_HASIM_INTERCONNECT.bsh"
-
 import Vector::*;
 import FIFO::*;
 import FIFOF::*;
@@ -28,29 +26,29 @@ import GetPut::*;
 import Connectable::*;
 
 
-// TEMPORARY:
-`include "asim/dict/RINGID.bsh"
-
 // ******* Project Imports *******
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/fpga_components.bsh"
-`include "asim/provides/common_services.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/fpga_components.bsh"
+`include "awb/provides/common_services.bsh"
 
 
 // ******* Timing Model Imports *******
 
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/memory_base_types.bsh"
-`include "asim/provides/hasim_memory_controller.bsh"
+`include "awb/provides/hasim_modellib.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/memory_base_types.bsh"
+`include "awb/provides/hasim_memory_controller.bsh"
+`include "awb/provides/hasim_chip_topology.bsh"
+
 
 // ****** Generated files ******
 
-`include "awb/rrr/server_stub_ICN_MESH.bsh"
-`include "asim/dict/EVENTS_MESH.bsh"
+`include "awb/dict/EVENTS_MESH.bsh"
+`include "awb/dict/TOPOLOGY.bsh"
+`include "awb/dict/PARAMS_HASIM_INTERCONNECT.bsh"
 
 
 typedef STATION_IID MESH_COORD; // Since coordinates can vary dynamically, we need to be able to hold the worst case in each direction, which is a ring network.
@@ -110,34 +108,6 @@ typedef struct
 WINNER_INFO 
     deriving (Eq, Bits);
 
-// Get#() for router initialization RRR.
-instance ToGet#(ServerStub_ICN_MESH, Bit#(8));
-    function Get#(Bit#(8)) toGet(ServerStub_ICN_MESH serverStub);
-        Get#(Bit#(8)) f = interface Get#(data_type);
-                              method ActionValue#(Bit#(8)) get();
-                                  let r <- serverStub.acceptRequest_initRoutingTable();
-                                  return r;
-                              endmethod
-                          endinterface;
-        return f;
-    endfunction
-endinstance
-
-// Get#() for local node map entry
-module [CONNECTED_MODULE] mkGetLocalPortTypeMap#(ServerStub_ICN_MESH serverStub)
-    // Interface:
-    (Get#(Tuple2#(Bit#(2), Bool)));
-
-    method ActionValue#(Tuple2#(Bit#(2), Bool)) get();
-        let r <- serverStub.acceptRequest_initLocalPortTypeMap();
-        Bit#(2) m = truncate(r.mapEntry);
-        Bool done = unpack(truncate(r.done));
-        $display("Map Local: %0d", m);
-        if (done) $display("Map Local Done");
-        return tuple2(m, done);
-    endmethod
-endmodule
-
 
 //
 // Mesh interconnection network timing.
@@ -154,15 +124,13 @@ module [HASIM_MODULE] mkInterconnect
     // ******** Dynamic Parameters ********
 
     PARAMETER_NODE paramNode <- mkDynamicParameterNode();
-    Param#(TLog#(NUM_STATIONS)) paramWidth <- mkDynamicParameter(`PARAMS_HASIM_INTERCONNECT_MESH_WIDTH, paramNode);
-    Param#(TLog#(NUM_STATIONS)) paramHeight <- mkDynamicParameter(`PARAMS_HASIM_INTERCONNECT_MESH_HEIGHT, paramNode);
     Param#(TLog#(NUM_STATIONS)) paramMemCtrlLoc <- mkDynamicParameter(`PARAMS_HASIM_INTERCONNECT_MESH_MEM_CTRL_LOC, paramNode);
 
 
     // ******** Initialization from software ********
-    ServerStub_ICN_MESH serverStub <- mkServerStub_ICN_MESH();
-    DEMARSHALLER#(Bit#(8), t_ROUTING_TABLE) routingTableInitQ <- mkSimpleDemarshaller();
-    mkConnection(toGet(serverStub), toPut(routingTableInitQ));
+
+    ReadOnly#(STATION_IID) meshWidth <- mkTopologyParamReg(`TOPOLOGY_NET_MESH_WIDTH);
+    ReadOnly#(STATION_IID) meshHeight <- mkTopologyParamReg(`TOPOLOGY_NET_MESH_HEIGHT);
 
 
     // ******** Ports *******
@@ -195,7 +163,7 @@ module [HASIM_MODULE] mkInterconnect
     // localPortMap indicates, for each multiplexed port instance ID, the type
     // of local port attached (CPU, memory controller, NULL).
     //
-    let localPortInit <- mkGetLocalPortTypeMap(serverStub);
+    let localPortInit <- mkTopologyParamStream(`TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP);
     LUTRAM#(Bit#(TLog#(TAdd#(TAdd#(MAX_NUM_CPUS, 1),
                              NUM_STATIONS))),
             Bit#(2)) localPortMap <- mkLUTRAMWithGet(localPortInit);
@@ -219,31 +187,31 @@ module [HASIM_MODULE] mkInterconnect
     Vector#(NUM_PORTS, PORT_RECV_MULTIPLEXED#(NUM_STATIONS, VC_CREDIT_INFO)) creditFrom = newVector();
 
     enqTo[portEast]       <- mkPortSend_Multiplexed("mesh_interconnect_enq_E");
-    enqFrom[portWest]     <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_enq_E", 1, paramWidth, paramHeight);
+    enqFrom[portWest]     <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_enq_E", 1, meshWidth, meshHeight);
 
     enqTo[portWest]       <- mkPortSend_Multiplexed("mesh_interconnect_enq_W");
-    enqFrom[portEast]     <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_enq_W", 1, paramWidth, paramHeight);
+    enqFrom[portEast]     <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_enq_W", 1, meshWidth, meshHeight);
 
     enqTo[portNorth]      <- mkPortSend_Multiplexed("mesh_interconnect_enq_N");
-    enqFrom[portSouth]    <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_enq_N", 1, paramWidth);
+    enqFrom[portSouth]    <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_enq_N", 1, meshWidth);
 
     enqTo[portSouth]      <- mkPortSend_Multiplexed("mesh_interconnect_enq_S");
-    enqFrom[portNorth]    <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_enq_S", 1, paramWidth);
+    enqFrom[portNorth]    <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_enq_S", 1, meshWidth);
 
     enqTo[portLocal]      <- mkPortSend_Multiplexed_Substr(enqToLocal);
     enqFrom[portLocal]    <- mkPortRecv_Multiplexed_Substr(enqFromLocal);
     
     creditTo[portEast]    <- mkPortSend_Multiplexed("mesh_interconnect_credit_E");
-    creditFrom[portWest]  <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_credit_E", 1, paramWidth, paramHeight);
+    creditFrom[portWest]  <- mkPortRecv_Multiplexed_ReorderLastToFirstEveryN("mesh_interconnect_credit_E", 1, meshWidth, meshHeight);
 
     creditTo[portWest]    <- mkPortSend_Multiplexed("mesh_interconnect_credit_W");
-    creditFrom[portEast]  <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_credit_W", 1, paramWidth, paramHeight);
+    creditFrom[portEast]  <- mkPortRecv_Multiplexed_ReorderFirstToLastEveryN("mesh_interconnect_credit_W", 1, meshWidth, meshHeight);
 
     creditTo[portNorth]   <- mkPortSend_Multiplexed("mesh_interconnect_credit_N");
-    creditFrom[portSouth] <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_credit_N", 1, paramWidth);
+    creditFrom[portSouth] <- mkPortRecv_Multiplexed_ReorderFirstNToLastN("mesh_interconnect_credit_N", 1, meshWidth);
 
     creditTo[portSouth]   <- mkPortSend_Multiplexed("mesh_interconnect_credit_S");
-    creditFrom[portNorth] <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_credit_S", 1, paramWidth);
+    creditFrom[portNorth] <- mkPortRecv_Multiplexed_ReorderLastNToFirstN("mesh_interconnect_credit_S", 1, meshWidth);
 
     creditTo[portLocal]   <- mkPortSend_Multiplexed_Substr(creditToLocal);
     creditFrom[portLocal] <- mkPortRecv_Multiplexed_Substr(creditFromLocal);
@@ -361,24 +329,32 @@ module [HASIM_MODULE] mkInterconnect
     endfunction
 
 
+    //
+    // Set the number of active nodes, given the topology.
+    //
+    Get#(Tuple2#(STATION_IID, Bool)) numActiveNodes <-
+        mkTopologyParamStream(`TOPOLOGY_NET_MAX_NODE_IID);
+
     rule initNumActiveNodes (True);
-        let n <- serverStub.acceptRequest_initNumActiveNodes();
-        localCtrl.setMaxActiveInstance(truncate(n));
+        let n <- numActiveNodes.get();
+        localCtrl.setMaxActiveInstance(tpl_1(n));
     endrule
 
 
     // ******* Rules *******
 
     Reg#(STATION_ID) initRTStationID <- mkReg(0);
+    Get#(Tuple2#(t_ROUTING_TABLE, Bool)) routingTableInitStream <-
+        mkTopologyParamStream(`TOPOLOGY_NET_ROUTING_TABLE);
 
     rule initRouterTable (True);
-        let t <- toGet(routingTableInitQ).get();
+        match {.t, .last} <- routingTableInitStream.get();
         $display("ICN_MESH: %0d  0x%h", initRTStationID, t);
 
         Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(initRTStationID);
         r_table <= t;
         
-        if (initRTStationID == fromInteger(valueOf(TSub#(NUM_STATIONS, 1))))
+        if (last)
         begin
             state <= RUNNING;
             $display("ICN_MESH: Go!");

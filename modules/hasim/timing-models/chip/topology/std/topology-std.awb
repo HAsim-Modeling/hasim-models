@@ -7,5 +7,7 @@
 
 %public topology-std.h
 %private topology-std.cpp
+%public topology-std.bsv
 
+%public topology-std.rrr
 %private topology-std.dic

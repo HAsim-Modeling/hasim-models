@@ -1,2 +1,8 @@
+def TOPOLOGY.NET_MESH_WIDTH           "Mesh network width";
+def TOPOLOGY.NET_MESH_HEIGHT          "Mesh network height";
+def TOPOLOGY.NET_MAX_NODE_IID         "Maximum active network node instance ID";
+def TOPOLOGY.NET_ROUTING_TABLE        "Network routing table (streamed in)";
+def TOPOLOGY.NET_LOCAL_PORT_TYPE_MAP  "Type of local port for each network node (streamed in)";
+
 def EVENTS.MESH.GRANT_VC     "MESH: GRANT VC";
 def EVENTS.MESH.GRANT_VC_ARB "MESH: GRANT VC ARB";

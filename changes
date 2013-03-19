@@ -5989,3 +5989,53 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   controller.  The number of active CPUs must match the number of software
   threads.  Network positions that aren't CPUs and aren't memory controllers
   serve as pure routers with no locally connected device.
+
+----------
+mcadler     Date: Tue Mar 19 08:57:30 EDT 2013  CSN: CSN-hasim-models-195
+                  Tue Mar 19 12:57:30 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/multi-core
+ multi-core-chip.bsv       Locally Modified          194 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.bsv      Locally Modified          194 
+
+Directory modules/hasim/timing-models/chip/topology/std
+ topology-std.cpp          Locally Modified          194 
+ topology-std.rrr          Locally Added               0 
+ topology-std.h            Locally Modified          194 
+ topology-std.awb          Locally Modified          194 
+ topology-std.bsv          Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.h            Locally Modified          194 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ pipeline-6-stage.h        Locally Modified          194 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.h           Locally Modified          194 
+
+Directory modules/hasim/timing-models/core/core-with-cache
+ core-with-cache.h         Locally Modified          194 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.h Locally Modified          194 
+ uncore-magic-memory.h     Locally Modified          194 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.dic              Locally Modified          194 
+ icn-mesh.cpp              Locally Modified          194 
+ icn-mesh.rrr              Locally Removed           194 
+ icn-mesh.h                Locally Modified          194 
+ icn-mesh.awb              Locally Modified          194 
+ icn-mesh.bsv              Locally Modified          194 
+
+- Topology mapper method now returns a bool indicating success.  This allows
+  the mappers to be called in any order, even when one mapper depends on another.
+
+- Add FPGA side of the topology mapper, streaming in state from software.
+  The mapper provides both a register to hold a value and a streamer.
+
+- Replace mesh model's RRR methods with generic toplogy mapper state.

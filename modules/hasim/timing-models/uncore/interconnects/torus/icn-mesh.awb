@@ -6,7 +6,6 @@
  
 %public  icn-mesh.bsv
 %public  icn-mesh.dic
-%public  icn-mesh.rrr
 %public  icn-mesh.h
 %private icn-mesh.cpp
 

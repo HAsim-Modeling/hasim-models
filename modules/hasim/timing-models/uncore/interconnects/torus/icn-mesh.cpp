@@ -19,11 +19,12 @@
 #include "asim/syntax.h"
 #include "awb/provides/hasim_interconnect.h"
 #include "awb/provides/chip_base_types.h"
+#include "awb/provides/hasim_chip_topology.h"
+
 
 // constructor
 HASIM_INTERCONNECT_CLASS::HASIM_INTERCONNECT_CLASS() :
-    HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS("icn-mesh"),
-    clientStub(new ICN_MESH_CLIENT_STUB_CLASS(this))
+    HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS("icn-mesh")
 {
 }
 
@@ -33,13 +34,22 @@ HASIM_INTERCONNECT_CLASS::Init()
 {
 }
 
-void
+bool
 HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
 {
+    // Make sure state upon which this module depends is ready.
+    if (! topology->ParamIsSet(TOPOLOGY_NUM_CORES) ||
+        ! topology->ParamIsSet(TOPOLOGY_NUM_MEM_CONTROLLERS))
+    {
+        return false;
+    }
+
     UINT32 num_cores = topology->GetParam(TOPOLOGY_NUM_CORES);
     UINT32 num_mem_ctrl = topology->GetParam(TOPOLOGY_NUM_MEM_CONTROLLERS);
 
-    clientStub->initNumActiveNodes(MESH_WIDTH * MESH_HEIGHT - 1);
+    topology->SetParam(TOPOLOGY_NET_MESH_WIDTH, MESH_WIDTH);
+    topology->SetParam(TOPOLOGY_NET_MESH_HEIGHT, MESH_HEIGHT);
+    topology->SetParam(TOPOLOGY_NET_MAX_NODE_IID, MESH_WIDTH * MESH_HEIGHT - 1);
 
     //
     // Stream out map of network nodes to CPUs and memory controllers.  Nodes
@@ -56,7 +66,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
 
             // For now there is only one memory controller and all other
             // nodes are CPUs.
-            UINT32 t;
+            TOPOLOGY_VALUE t;
             if (node_id == MESH_MEM_CTRL_LOC)
             {
                 t = 1;
@@ -70,7 +80,8 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
                 t = 0;
                 cpu_id += 1;
             }
-            clientStub->initLocalPortTypeMap(t, done);
+
+            topology->SendParam(TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP, &t, 1, done);
             node_id += 1;
         }
     }
@@ -86,15 +97,19 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     //
     // There are MAX_NUM_CPUS + 1 stations in the table.
     //
-    for (int s = 0; s < MAX_NUM_CPUS + 1; s++)
+    int max_nodes = MAX_NUM_CPUS + MAX_NUM_MEM_CTRLS;
+    for (int s = 0; s < max_nodes; s++)
     {
+        UINT8 buf[MAX_NUM_CPUS + MAX_NUM_MEM_CTRLS];
+        int bufIdx = 0;
+
         UINT8 rt = 0;
         int chunks = 0;
 
         UINT64 s_col = s % MESH_WIDTH;
         UINT64 s_row = s / MESH_WIDTH;
 
-        for (int d = 0; d < MAX_NUM_CPUS + 1; d++)
+        for (int d = 0; d < max_nodes; d++)
         {
             UINT64 d_col = d % MESH_WIDTH;
             UINT64 d_row = d / MESH_WIDTH;
@@ -125,8 +140,8 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
             chunks += 1;
             if (chunks == 4)
             {
-                // Yes.  Send it to hardware.
-                clientStub->initRoutingTable(rt);
+                buf[bufIdx++] = rt;
+
                 chunks = 0;
                 rt = 0;
             }
@@ -140,7 +155,13 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
                 rt >>= 2;
                 chunks += 1;
             }
-            clientStub->initRoutingTable(rt);
+
+            buf[bufIdx++] = rt;
         }
+
+        topology->SendParam(TOPOLOGY_NET_ROUTING_TABLE, buf, bufIdx,
+                            s == max_nodes - 1);
     }
+
+    return true;
 }

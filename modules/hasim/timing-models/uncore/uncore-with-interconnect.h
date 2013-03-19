@@ -45,14 +45,10 @@ class HASIM_UNCORE_CLASS : public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
     //
     // Topology
     //
-
-    void InitTopology(HASIM_CHIP_TOPOLOGY topology)
+    bool MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
         topology->SetParam(TOPOLOGY_NUM_MEM_CONTROLLERS, NUM_MEM_CTRL);
-    }
-
-    void MapTopology(HASIM_CHIP_TOPOLOGY topology)
-    {
+        return true;
     }
 };
 

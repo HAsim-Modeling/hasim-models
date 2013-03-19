@@ -2,6 +2,7 @@ import Vector::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/hasim_core.bsh"
+`include "asim/provides/hasim_chip_topology.bsh"
 `include "asim/provides/memory_base_types.bsh"
 
 `include "asim/provides/hasim_modellib.bsh"
@@ -9,7 +10,8 @@ import Vector::*;
 `include "asim/provides/chip_base_types.bsh"
 
 module [HASIM_MODULE] mkChip();
-    let core <- mkCore;
+    let core <- mkCore();
+    let topology <- mkTopology();
     
     // Tie off dangling core mem ports, since there's no uncore.
 
