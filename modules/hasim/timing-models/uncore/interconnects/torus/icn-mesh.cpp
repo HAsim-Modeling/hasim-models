@@ -161,7 +161,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
 
     topology->SendParam(TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP,
                         cores_map, sizeof(TOPOLOGY_VALUE) * net_core_slots,
-                        num_mem_ctrl <= 1);
+                        num_mem_ctrl == 1);
 
     // Is there another row with memory controllers?
     if (num_mem_ctrl > 1)
@@ -245,6 +245,13 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
         UINT64 s_col = s % num_cols;
         UINT64 s_row = s / num_cols;
 
+        //
+        // Don't allow traversal through memory controllers.  Force a packet
+        // first to go to a core router before heading east/west.
+        //
+        bool allow_ew_flow = (s_row != 0) &&
+                             ((s_row != (num_rows - 1)) || (num_mem_ctrl == 1));
+
         for (int d = 0; d < max_nodes; d++)
         {
             UINT64 d_col = d % num_cols;
@@ -252,11 +259,11 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
 
             // Pick a route from s to d
             UINT8 s_d_rt = 0;
-            if (d_col < s_col)
+            if ((d_col < s_col) && allow_ew_flow)
             {
                 s_d_rt = 3;     // West
             }
-            else if (d_col > s_col)
+            else if ((d_col > s_col) && allow_ew_flow)
             {
                 s_d_rt = 1;     // East
             }

@@ -6068,3 +6068,13 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   north and south ports of core routers, though that will make it more
   difficult to give them addresses as destinations.  For now we'll keep
   the generalized form.
+
+----------
+mcadler     Date: Wed Mar 20 13:10:44 EDT 2013  CSN: CSN-hasim-models-197
+                  Wed Mar 20 17:10:44 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Modified          196 
+
+Don't permit east/west routing through memory controller rows.
