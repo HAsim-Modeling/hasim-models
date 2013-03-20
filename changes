@@ -6039,3 +6039,32 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   The mapper provides both a register to hold a value and a streamer.
 
 - Replace mesh model's RRR methods with generic toplogy mapper state.
+
+----------
+mcadler     Date: Wed Mar 20 11:32:14 EDT 2013  CSN: CSN-hasim-models-196
+                  Wed Mar 20 15:32:14 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          195 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          195 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.dic              Locally Modified          195 
+ icn-mesh.cpp              Locally Modified          195 
+ icn-mesh.awb              Locally Modified          195 
+ icn-mesh.bsv              Locally Modified          195 
+
+- Memory controller pipeline is now multiplexed in order to support multiple
+  controllers.
+
+- Mesh topology manager (software side) now builds a mesh with only cores
+  in the user specified mesh (MESH_WIDTH x MESH_HEIGHT).  Memory controllers
+  are put in separate rows at the top and bottom of the mesh.  For now we
+  build an extra row of router nodes at the top and bottom for memory
+  controllers.  Perhaps memory controllers should attach directly to the
+  north and south ports of core routers, though that will make it more
+  difficult to give them addresses as destinations.  For now we'll keep
+  the generalized form.

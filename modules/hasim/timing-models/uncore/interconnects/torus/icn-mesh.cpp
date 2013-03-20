@@ -47,44 +47,180 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     UINT32 num_cores = topology->GetParam(TOPOLOGY_NUM_CORES);
     UINT32 num_mem_ctrl = topology->GetParam(TOPOLOGY_NUM_MEM_CONTROLLERS);
 
-    topology->SetParam(TOPOLOGY_NET_MESH_WIDTH, MESH_WIDTH);
-    topology->SetParam(TOPOLOGY_NET_MESH_HEIGHT, MESH_HEIGHT);
-    topology->SetParam(TOPOLOGY_NET_MAX_NODE_IID, MESH_WIDTH * MESH_HEIGHT - 1);
+    //
+    // The memory controllers will be added as extra rows at the top and
+    // bottom of the mesh.  If only only one memory controller is requested
+    // then it will be at the top.
+    //
+    UINT32 num_cols = MESH_WIDTH;
+    UINT32 num_rows = MESH_HEIGHT + ((num_mem_ctrl != 1) ? 2 : 1);
+
+    VERIFY(num_cores <= MESH_WIDTH * MESH_HEIGHT,
+           "Number of cores exceeds the number of positions in the network!");
+    VERIFY(MESH_WIDTH >= MESH_HEIGHT,
+           "Mesh WIDTH must be >= mesh HEIGHT!");
+    VERIFY(num_mem_ctrl != 0,
+           "No memory controllers requested!");
+    VERIFY(num_mem_ctrl <= MESH_WIDTH * 2,
+           "Too many memory controllers for network size!");
 
     //
-    // Stream out map of network nodes to CPUs and memory controllers.  Nodes
-    // are walked in order (width then height) and each entry indicates the
-    // device attached to the node.
+    // The user specifies the mesh dimensions for cores.  The FPGA model
+    // dimensions include memory controllers.
     //
-    UINT64 cpu_id = 0;
-    UINT64 node_id = 0;
-    for (int r = 0; r < MESH_WIDTH; r += 1)
+    topology->SetParam(TOPOLOGY_NET_MESH_WIDTH, num_cols);
+    topology->SetParam(TOPOLOGY_NET_MESH_HEIGHT, num_rows);
+    topology->SetParam(TOPOLOGY_NET_MAX_NODE_IID, num_cols * num_rows - 1);
+
+    //
+    // Stream out map of network nodes to CPUs and memory controllers.
+    // Numbers indicate the type of node (0 CPU, 1 memory controller,
+    // 2 empty).
+    //
+
+    // Array to record the chosen positions of all memory controllers
+    TOPOLOGY_VALUE* memctrl_net_pos = new TOPOLOGY_VALUE[num_mem_ctrl];
+    int memctrl_idx = 0;
+
+    // Start with the first row of memory controllers, putting them near the
+    // center of the row.
+    TOPOLOGY_VALUE* memctrl_map = new TOPOLOGY_VALUE[num_cols];
+
+    // Start with all positions empty
+    for (int c = 0; c < num_cols; c++)
     {
-        for (int c = 0; c < MESH_HEIGHT; c += 1)
-        {
-            bool done = (r == MESH_WIDTH-1) && (c == MESH_HEIGHT-1);
-
-            // For now there is only one memory controller and all other
-            // nodes are CPUs.
-            TOPOLOGY_VALUE t;
-            if (node_id == MESH_MEM_CTRL_LOC)
-            {
-                t = 1;
-            }
-            else if (cpu_id >= num_cores)
-            {
-                t = 2;
-            }
-            else
-            {
-                t = 0;
-                cpu_id += 1;
-            }
-
-            topology->SendParam(TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP, &t, 1, done);
-            node_id += 1;
-        }
+        memctrl_map[c] = 2;
     }
+
+    // Lay down 1/4th of the controllers in the top left quadrant.  Addition
+    // before division by 4 (shift right by 2) handles remainders.
+    int pos = (num_cols - 1) >> 1;
+    for (int m = (num_mem_ctrl + 3) >> 2; m > 0; m--)
+    {
+        VERIFYX(pos >= 0);
+        memctrl_net_pos[memctrl_idx++] = pos;
+        memctrl_map[pos--] = 1;
+    }
+
+    // Top right quadrant.
+    pos = (num_cols - 1) >> 1;
+    for (int m = (num_mem_ctrl + 1) >> 2; m > 0; m--)
+    {
+        VERIFYX((pos + 1) < num_cols);
+        memctrl_map[++pos] = 1;
+        memctrl_net_pos[memctrl_idx++] = pos;
+    }
+
+    for (int c = 0; c < num_cols; c++)
+    {
+        printf(" %c", memctrl_map[c] == 1 ? 'M' : 'x');
+    }
+    printf("\n");
+
+    topology->SendParam(TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP,
+                        memctrl_map, sizeof(TOPOLOGY_VALUE) * num_cols,
+                        false);
+
+    //
+    // Put the cores in the center.
+    //
+    int net_core_slots = num_cols * MESH_HEIGHT;
+    TOPOLOGY_VALUE* cores_map = new TOPOLOGY_VALUE[net_core_slots];
+
+    // Start with all positions empty
+    for (int c = 0; c < net_core_slots; c++)
+    {
+        cores_map[c] = 2;
+    }
+
+    // First half of cores
+    pos = (net_core_slots - 1) >> 1;
+    for (int c = (num_cores + 1) >> 1; c > 0; c--)
+    {
+        VERIFYX(pos >= 0);
+        cores_map[pos--] = 0;
+    }
+
+    // Second half of cores
+    pos = (net_core_slots - 1) >> 1;
+    for (int c = num_cores >> 1; c > 0; c--)
+    {
+        VERIFYX((pos + 1) < net_core_slots);
+        cores_map[++pos] = 0;
+    }
+
+    pos = 0;
+    for (int r = 0; r < MESH_HEIGHT; r++)
+    {
+        for (int c = 0; c < num_cols; c++)
+        {
+            printf(" %c", cores_map[pos++] == 0 ? 'C' : 'x');
+        }
+        printf("\n");
+    }
+
+    topology->SendParam(TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP,
+                        cores_map, sizeof(TOPOLOGY_VALUE) * net_core_slots,
+                        num_mem_ctrl <= 1);
+
+    // Is there another row with memory controllers?
+    if (num_mem_ctrl > 1)
+    {
+        for (int c = 0; c < num_cols; c++)
+        {
+            memctrl_map[c] = 2;
+        }
+
+        // Bottom left quadrant
+        pos = num_cols >> 1;
+        for (int m = num_mem_ctrl >> 2; m > 0; m--)
+        {
+            VERIFYX(pos > 0);
+            memctrl_map[--pos] = 1;
+            memctrl_net_pos[memctrl_idx++] = pos + net_core_slots + num_cols;
+        }
+
+        // Bottom right quadrant.
+        pos = num_cols >> 1;
+        for (int m = (num_mem_ctrl + 2) >> 2; m > 0; m--)
+        {
+            VERIFYX(pos < num_cols);
+            memctrl_net_pos[memctrl_idx++] = pos + net_core_slots + num_cols;
+            memctrl_map[pos++] = 1;
+        }
+
+        for (int c = 0; c < num_cols; c++)
+        {
+            printf(" %c", memctrl_map[c] == 1 ? 'M' : 'x');
+        }
+        printf("\n");
+
+        topology->SendParam(TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP,
+                            memctrl_map, sizeof(TOPOLOGY_VALUE) * num_cols,
+                            true);
+    }
+
+    delete[] memctrl_map;
+    delete[] cores_map;
+
+    VERIFY(num_mem_ctrl == memctrl_idx,
+           "Failed to lay down requested number of memory controllers!");
+
+
+    //
+    // Map addresses to memory controllers.  The map has 1K entries to
+    // allow an even spread of addresses to controllers.
+    //
+    for (int addr_idx = 0; addr_idx < 1024; addr_idx++)
+    {
+        topology->SendParam(TOPOLOGY_NET_MEM_CTRL_MAP,
+                            &memctrl_net_pos[addr_idx % num_mem_ctrl],
+                            sizeof(TOPOLOGY_VALUE),
+                            addr_idx == 1023);
+    }
+
+    delete[] memctrl_net_pos;
+
 
     //
     // Stream in routing tables.  Each node has a table that is a vector
@@ -106,13 +242,13 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
         UINT8 rt = 0;
         int chunks = 0;
 
-        UINT64 s_col = s % MESH_WIDTH;
-        UINT64 s_row = s / MESH_WIDTH;
+        UINT64 s_col = s % num_cols;
+        UINT64 s_row = s / num_cols;
 
         for (int d = 0; d < max_nodes; d++)
         {
-            UINT64 d_col = d % MESH_WIDTH;
-            UINT64 d_row = d / MESH_WIDTH;
+            UINT64 d_col = d % num_cols;
+            UINT64 d_row = d / num_cols;
 
             // Pick a route from s to d
             UINT8 s_d_rt = 0;

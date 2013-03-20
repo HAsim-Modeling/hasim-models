@@ -2,24 +2,26 @@ import Vector::*;
 
 // ******* Project Imports *******
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/fpga_components.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/fpga_components.bsh"
 
 
 // ******* Timing Model Imports *******
 
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/memory_base_types.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/hasim_cache_algorithms.bsh"
-`include "asim/provides/hasim_last_level_cache_alg.bsh"
-`include "asim/provides/hasim_miss_tracker.bsh"
+`include "awb/provides/hasim_modellib.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/memory_base_types.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/hasim_chip_topology.bsh"
+`include "awb/provides/hasim_cache_algorithms.bsh"
+`include "awb/provides/hasim_last_level_cache_alg.bsh"
+`include "awb/provides/hasim_miss_tracker.bsh"
 
 // ******* Generated File Imports *******
 
-`include "asim/dict/EVENTS_LLC.bsh"
+`include "awb/dict/EVENTS_LLC.bsh"
+`include "awb/dict/TOPOLOGY.bsh"
 
 // ****** Local Definitions *******
 
@@ -699,12 +701,27 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
     
     endfunction
     
-    function STATION_ID getDst(LINE_ADDRESS addr);
-    
+    function STATION_ID getLLCDstForAddr(LINE_ADDRESS addr);
         // TODO: have home nodes for caches?
         // For now just send everything to the memory controller.
         return 0; // XXX
-    
+    endfunction
+
+    //
+    // Physical addresses are assigned to memory controllers during setup
+    // by software.  The map table is larger than the number of controllers
+    // in order to enable relatively even mapping even when the number of
+    // controllers isn't a power of two.  A large map also makes it
+    // unnecessary to hash the addresses.
+    //
+
+    let ctrlAddrMapInit <- mkTopologyParamStream(`TOPOLOGY_NET_MEM_CTRL_MAP);
+    LUTRAM#(Bit#(10), STATION_ID) memCtrlDstForAddr <-
+        mkLUTRAMWithGet(ctrlAddrMapInit);
+
+    function STATION_ID getMemCtrlDstForAddr(LINE_ADDRESS addr);
+        Bit#(10) a = resize(addr);
+        return memCtrlDstForAddr.sub(a);
     endfunction
 
     (* conservative_implicit_conditions *)
@@ -784,7 +801,9 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         else if (m_llc_rsp matches tagged Valid .rsp &&& vcToEnq(cpu_iid, `LANE_LLC_RSP) matches tagged Valid .vc_idx)
         begin
         
-            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid), dst: getDst(rsp.physicalAddress), isStore: False};
+            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid),
+                                                      dst: getLLCDstForAddr(rsp.physicalAddress),
+                                                      isStore: False};
             enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_RSP, vc_idx, msg));
             packetizingRsp <= tagged Valid tuple2(rsp.opaque, vc_idx);
             rspFromLLC.doDeq(cpu_iid);
@@ -794,7 +813,10 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         else if (m_llc_req matches tagged Valid .req &&& vcToEnq(cpu_iid, `LANE_LLC_REQ) matches tagged Valid .vc_idx)
         begin
         
-            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid), dst: getDst(req.physicalAddress), isStore: req.isStore};
+            let dst_node = getMemCtrlDstForAddr(req.physicalAddress);
+            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid),
+                                                      dst: dst_node,
+                                                      isStore: req.isStore};
             packetizingReq <= tagged Valid tuple2(req.opaque, vc_idx);
             enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_REQ, vc_idx, msg));
             rspFromLLC.noDeq(cpu_iid);
@@ -803,6 +825,8 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
             begin
                 physAddrPool.write(cpu_iid, req.opaque, req.physicalAddress);
             end
+
+            debugLog.record(cpu_iid, $format("2: Gen %s REQ for LINE 0x%x to memctrl node %0d", (req.isStore ? "STORE" : "LOAD"), req.physicalAddress, dst_node));
 
         end
         else

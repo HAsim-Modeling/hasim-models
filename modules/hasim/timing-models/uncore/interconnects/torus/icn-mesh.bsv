@@ -121,12 +121,6 @@ module [HASIM_MODULE] mkInterconnect
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(NUM_STATIONS) debugLog <- mkTIMEPDebugFile_Multiplexed("interconnect_mesh.out");
 
-    // ******** Dynamic Parameters ********
-
-    PARAMETER_NODE paramNode <- mkDynamicParameterNode();
-    Param#(TLog#(NUM_STATIONS)) paramMemCtrlLoc <- mkDynamicParameter(`PARAMS_HASIM_INTERCONNECT_MESH_MEM_CTRL_LOC, paramNode);
-
-
     // ******** Initialization from software ********
 
     ReadOnly#(STATION_IID) meshWidth <- mkTopologyParamReg(`TOPOLOGY_NET_MESH_WIDTH);
@@ -143,10 +137,10 @@ module [HASIM_MODULE] mkInterconnect
 
     // Queues to/from memory controller
     // Note: non-multiplexed as there is only one memory controller.
-    PORT_SEND_MULTIPLEXED#(1, OCN_MSG)        enqToMemCtrl      <- mkPortSend_Multiplexed("ocn_to_memctrl_enq");
-    PORT_RECV_MULTIPLEXED#(1, OCN_MSG)        enqFromMemCtrl    <- mkPortRecv_Multiplexed("memctrl_to_ocn_enq", 1);
-    PORT_SEND_MULTIPLEXED#(1, VC_CREDIT_INFO) creditToMemCtrl   <- mkPortSend_Multiplexed("ocn_to_memctrl_credit");
-    PORT_RECV_MULTIPLEXED#(1, VC_CREDIT_INFO) creditFromMemCtrl <- mkPortRecv_Multiplexed("memctrl_to_ocn_credit", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_MEM_CTRLS, OCN_MSG)        enqToMemCtrl      <- mkPortSend_Multiplexed("ocn_to_memctrl_enq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_MEM_CTRLS, OCN_MSG)        enqFromMemCtrl    <- mkPortRecv_Multiplexed("memctrl_to_ocn_enq", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_MEM_CTRLS, VC_CREDIT_INFO) creditToMemCtrl   <- mkPortSend_Multiplexed("ocn_to_memctrl_credit");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_MEM_CTRLS, VC_CREDIT_INFO) creditFromMemCtrl <- mkPortRecv_Multiplexed("memctrl_to_ocn_credit", 1);
 
     // Local "NULL" connections when no CPU or memory controller is attached
     // to a local port.  Not knowing in advance how many ports may be NULL,
@@ -292,6 +286,18 @@ module [HASIM_MODULE] mkInterconnect
     STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage7Ctrl <- mkStageController();
 
     Reg#(ROUTER_STATE) state <- mkReg(tagged INITIALIZING);
+
+
+    //
+    // identityMap is a map from the the vector representation of each virtual
+    // channel to the index of the lane and channel pair.  The identity
+    // map can be fed into vector mapping functions.
+    //
+    LANE_STATE#(Tuple2#(Integer, Integer)) identityMap = newVector();
+    for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
+    begin
+        identityMap[ln] = genWith(tuple2(ln));
+    end
 
 
     // ****** Events ******
@@ -466,12 +472,6 @@ module [HASIM_MODULE] mkInterconnect
 
         debugLog.record(iid, $format("2: VCA Begin."));
 
-        LANE_STATE#(Tuple2#(Integer, Integer)) identity_map = newVector();
-        for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
-        begin
-            identity_map[ln] = genWith(tuple2(ln));
-        end
-
         //
         // Pick a set of winning incoming messages.  At most one winner per input
         // port will be chosen.  In this loop, "winners" may share a conflicting
@@ -487,11 +487,11 @@ module [HASIM_MODULE] mkInterconnect
             // a single port.  The vector indicates whether a message is ready
             // on each incoming channel.
             //
-            // - concat(identity_map) linearizes the identity vectors.
+            // - concat(identityMap) linearizes the identity vectors.
             // - map operates over the linearized index of lanes and channels.
             // - uncurry() converts each lane/channel ID tuple to separate
             //   arguments, passed to isReadyVC.
-            let ready_vcs = map(uncurry(isReadyVC(in_p)), concat(identity_map));
+            let ready_vcs = map(uncurry(isReadyVC(in_p)), concat(identityMap));
 
             // Pick a winner
             match {.grant_idx, .new_state} = localArbiterFunc(ready_vcs, False, arbiters[in_p]);
@@ -500,7 +500,7 @@ module [HASIM_MODULE] mkInterconnect
             if (grant_idx matches tagged Valid .idx)
             begin
                 // Reverse map the winning index to a lane and channel
-                match {.ln, .in_vc} = concat(identity_map)[idx];
+                match {.ln, .in_vc} = concat(identityMap)[idx];
 
                 // Look up the output port and channel.  The lane is the same.
                 let out_p = validValue(routes[in_p][ln][in_vc]);
@@ -964,14 +964,13 @@ module [HASIM_MODULE] mkInterconnect
                 let new_flit = flit;
                 if (flit matches tagged FLIT_HEAD .info &&& fromInteger(p) == portLocal)
                 begin
+                    //
+                    // Coming in from the local port.  Instead of forcing all
+                    // connected objects to know their name, simply force the
+                    // source to the proper node ID here.
+                    //
                     let new_info = info;
                     new_info.src = iid;
-                    if (iid != paramMemCtrlLoc)
-                    begin
-                        // For now we assume all core traffic goes to the mem controller.
-                        new_info.dst = paramMemCtrlLoc;
-                    end
-
                     new_flit = tagged FLIT_HEAD new_info;
 
                     debugLog.record(iid, $format("6: BW: ENTER in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(new_flit));
@@ -980,6 +979,7 @@ module [HASIM_MODULE] mkInterconnect
                 begin
                     debugLog.record(iid, $format("6: BW: ENQ in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(new_flit));
                 end
+
                 new_vcs[p][ln][vc] = funcFIFO_UGenq(virtualChannels[p][ln][vc], new_flit);
             end
         end
