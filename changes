@@ -6078,3 +6078,26 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
  icn-mesh.cpp              Locally Modified          196 
 
 Don't permit east/west routing through memory controller rows.
+
+----------
+mcadler     Date: Wed Apr 10 13:10:19 EDT 2013  CSN: CSN-hasim-models-198
+                  Wed Apr 10 17:10:19 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          197 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          197 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          197 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          197 
+
+- Memory barrier instructions are implemented as drain before but the model
+  only waited until earlier stores commit.  Add a new message from the write
+  buffer indicating that stores have reached global memory.
+
+- STDIO debug messages now used run-time mask.

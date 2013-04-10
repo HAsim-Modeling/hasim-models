@@ -92,6 +92,8 @@ module [HASIM_MODULE] mkWriteBuffer ();
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED)   delayedRspFromDCache   <- mkPortRecv_Multiplexed("DCache_to_CPU_store_delayed", 1);
 
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, STORE_TOKEN) writebackToDec <- mkPortSend_Multiplexed("MemWriteBuf_to_Dec_writeback");
+
     // ****** Soft Connections ******
     
     Connection_Client#(FUNCP_REQ_COMMIT_STORES, FUNCP_RSP_COMMIT_STORES) commitStores  <- mkConnection_Client("funcp_commitStores");
@@ -101,7 +103,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
     Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
     Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = enqFromSB.ctrl;
     inports[1]  = loadReqFromDMem.ctrl;
     inports[2]  = delayedRspFromDCache.ctrl;
@@ -110,6 +112,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
     outports[0] = creditToSB.ctrl;
     outports[1] = storeReqToDCache.ctrl;
     outports[2] = rspToDMem.ctrl;
+    outports[3] = writebackToDec.ctrl;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Write Buffer", inports, depports, outports);
 
@@ -265,10 +268,14 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
         if (get_rsp)
         begin
-        
             let rsp = commitStores.getResp();
             commitStores.deq();
 
+            writebackToDec.send(cpu_iid, tagged Valid rsp.storeToken);
+        end
+        else
+        begin
+            writebackToDec.send(cpu_iid, tagged Invalid);
         end
 
         // Get the responses from the DCache.

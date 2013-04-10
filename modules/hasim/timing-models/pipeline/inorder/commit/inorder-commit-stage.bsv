@@ -288,12 +288,12 @@ module [HASIM_MODULE] mkCommit ();
             // Get our context from the token.
             let tok = rsp.token;
 
-            // Send the final deallocation to decode.
-            writebackToDec.send(cpu_iid, tagged Valid tok);
-
             // Handle faults.
             if (rsp.faultRedirect matches tagged Valid .redirect_addr)
             begin
+
+                // Send the final deallocation to decode.
+                writebackToDec.send(cpu_iid, tagged Valid tok);
 
                 // A fault occcurred.
                 debugLog.record(cpu_iid, fshow("2: FAULT REDIRECT ") + fshow(tok) + $format(" ADDR: 0x%h", redirect_addr));
@@ -334,6 +334,10 @@ module [HASIM_MODULE] mkCommit ();
                     debugLog.record(cpu_iid, fshow("2: SB STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress) + fshow("STORE TOKEN: ") + fshow(st_tok));
                     deallocToSB.send(cpu_iid, tagged Valid initSBWriteback(tok, st_tok));
 
+                    // Final deallocate delayed until the SB is written back
+                    // to global memory.
+                    writebackToDec.send(cpu_iid, tagged Invalid);
+
                 end
                 else if (bundle.isStore)
                 begin
@@ -341,6 +345,7 @@ module [HASIM_MODULE] mkCommit ();
                     // Squashed store
                     debugLog.record(cpu_iid, fshow("2: SB SQUASHED STORE ") + fshow(tok) + fshow(" ADDR: ") + fshow(bundle.virtualAddress));
                     deallocToSB.send(cpu_iid, tagged Valid initSBDrop(tok));
+                    writebackToDec.send(cpu_iid, tagged Valid tok);
 
                 end
                 else
@@ -348,10 +353,11 @@ module [HASIM_MODULE] mkCommit ();
 
                     // No store to be done.
                     deallocToSB.send(cpu_iid, tagged Invalid);
+                    writebackToDec.send(cpu_iid, tagged Valid tok);
 
                 end
 
-             end
+            end
 
             // Check for a termination instruction, which ends simulation for this context.
             if (bundle.isTerminate matches tagged Valid .pf)

@@ -125,6 +125,7 @@ module [HASIM_MODULE] mkDecode ();
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)       writebackFromMemMiss <- mkPortRecv_Multiplexed("DMem_to_Dec_miss_writeback", 1);
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)       writebackFromStore   <- mkPortRecv_Multiplexed("SB_to_Dec_writeback", 1);
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, TOKEN)             writebackFromCom     <- mkPortRecv_Multiplexed("Com_to_Dec_writeback", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, STORE_TOKEN)       writebackFromWB      <- mkPortRecv_Multiplexed("MemWriteBuf_to_Dec_writeback", 1);
 
     // ****** Soft Connections ******
 
@@ -153,7 +154,7 @@ module [HASIM_MODULE] mkDecode ();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbMissCtrl <- mkDependenceController();
     DEPENDENCE_CONTROLLER#(NUM_CONTEXTS) wbStoreCtrl  <- mkDependenceController();
 
-    Vector#(7, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inports  = newVector();
+    Vector#(8, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inports  = newVector();
     Vector#(8, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  depports = newVector();
     Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = bundleToIssueQ.ctrl.in;
@@ -162,7 +163,8 @@ module [HASIM_MODULE] mkDecode ();
     inports[3]  = faultFromCom.ctrl;
     inports[4]  = bundleFromInstQ.ctrl;
     inports[5]  = writebackFromCom.ctrl;
-    inports[6]  = statePool.ctrl;
+    inports[6]  = writebackFromWB.ctrl;
+    inports[7]  = statePool.ctrl;
     depports[0] = writebackFromExe.ctrl;
     depports[1] = writebackFromMemHit.ctrl;
     depports[2] = writebackFromMemMiss.ctrl;
@@ -293,6 +295,7 @@ module [HASIM_MODULE] mkDecode ();
     // * writebackFromMemMiss
     // * writebackFromStore
     // * writebackFromCom
+    // * writebackFromWB
     
     // Ports written:
     // * None
@@ -447,10 +450,16 @@ module [HASIM_MODULE] mkDecode ();
         let commit <- writebackFromCom.receive(cpu_iid);
         if (commit matches tagged Valid .commit_tok)
         begin
-
             debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
             local_state.numInstrsInFlight = local_state.numInstrsInFlight - 1;
+        end
 
+        // Process retired instructions from memory write buffer.
+        let wb <- writebackFromWB.receive(cpu_iid);
+        if (wb matches tagged Valid .wb_tok)
+        begin
+            debugLog.record_next_cycle(cpu_iid, fshow(wb_tok) + $format(": WriteBuf"));
+            local_state.numInstrsInFlight = local_state.numInstrsInFlight - 1;
         end
 
         if (m_fault matches tagged Valid .tok)
