@@ -1,7 +1,7 @@
 %name Split (Instruction and Data)
 %desc Split L1 caches (Instruction and Data)
 
-%provides hasim_l1_caches
+%provides hasim_private_caches
 %requires hasim_itlb
 %requires hasim_l1_icache
 %requires hasim_dtlb
@@ -15,4 +15,4 @@
 %public l1-caches.bsv
 %public l1-caches.h
 
-%param SYNTH_BOUNDARY mkL1Cache "Name of synthesis boundary"
+%param SYNTH_BOUNDARY mkPrivateCaches "Name of synthesis boundary"

@@ -6101,3 +6101,109 @@ Directory modules/hasim/timing-models/caches/write-buffers/blocking
   buffer indicating that stores have reached global memory.
 
 - STDIO debug messages now used run-time mask.
+
+----------
+mcadler     Date: Sat Apr 20 08:51:32 EDT 2013  CSN: CSN-hasim-models-199
+                  Sat Apr 20 12:51:32 UTC 2013
+
+
+Directory config/pm/hasim-models
+ l1-caches/                Locally Removed           198 
+
+Directory config/pm/hasim-models/l1-caches
+ null_l1_caches.apm        Locally Removed           198 
+ l1_caches.apm             Locally Removed           198 
+ l1_caches_no_tlbs.apm     Locally Removed           198 
+ pseudorandom_l1_caches.apm Locally Removed           198 
+
+Directory config/pm/hasim-models
+ private-caches/           Locally Added               0 
+
+Directory config/pm/hasim-models/private-caches
+ null-private-caches.apm   Locally Added               0 
+ private-caches-no-tlbs.apm Locally Added               0 
+ pseudorandom-private-caches.apm Locally Added               0 
+ private-caches.apm        Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ private-caches-no-tlbs.awb Locally Added               - 
+ l1-caches-no-tlbs.awb     Locally Removed           198 
+ private-caches.awb        Locally Added               - 
+ l1-caches.awb             Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches
+ l1-caches/                Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-instruction-caches/    Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ alg/                      Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg
+ l1-icache-alg-always-hit.awb Locally Removed           198 
+ l1-icache-alg-always-hit.bsv Locally Removed           198 
+ l1-icache-alg-direct-mapped.dic Locally Removed           198 
+ l1-icache-alg-direct-mapped.awb Locally Removed           198 
+ l1-icache-alg-direct-mapped.bsv Locally Removed           198 
+ l1-icache-alg-pseudorandom.awb Locally Removed           198 
+ l1-icache-alg-pseudorandom.bsv Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches
+ l1-instruction-cache.awb  Locally Removed           198 
+ l1-instruction-cache.bsv  Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches-no-tlbs.h       Locally Removed           198 
+ l1-caches-no-tlbs.awb     Locally Removed           198 
+ l1-arbiters/              Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-arbiters
+ static-priority/          Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-arbiters/static-priority
+ l1-cache-arbiter-static-priority.awb Locally Removed           198 
+ l1-cache-arbiter-static-priority.bsv Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches-no-tlbs.bsv     Locally Removed           198 
+ l1-caches.h               Locally Removed           198 
+ l1-data-caches/           Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches
+ alg/                      Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.awb Locally Removed           198 
+ l1-dcache-alg-direct-mapped.bsv Locally Removed           198 
+ l1-dcache-alg-pseudorandom.awb Locally Removed           198 
+ l1-dcache-alg-pseudorandom.bsv Locally Removed           198 
+ l1-dcache-alg-always-hit.awb Locally Removed           198 
+ l1-dcache-alg-always-hit.bsv Locally Removed           198 
+ l1-dcache-alg-direct-mapped.dic Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches
+ unpipelined/              Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.awb Locally Removed           198 
+ l1-dcache-controller-unpipelined.bsv Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches
+ l1-caches.awb             Locally Removed           198 
+ l1-caches.bsv             Locally Removed           198 
+ base-types/               Locally Removed           198 
+
+Directory modules/hasim/timing-models/caches/l1-caches/base-types
+ l1-cache-base-types.awb   Locally Removed           198 
+ l1-cache-base-types.bsv   Locally Removed           198 
+
+Directory modules/hasim/timing-models/core/core-with-cache
+ core-with-cache.h         Locally Modified          198 
+ core-with-cache.awb       Locally Modified          198 
+ core-with-cache.bsv       Locally Modified          198 
+
+Change awb type name from hasim_l1_caches to hasim_private_caches in preparation
+for adding an L2 cache.  The private caches will hold all CPU-private caches
+and, as a group, will have connections up to the CPU and down to the
+uncore.

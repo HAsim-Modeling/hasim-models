@@ -1,31 +1,31 @@
 
 [Global]
 SaveParameters=0
-Description=Direct Mapped, Writethrough L1 Caches, No TLBs
-File=l1_caches_no_tlbs
+Description=Direct Mapped, Writethrough Private Caches, No TLBs
+File=private-caches-no-tlbs
 Version=2.2
-Name=Direct Mapped, Writethrough, No TLBs
+Name=Direct Mapped, Writethrough Private Caches, No TLBs
 Type=HAsim
 Class=Asim::Model
 DefaultBenchmark=
 DefaultRunOpts=
 RootName=Split (Instruction and Data) No TLBs
-RootProvides=hasim_l1_caches
+RootProvides=hasim_private_caches
 
 [Model]
 DefaultAttributes=hasim model caches l1
 model=Split (Instruction and Data) No TLBs
 
 [Unpipelined L1 DCache]
-File=modules/hasim/timing-models/caches/l1-caches/l1-data-caches/unpipelined/l1-dcache-controller-unpipelined.awb
+File=modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined/l1-dcache-controller-unpipelined.awb
 Packagehint=hasim-models
 
 [L1 ICache]
-File=modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/l1-instruction-cache.awb
+File=modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/l1-instruction-cache.awb
 Packagehint=hasim-models
 
 [Static Priority L1 Cache Arbiter]
-File=modules/hasim/timing-models/caches/l1-caches/l1-arbiters/static-priority/l1-cache-arbiter-static-priority.awb
+File=modules/hasim/timing-models/caches/private-caches/l1-arbiters/static-priority/l1-cache-arbiter-static-priority.awb
 Packagehint=hasim-models
 
 [Unified Cache Miss Tracker]
@@ -33,15 +33,15 @@ File=modules/hasim/timing-models/caches/miss-trackers/unified/miss-tracker-unifi
 Packagehint=hasim-models
 
 [L1 Cache Base Types]
-File=modules/hasim/timing-models/caches/l1-caches/base-types/l1-cache-base-types.awb
+File=modules/hasim/timing-models/caches/private-caches/base-types/l1-cache-base-types.awb
 Packagehint=hasim-models
 
 [Direct-Mapped L1 DCache Alg]
-File=modules/hasim/timing-models/caches/l1-caches/l1-data-caches/alg/l1-dcache-alg-direct-mapped.awb
+File=modules/hasim/timing-models/caches/private-caches/l1-data-caches/alg/l1-dcache-alg-direct-mapped.awb
 Packagehint=hasim-models
 
 [Direct-Mapped L1 ICache Alg]
-File=modules/hasim/timing-models/caches/l1-caches/l1-instruction-caches/alg/l1-icache-alg-direct-mapped.awb
+File=modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/alg/l1-icache-alg-direct-mapped.awb
 Packagehint=hasim-models
 
 [Unpipelined L1 DCache/Requires]
@@ -51,7 +51,7 @@ hasim_l1_dcache_alg=Direct-Mapped L1 DCache Alg
 hasim_l1_icache_alg=Direct-Mapped L1 ICache Alg
 
 [Split (Instruction and Data) No TLBs]
-File=modules/hasim/timing-models/caches/l1-caches/l1-caches-no-tlbs.awb
+File=modules/hasim/timing-models/caches/private-caches/private-caches-no-tlbs.awb
 Packagehint=hasim-models
 
 [Split (Instruction and Data) No TLBs/Requires]

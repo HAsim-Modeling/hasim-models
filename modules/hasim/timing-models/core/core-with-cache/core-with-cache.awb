@@ -4,7 +4,7 @@
 %provides hasim_core
 
 %requires hasim_pipeline
-%requires hasim_l1_caches
+%requires hasim_private_caches
 
 %attributes hasim model core
 

@@ -23,7 +23,7 @@
 #include "awb/provides/chip_base_types.h"
 #include "awb/provides/hasim_chip_topology.h"
 #include "awb/provides/hasim_pipeline.h"
-#include "awb/provides/hasim_l1_caches.h"
+#include "awb/provides/hasim_private_caches.h"
 
 // A core with L1 caches
 
