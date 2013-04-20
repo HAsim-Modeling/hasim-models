@@ -6207,3 +6207,25 @@ Change awb type name from hasim_l1_caches to hasim_private_caches in preparation
 for adding an L2 cache.  The private caches will hold all CPU-private caches
 and, as a group, will have connections up to the CPU and down to the
 uncore.
+
+----------
+mcadler     Date: Sat Apr 20 11:22:43 EDT 2013  CSN: CSN-hasim-models-200
+                  Sat Apr 20 15:22:43 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/private-caches
+ private-caches-no-tlbs.h  Locally Added               - 
+ l1-caches-no-tlbs.h       Locally Removed           199 
+ private-caches-no-tlbs.awb Locally Modified          199 
+ private-caches-no-tlbs.bsv Locally Added               - 
+ private-caches.h          Locally Added               - 
+ l1-caches-no-tlbs.bsv     Locally Removed           199 
+ l1-caches.h               Locally Removed           199 
+ private-caches.awb        Locally Modified          199 
+ private-caches.bsv        Locally Added               - 
+ l1-caches.bsv             Locally Removed           199 
+
+Directory modules/hasim/timing-models/core/core-with-cache
+ core-with-cache.h         Locally Modified          199 
+
+Last step in moving L1 caches into an awb class for core private caches.

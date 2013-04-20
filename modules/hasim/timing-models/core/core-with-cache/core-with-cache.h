@@ -25,7 +25,7 @@
 #include "awb/provides/hasim_pipeline.h"
 #include "awb/provides/hasim_private_caches.h"
 
-// A core with L1 caches
+// A core with private caches
 
 typedef class HASIM_CORE_CLASS* HASIM_CORE;
 
@@ -33,18 +33,18 @@ class HASIM_CORE_CLASS : public HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
 {
   private:
     HASIM_PIPELINE pipe;
-    HASIM_L1_CACHES l1Caches;
+    HASIM_PRIVATE_CACHES privateCaches;
 
   public:
     HASIM_CORE_CLASS() :
         HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS("core-with-cache"),
         pipe(new HASIM_PIPELINE_CLASS()),
-        l1Caches(new HASIM_L1_CACHES_CLASS())
+        privateCaches(new HASIM_PRIVATE_CACHES_CLASS())
     {}
 
-    ~HASIM_CORE_CLASS() { delete pipe; delete l1Caches; }
+    ~HASIM_CORE_CLASS() { delete pipe; delete privateCaches; }
 
-    void Init() { pipe->Init(); l1Caches->Init(); }
+    void Init() { pipe->Init(); privateCaches->Init(); }
 
     //
     // Topology

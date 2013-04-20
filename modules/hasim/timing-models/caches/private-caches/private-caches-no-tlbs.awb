@@ -10,7 +10,7 @@
 
 %attributes hasim model caches
 
-%public l1-caches-no-tlbs.bsv
-%public l1-caches-no-tlbs.h
+%public private-caches-no-tlbs.bsv
+%public private-caches-no-tlbs.h
 
 %param SYNTH_BOUNDARY mkPrivateCaches "Name of synthesis boundary"

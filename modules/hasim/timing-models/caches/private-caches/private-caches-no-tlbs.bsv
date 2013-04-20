@@ -3,7 +3,7 @@
 `include "asim/provides/hasim_l1_dcache.bsh"
 `include "asim/provides/hasim_l1_arbiter.bsh"
 
-module [HASIM_MODULE] mkL1Cache();
+module [HASIM_MODULE] mkPrivateCaches();
     let icache  <- mkL1ICache();
     let dcache  <- mkL1DCache();
     let arbiter <- mkL1CacheArbiter();

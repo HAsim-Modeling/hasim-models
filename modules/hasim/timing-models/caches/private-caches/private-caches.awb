@@ -12,7 +12,7 @@
 
 %attributes hasim model caches
 
-%public l1-caches.bsv
-%public l1-caches.h
+%public private-caches.bsv
+%public private-caches.h
 
 %param SYNTH_BOUNDARY mkPrivateCaches "Name of synthesis boundary"
