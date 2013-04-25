@@ -1,23 +1,11 @@
-#/********************************************************************
-# *
-# * Awb module specification
-# *
-# *******************************************************************/
+%name Unpipelined L1 DCache
+%desc Unpipelined L1 DCache (No victim buffer)
+%provides hasim_l1_dcache
 
-#/*
-# %AWB_START
-#
-# %name Unpipelined L1 DCache
-# %desc Unpipelined L1 DCache (No victim buffer)
-# %provides hasim_l1_dcache
-#
-# %requires hasim_l1_dcache_alg
-#
-# %attributes hasim model caches
-#
-# %public  l1-dcache-controller-unpipelined.bsv 
-#
-# %param --dynamic WRITE_THROUGH 0 "0 for write back hits on eviction. 1 for write through hits to memory immediately."
-#
-# %AWB_END
-# */
+%requires hasim_l1_dcache_alg
+
+%attributes hasim model caches
+
+%public  l1-dcache-controller-unpipelined.bsv 
+
+%param --dynamic L1_WRITE_THROUGH 0 "0 for write back dirty lines on eviction. 1 for write through to memory immediately."

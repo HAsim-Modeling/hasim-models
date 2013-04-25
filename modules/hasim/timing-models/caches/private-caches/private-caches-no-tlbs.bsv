@@ -6,5 +6,6 @@
 module [HASIM_MODULE] mkPrivateCaches();
     let icache  <- mkL1ICache();
     let dcache  <- mkL1DCache();
-    let arbiter <- mkL1CacheArbiter();
+    let arbiter <- mkL1CacheArbiter("CorePvtCache_to_UncoreQ",
+                                    "Uncore_to_CorePvtCacheQ");
 endmodule

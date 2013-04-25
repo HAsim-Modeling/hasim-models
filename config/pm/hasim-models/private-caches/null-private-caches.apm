@@ -24,6 +24,7 @@ hasim_l1_dcache=Unpipelined L1 DCache
 l1_cache_base_types=L1 Cache Base Types
 hasim_l1_icache=L1 ICache
 hasim_miss_tracker=Unified Cache Miss Tracker
+hasim_l2_cache=Unpipelined L2 Cache
 
 [Split (Instruction and Data)]
 File=modules/hasim/timing-models/caches/private-caches/private-caches.awb
@@ -70,3 +71,14 @@ Packagehint=hasim-models
 
 [L1 ICache/Requires]
 hasim_l1_icache_alg=Always Hit L1 ICache Alg
+
+[Unpipelined L2 Cache]
+File=modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined/l2-cache-controller-unpipelined.awb
+Packagehint=hasim-models
+
+[Always Hit L2 Cache Alg]
+File=modules/hasim/timing-models/caches/private-caches/l2-caches/alg/l2-alg-always-hit.awb
+Packagehint=hasim-models
+
+[Unpipelined L2 Cache/Requires]
+hasim_l2_cache_alg=Always Hit L2 Cache Alg

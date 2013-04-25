@@ -1,0 +1,7 @@
+%name Always Hit L2 Cache Alg
+%desc Always Hit, Never Evict L2 Cache Alg
+%provides hasim_l2_cache_alg
+
+%attributes hasim model caches
+
+%public l2-alg-always-hit.bsv 

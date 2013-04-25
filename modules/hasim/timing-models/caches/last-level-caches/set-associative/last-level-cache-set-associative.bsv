@@ -115,8 +115,8 @@ module [HASIM_MODULE] mkLastLevelCache();
     // ****** Ports ******
 
     // Queues to/from Cache hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("L1_Cache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("L1_Cache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("Uncore_to_CorePvtCacheQ");
     
     // Queues to/from coherence engine.
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_REQ) reqFromCC <- mkPortStallRecv_Multiplexed("CC_to_LLC_req");

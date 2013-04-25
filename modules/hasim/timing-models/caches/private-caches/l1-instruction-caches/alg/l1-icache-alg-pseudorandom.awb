@@ -6,5 +6,5 @@
 
 %public  l1-icache-alg-pseudorandom.bsv 
 
-%param --dynamic MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
-%param --dynamic SEED 17 "Bit 8 seed for pseudo-random number."
+%param --dynamic L1I_MISS_CHANCE 13 "Range: 0-127. 63 = 50% chance of occurance. Higher = greater chance."
+%param --dynamic L1I_SEED 17 "Bit 8 seed for pseudo-random number."

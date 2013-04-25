@@ -9,6 +9,7 @@
 %requires hasim_miss_tracker
 %requires hasim_l1_arbiter
 %requires l1_cache_base_types
+%requires hasim_l2_cache
 
 %attributes hasim model caches
 

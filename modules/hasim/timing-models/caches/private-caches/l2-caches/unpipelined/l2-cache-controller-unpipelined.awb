@@ -1,0 +1,12 @@
+%name Unpipelined L2 Cache
+%desc Unpipelined L2 Cache
+%provides hasim_l2_cache
+
+%requires hasim_l2_cache_alg
+
+%attributes hasim model caches
+
+%public l2-cache-controller-unpipelined.bsv
+%public l2-cache-controller-unpipelined.dic
+
+%param L2_MISS_ID_SIZE   4  "Number of bits to identify L2 Load Misses. (4 = 8 outstanding misses)"

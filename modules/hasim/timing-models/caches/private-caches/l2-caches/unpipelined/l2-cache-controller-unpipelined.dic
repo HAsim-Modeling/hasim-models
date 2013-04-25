@@ -1,0 +1,2 @@
+def EVENTS.L2.HIT        "L2: Hit";
+def EVENTS.L2.MISS       "L2: Miss";

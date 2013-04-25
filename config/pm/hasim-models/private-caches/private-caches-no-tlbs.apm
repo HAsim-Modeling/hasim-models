@@ -60,3 +60,15 @@ hasim_l1_dcache=Unpipelined L1 DCache
 l1_cache_base_types=L1 Cache Base Types
 hasim_l1_icache=L1 ICache
 hasim_miss_tracker=Unified Cache Miss Tracker
+hasim_l2_cache=Unpipelined L2 Cache
+
+[Unpipelined L2 Cache]
+File=modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined/l2-cache-controller-unpipelined.awb
+Packagehint=hasim-models
+
+[Set Associative L2 Cache Alg]
+File=modules/hasim/timing-models/caches/private-caches/l2-caches/alg/l2-alg-set-associative.awb
+Packagehint=hasim-models
+
+[Unpipelined L2 Cache/Requires]
+hasim_l2_cache_alg=Set Associative L2 Cache Alg

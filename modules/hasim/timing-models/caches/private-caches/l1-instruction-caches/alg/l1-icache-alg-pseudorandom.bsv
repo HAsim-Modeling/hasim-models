@@ -41,9 +41,9 @@ module [HASIM_MODULE] mkL1ICacheAlg
 
     PARAMETER_NODE paramNode <- mkDynamicParameterNode();
 
-    Param#(8) seedParam     <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_SEED, paramNode);
+    Param#(8) seedParam     <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_L1I_SEED, paramNode);
     
-    Param#(8) missChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_MISS_CHANCE, paramNode);
+    Param#(8) missChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_L1I_MISS_CHANCE, paramNode);
 
     // All unused parameters are set to zero.
     CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom

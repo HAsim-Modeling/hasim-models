@@ -14,7 +14,10 @@ import Vector::*;
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/l1_cache_base_types.bsh"
 
-module [HASIM_MODULE] mkL1CacheArbiter ();
+module [HASIM_MODULE] mkL1CacheArbiter#(String reqToMemoryName,
+                                        String rspFromMemoryName)
+    // Interface
+    (Empty);
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_arbiter.out");
 
@@ -22,16 +25,22 @@ module [HASIM_MODULE] mkL1CacheArbiter ();
     Bool favorICache = `L1_ARBITER_FAVOR_ICACHE;
 
     // Queues to/from DCache
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromDCache <- mkPortStallRecv_Multiplexed("L1_DCache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToDCache   <- mkPortStallSend_Multiplexed("L1_DCache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromDCache <-
+        mkPortStallRecv_Multiplexed("L1_DCache_OutQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToDCache <-
+        mkPortStallSend_Multiplexed("L1_DCache_InQ");
 
     // Queues to/from ICache
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromICache <- mkPortStallRecv_Multiplexed("L1_ICache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToICache   <- mkPortStallSend_Multiplexed("L1_ICache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromICache <-
+        mkPortStallRecv_Multiplexed("L1_ICache_OutQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToICache <-
+        mkPortStallSend_Multiplexed("L1_ICache_InQ");
 
     // Queues to/from Memory
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMemory   <- mkPortStallSend_Multiplexed("L1_Cache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromMemory <- mkPortStallRecv_Multiplexed("L1_Cache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMemory <-
+        mkPortStallSend_Multiplexed(reqToMemoryName);
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromMemory <-
+        mkPortStallRecv_Multiplexed(rspFromMemoryName);
     
     // ******* Local Controller *******
     

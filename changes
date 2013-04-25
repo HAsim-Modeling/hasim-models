@@ -6229,3 +6229,96 @@ Directory modules/hasim/timing-models/core/core-with-cache
  core-with-cache.h         Locally Modified          199 
 
 Last step in moving L1 caches into an awb class for core private caches.
+
+----------
+mcadler     Date: Thu Apr 25 13:55:50 EDT 2013  CSN: CSN-hasim-models-201
+                  Thu Apr 25 17:55:50 UTC 2013
+
+
+Directory config/pm/hasim-models/private-caches
+ null-private-caches.apm   Locally Modified          200 
+ private-caches-no-tlbs.apm Locally Modified          200 
+ pseudorandom-private-caches.apm Locally Modified          200 
+ private-caches.apm        Locally Modified          200 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.bsv      Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-set-associative.bsv Locally Modified          200 
+ last-level-cache-no-coherence.bsv Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/null
+ last-level-cache-null.bsv Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/alg
+ l1-icache-alg-pseudorandom.awb Locally Modified          200 
+ l1-icache-alg-pseudorandom.bsv Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ l2-caches/                Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches
+ alg/                      Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/alg
+ l2-alg-pseudorandom.awb   Locally Added               0 
+ l2-alg-pseudorandom.bsv   Locally Added               0 
+ l2-alg-always-hit.awb     Locally Added               0 
+ l2-alg-always-hit.bsv     Locally Added               0 
+ l2-alg-set-associative.awb Locally Added               0 
+ l2-alg-set-associative.bsv Locally Added               0 
+ l2-alg-set-associative.dic Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches
+ unpipelined/              Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined
+ l2-cache-controller-unpipelined.awb Locally Added               0 
+ l2-cache-controller-unpipelined.bsv Locally Added               0 
+ l2-cache-controller-unpipelined.dic Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ private-caches-no-tlbs.awb Locally Modified          200 
+ private-caches-no-tlbs.bsv Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-arbiters/static-priority
+ l1-cache-arbiter-static-priority.bsv Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ private-caches.awb        Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches/alg
+ l1-dcache-alg-pseudorandom.awb Locally Modified          200 
+ l1-dcache-alg-pseudorandom.bsv Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.awb Locally Modified          200 
+ l1-dcache-controller-unpipelined.bsv Locally Modified          200 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ private-caches.bsv        Locally Modified          200 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.bsv         Locally Modified          200 
+
+Directory modules/hasim/timing-models/memory
+ memory-magic.bsv          Locally Modified          200 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-magic-memory.bsv   Locally Modified          200 
+
+Add L2 cache to timing models:
+
+- Names of connections in L1 arbiter and L2 are passed in as arguments to
+  the module, allowing the higher level code (e.g. private-caches.bsv) to
+  manage the topology.
+
+- For the mesh model the current cache situation is silly, but on a path
+  to be interesting.  Private L2 is the same as the uncore's L3.  Because
+  the L3 slices currently act as private caches, L2 and L3 are the same
+  size.
+
+- The L2 cache is a simple, unpipelined, cache.  (The FPGA implementation
+  is pipelined, but the target is not.)  The L2 coherence engine is empty --
+  it simply forwards L2 requests to the uncore (L3).

@@ -121,7 +121,7 @@ module [HASIM_MODULE] mkL1DCache ();
     // ****** Dynamic Parameters ******
 
     PARAMETER_NODE paramNode <- mkDynamicParameterNode();
-    Param#(1) writeThroughParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_WRITE_THROUGH, paramNode);
+    Param#(1) writeThroughParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_L1_WRITE_THROUGH, paramNode);
     Bool simulatingWriteHitWriteThrough = (writeThroughParam == 1);
     
  

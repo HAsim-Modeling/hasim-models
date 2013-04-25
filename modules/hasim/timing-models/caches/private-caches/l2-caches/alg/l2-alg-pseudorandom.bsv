@@ -21,11 +21,11 @@
 
 // ******* Generated File Imports *******
 
-`include "asim/dict/PARAMS_HASIM_L1_DCACHE_ALG.bsh"
+`include "asim/dict/PARAMS_HASIM_L2_CACHE_ALG.bsh"
 
-// mkL1DCache
+// mkL2CacheAlg
 
-// Pseudo-random L1DCache.
+// Pseudo-random L2 cache algorithm.
 
 // Instantiate a pseudo-random algorithm using our dynamic parameters.
 // Instantiate a cache controller to interact with it.
@@ -34,26 +34,25 @@
 // the entries returned to the controller must have some tag data.
 // We arbitrarily choose 7 bits for this tag size.
 
-module [HASIM_MODULE] mkL1DCacheAlg
+module [HASIM_MODULE] mkL2CacheAlg
     // interface:
         (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(t_OPAQUE_SZ, t_TMP, 8));
 
-
     // ****** Dynamic Parameters ******
 
     PARAMETER_NODE paramNode <- mkDynamicParameterNode();
 
-    Param#(8) loadSeedParam     <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_L1D_LOAD_SEED, paramNode);
-    Param#(8) storeSeedParam    <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_L1D_STORE_SEED, paramNode);
-    Param#(8) evictionSeedParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_L1D_EVICT_SEED, paramNode);
+    Param#(8) loadSeedParam     <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_LOAD_SEED, paramNode);
+    Param#(8) storeSeedParam    <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_STORE_SEED, paramNode);
+    Param#(8) evictionSeedParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_EVICT_SEED, paramNode);
     
-    Param#(8) loadMissChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_L1D_LOAD_MISS_CHANCE, paramNode);
-    Param#(8) storeMissChanceParam  <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_L1D_STORE_MISS_CHANCE, paramNode);
-    Param#(8) cleanEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_L1D_CLEAN_EVICT_CHANCE, paramNode);
-    Param#(8) dirtyEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_ALG_L1D_DIRTY_EVICT_CHANCE, paramNode);
+    Param#(8) loadMissChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_LOAD_MISS_CHANCE, paramNode);
+    Param#(8) storeMissChanceParam  <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_STORE_MISS_CHANCE, paramNode);
+    Param#(8) cleanEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_CLEAN_EVICT_CHANCE, paramNode);
+    Param#(8) dirtyEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_DIRTY_EVICT_CHANCE, paramNode);
 
     CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom
     (

@@ -16,8 +16,8 @@ module [HASIM_MODULE] mkChip();
     // Tie off dangling core mem ports, since there's no uncore.
 
     // Queues to/from Cache hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("L1_Cache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("L1_Cache_InQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <- mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore   <- mkPortStallSend_Multiplexed("Uncore_to_CorePvtCacheQ");
     
     Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
     Vector#(2, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
