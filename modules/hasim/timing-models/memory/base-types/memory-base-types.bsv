@@ -79,7 +79,6 @@ function MEM_OPAQUE toMemOpaque(t_ANY x)
          Add#(t_SZ, t_TMP, MEM_OPAQUE_SIZE));
     
     return zeroExtend(pack(x));
-
 endfunction
 
 function t_ANY fromMemOpaque(MEM_OPAQUE x)
@@ -88,5 +87,22 @@ function t_ANY fromMemOpaque(MEM_OPAQUE x)
          Add#(t_SZ, t_TMP, MEM_OPAQUE_SIZE));
         
     return unpack(truncate(x));
+endfunction
 
+
+//
+// updateMemOpaque --
+//   Similar to toMemOpaque but preserves the original value of bits outside
+//   the new portion.  (I.e. outside the size of t_ANY.)  Preserving bits
+//   in a memory hierarchy allows a cache model to reduce the RAM needed
+//   to store the original state of a token.  The original state is typically
+//   stored in a memory in order to restore the token before returning a
+//   result up the cache hierarchy.
+//
+function MEM_OPAQUE updateMemOpaque(MEM_OPAQUE orig, t_ANY x)
+    provisos
+        (Bits#(t_ANY, t_SZ),
+         Add#(t_SZ, t_TMP, MEM_OPAQUE_SIZE));
+    
+    return unpack({ truncateLSB(orig), pack(x) });
 endfunction

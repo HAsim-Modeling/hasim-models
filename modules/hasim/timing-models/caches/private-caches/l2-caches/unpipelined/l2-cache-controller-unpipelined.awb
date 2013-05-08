@@ -9,4 +9,4 @@
 %public l2-cache-controller-unpipelined.bsv
 %public l2-cache-controller-unpipelined.dic
 
-%param L2_MISS_ID_SIZE   4  "Number of bits to identify L2 Load Misses. (4 = 8 outstanding misses)"
+%param L2_MISS_ID_SIZE   4  "Number of bits to identify L2 misses. (4 = 16 outstanding misses)"

@@ -82,7 +82,7 @@ module [HASIM_MODULE] mkL1ICache ();
     CACHE_ALG#(MAX_NUM_CPUS, VOID) iCacheAlg <- mkL1ICacheAlg();
 
     // Track the next Miss ID to give out.
-    CACHE_MISS_TRACKER#(MAX_NUM_CPUS, ICACHE_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
+    CACHE_MISS_TRACKER#(MAX_NUM_CPUS, ICACHE_MISS_ID_SIZE) outstandingMisses <- mkCoalescingCacheMissTracker();
 
 
     // ****** Ports ******

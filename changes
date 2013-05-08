@@ -6322,3 +6322,44 @@ Add L2 cache to timing models:
 - The L2 cache is a simple, unpipelined, cache.  (The FPGA implementation
   is pipelined, but the target is not.)  The L2 coherence engine is empty --
   it simply forwards L2 requests to the uncore (L3).
+
+----------
+mcadler     Date: Wed May  8 18:30:18 EDT 2013  CSN: CSN-hasim-models-202
+                  Wed May  8 22:30:18 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          201 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          201 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          201 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined
+ l2-cache-controller-unpipelined.awb Locally Modified          201 
+ l2-cache-controller-unpipelined.bsv Locally Modified          201 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          201 
+
+Directory modules/hasim/timing-models/memory/base-types
+ memory-base-types.bsv     Locally Modified          201 
+
+A few attempts at reducing model footprint.  Not a huge impact, but potentially
+significant if MEM_OPAQUE grows:
+
+- Add primitive (updateMemOpaque) for merging multiple sources to generate
+  an opaque.  This is useful for reducing the storage of caches that use some
+  fraction of the opaque container to hold local state.  Each cache level
+  is responsible for restoring the opaque to its original value before
+  returning a response.  Instead of storing the full original value, the
+  L2 and LLC now store only the bits that were overwritten.
+
+- Add a second version of mkCacheMissTracker, the method that allocates UIDs
+  for a cache miss.  (UIDs may correspond to MAF entries.)  The old code
+  coalesced consecutive misses from the same address into a single UID.
+  This is really only needed by the L1, since coalescing there will filter
+  references to other caches.  The new mkCacheMissTracker version eliminates
+  the coalescing logic.

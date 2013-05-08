@@ -122,7 +122,7 @@ module [HASIM_MODULE] mkLastLevelCache();
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, LLC_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
 
     // A RAM To map our miss IDs into the original opaques, that we return to higher levels.
-    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MISS_ID, MEM_OPAQUE) opaquesPool <- mkMemory_Multiplexed(mkBRAM);
+    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MISS_ID, LLC_MISS_TOKEN) opaquesPool <- mkMemory_Multiplexed(mkBRAM);
 
     // ****** Ports ******
 
@@ -308,7 +308,15 @@ module [HASIM_MODULE] mkLastLevelCache();
 
         if (read_opaques)
         begin
-            local_state.coreQData.opaque <- opaquesPool.readRsp(cpu_iid);
+            //
+            // Restore the opaque to the context that sent the request to this
+            // cache.  This cache modified only the bits required for a local
+            // miss token.  Merge the unmodified bits (still in the opaque)
+            // and the preserved, overwritten bits (stored in opaquesPool).
+            //
+            let prev_opaque <- opaquesPool.readRsp(cpu_iid);
+            local_state.coreQData.opaque = updateMemOpaque(local_state.coreQData.opaque,
+                                                           prev_opaque);
         end
 
         // See if we started an eviction in the previous stage.
@@ -531,7 +539,7 @@ module [HASIM_MODULE] mkLastLevelCache();
                     // Use the opaque bits to store the miss token.
                     // Note that we use a load to simulate getting exclusive access.
                     let mem_req = initMemLoad(req.physicalAddress);
-                    mem_req.opaque = toMemOpaque(miss_tok);
+                    mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
                     local_state.memQData = mem_req;
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
@@ -563,14 +571,15 @@ module [HASIM_MODULE] mkLastLevelCache();
                     let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, req.physicalAddress);
 
                     // Record the original opaque for returning.
-                    opaquesPool.write(cpu_iid, missTokIndex(miss_tok), req.opaque);
+                    opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
+                                      fromMemOpaque(req.opaque));
 
                     // Record that we are using the memory queue.
                     local_state.memQUsed = True;
 
                     // Use the opaque bits to store the miss token.
                     let mem_req = initMemLoad(req.physicalAddress);
-                    mem_req.opaque = toMemOpaque(miss_tok);
+                    mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
                     local_state.memQData = mem_req;
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
