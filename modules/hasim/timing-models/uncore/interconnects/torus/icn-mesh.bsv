@@ -42,6 +42,7 @@ import Connectable::*;
 `include "awb/provides/memory_base_types.bsh"
 `include "awb/provides/hasim_memory_controller.bsh"
 `include "awb/provides/hasim_chip_topology.bsh"
+`include "awb/provides/hasim_interconnect_common.bsh"
 
 
 // ****** Generated files ******

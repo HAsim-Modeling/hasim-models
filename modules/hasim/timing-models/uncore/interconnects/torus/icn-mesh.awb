@@ -1,6 +1,7 @@
 %name Mesh Interconnect
 %desc 2D Square Mesh
 %provides hasim_interconnect
+%requires hasim_interconnect_common
 
 %attributes hasim uncore
  

@@ -6373,3 +6373,30 @@ Directory admin/packages
  hasim-models              Locally Modified          202 
 
 - added Sourceurl in admin/packages/hasim-models for doxygen documentation
+
+----------
+mcadler     Date: Thu Aug 29 20:59:25 EDT 2013  CSN: CSN-hasim-models-204
+                  Fri Aug 30 00:59:25 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.awb Locally Modified          203 
+ memory-controller-latency-delay.bsv Locally Modified          203 
+
+Directory modules/hasim/timing-models/uncore/interconnects
+ common/                   Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-common.awb            Locally Added               0 
+ icn-local-port.bsv        Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.awb              Locally Modified          203 
+ icn-mesh.bsv              Locally Modified          203 
+
+- Add a wrapper module for connecting to the local port of the on-chip
+  network.  THe module manages buffering and credits and exports a simple
+  method-based interface similar to stall ports.
+
+- Add latency to memory controllers.
+

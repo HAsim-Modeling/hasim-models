@@ -1,0 +1,7 @@
+%name Interconnect Common
+%desc Common Code for a Variety of OCN Interconnects
+%provides hasim_interconnect_common
+
+%attributes hasim uncore
+ 
+%public  icn-local-port.bsv

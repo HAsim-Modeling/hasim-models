@@ -6,5 +6,5 @@
 
 %public memory-controller-latency-delay.bsv 
 
-
-%AWB_END
+%param MEM_CTRL_CAPACITY           16   "Simulated capacity of DRAM pipeline"
+%param --dynamic MEM_CTRL_LATENCY  50   "Simulated latency of DRAM (model cycles)"
