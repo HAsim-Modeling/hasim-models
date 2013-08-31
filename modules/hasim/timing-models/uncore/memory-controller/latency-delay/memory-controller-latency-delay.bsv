@@ -87,7 +87,8 @@ endfunction
 
 
 module [HASIM_MODULE] mkMemoryController()
-    provisos (Alias#(t_VC_FIFO, FUNC_FIFO#(OCN_FLIT, 4)));
+    provisos (Alias#(t_VC_FIFO, FUNC_FIFO#(OCN_FLIT, 4)),
+              NumAlias#(n_MAX_IN_FLIGHT, 256));
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_MEM_CTRLS) debugLog <-
         mkTIMEPDebugFile_Multiplexed("interconnect_memory_controller.out");
@@ -114,6 +115,19 @@ module [HASIM_MODULE] mkMemoryController()
     outports[0] = ocnSend.ctrl.out;
     outports[1] = ocnRecv.ctrl.out;
 
+    //
+    // Statistics
+    //
+
+    // Compute average latency from Little's Law:
+    //     statPacketsInFlight / statPackets
+    STAT_VECTOR#(MAX_NUM_MEM_CTRLS) statPackets <-
+        mkStatCounter_Multiplexed(statName("MEM_CTRL_LOAD_REQ",
+                                           "Number of load requests"));
+    STAT_VECTOR#(MAX_NUM_MEM_CTRLS) statPacketsInFlight <-
+        mkStatCounter_Multiplexed(statName("MEM_CTRL_LOAD_REQ_IN_FLIGHT",
+                                           "Sum of packets in flight each cycle (used for Little's Law)"));
+
     // Coordinate between the pipeline stages.
     LOCAL_CONTROLLER#(MAX_NUM_MEM_CTRLS) localCtrl <-
         mkNamedLocalControllerWithActive("Memory Controller",
@@ -125,9 +139,12 @@ module [HASIM_MODULE] mkMemoryController()
     MULTIPLEXED_REG#(MAX_NUM_MEM_CTRLS, Bool) processingLoadPool <-
         mkMultiplexedReg(False);
 
-    STAGE_CONTROLLER_VOID#(MAX_NUM_MEM_CTRLS) stage1Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER_VOID#(MAX_NUM_MEM_CTRLS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Bool) stage3Ctrl <- mkStageController();
+    MULTIPLEXED_REG#(MAX_NUM_MEM_CTRLS, UInt#(TLog#(n_MAX_IN_FLIGHT))) nInFlightPool <-
+        mkMultiplexedReg(0);
+
+
+    STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Bool) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Tuple2#(Bool, Bool)) stage3Ctrl <- mkStageController();
 
     //
     // Queue that simulates the latency of DRAM with run-time variable
@@ -139,7 +156,7 @@ module [HASIM_MODULE] mkMemoryController()
     PORT_SPARSE_DELAY_MULTIPLEXED#(MAX_NUM_MEM_CTRLS,
                                    OCN_FLIT,
                                    `MEM_CTRL_CAPACITY,
-                                   256) memRespQ <-
+                                   n_MAX_IN_FLIGHT) memRespQ <-
         mkPortSparseDelay_Multiplexed(memLatency);
 
     //
@@ -166,29 +183,18 @@ module [HASIM_MODULE] mkMemoryController()
     endrule
 
 
-    //
-    // Dummy stage controller only updates the debug model cycle.  Using
-    // a separate rule makes the cycle numbers printed by methods in
-    // mkNamedLocalCtontrollerWithActive() correct.  There is no performance
-    // loss.
-    //
-    rule stage0_nextModelCycle (True);
-        let iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(iid);
-
-        stage1Ctrl.ready(iid);
-    endrule
-
-
     (* conservative_implicit_conditions *)
     rule stage1_sendToOCN (True);
-        let iid <- stage1Ctrl.nextReadyInstance();
+        let iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(iid);
         
         // Check credits for sending to the network
         let can_enq <- ocnSend.canEnq(iid);
 
-        // Have credit to send?
         Bool did_enq = False;
+        Bool finished_req = False;
+
+        // Have credit to send?
         if (can_enq[`LANE_MEM_RSP])
         begin
             // Have a message to send?
@@ -199,6 +205,11 @@ module [HASIM_MODULE] mkMemoryController()
                 ocnSend.doEnq(iid, `LANE_MEM_RSP, flit);
                 memRespQ.doDeq(iid);
                 did_enq = True;
+
+                if (flit matches tagged FLIT_BODY .body &&& body.isTail)
+                begin
+                    finished_req = True;
+                end
             end
         end
 
@@ -208,13 +219,13 @@ module [HASIM_MODULE] mkMemoryController()
             memRespQ.noDeq(iid);
         end
 
-        stage2Ctrl.ready(iid);
+        stage2Ctrl.ready(iid, finished_req);
     endrule
 
 
     (* conservative_implicit_conditions *)
     rule stage2_recvFromOCN (True);
-        let iid <- stage2Ctrl.nextReadyInstance();
+        match {.iid, .finished_req} <- stage2Ctrl.nextReadyInstance();
         
         // Which incoming virtual channels have messages?
         Vector#(NUM_LANES,
@@ -240,22 +251,26 @@ module [HASIM_MODULE] mkMemoryController()
 
             // Request the winning flit
             ocnRecv.receiveReq(iid, fromInteger(ln), fromInteger(vc));
-            stage3Ctrl.ready(iid, True);
+            stage3Ctrl.ready(iid, tuple2(finished_req, True));
         end
         else
         begin
             // Either nothing to receive or the local buffer is full.
             ocnRecv.noDeq(iid);
-            stage3Ctrl.ready(iid, False);
+            stage3Ctrl.ready(iid, tuple2(finished_req, False));
         end
     endrule
 
 
     rule stage3_recvFromOCN (True);
-        match {.iid, .get_flit} <- stage3Ctrl.nextReadyInstance();
+        match {.iid, .finished_req, .get_flit} <- stage3Ctrl.nextReadyInstance();
 
         // Read our local state from the pools.
         Reg#(Bool) processingLoad = processingLoadPool.getReg(iid);
+        Reg#(UInt#(TLog#(n_MAX_IN_FLIGHT))) nInFlight = nInFlightPool.getReg(iid);
+
+        // Track the change in the number of requests in flight.
+        Int#(2) in_flight_delta = (finished_req ? -1 : 0);
 
         Bool did_enq = False;
 
@@ -275,6 +290,10 @@ module [HASIM_MODULE] mkMemoryController()
                                        tagged FLIT_HEAD OCN_FLIT_HEAD {src: info.dst,
                                                                        dst: info.src,
                                                                        isStore: False});
+
+                        statPackets.incr(iid);
+                        in_flight_delta = in_flight_delta + 1;
+
                         did_enq = True;
                         debugLog.record(iid, $format("3: Received load from Station %0d", info.src));
                         processingLoad <= True;
@@ -303,6 +322,11 @@ module [HASIM_MODULE] mkMemoryController()
                 end
             endcase
         end
+
+        // Track the total number of request packets in flight on each cycle.
+        let n_in_flight = nInFlight + unpack(pack(signExtend(in_flight_delta)));
+        nInFlight <= n_in_flight;
+        statPacketsInFlight.incrBy(iid, pack(zeroExtend(n_in_flight)));
 
         if (! did_enq)
         begin

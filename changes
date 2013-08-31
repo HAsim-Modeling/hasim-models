@@ -6400,3 +6400,17 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 - Add latency to memory controllers.
 
+
+----------
+mcadler     Date: Sat Aug 31 17:04:08 EDT 2013  CSN: CSN-hasim-models-205
+                  Sat Aug 31 21:04:08 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          204 
+
+- Add statistics to compute latency through the delay buffer (verify that
+  it is working as designed).
+
+- Remove hack for getting the debugging output's cycle number correct now that
+  cycle reporting is fixed in the hasim repository.
