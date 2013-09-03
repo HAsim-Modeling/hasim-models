@@ -82,8 +82,15 @@ interface PORT_OCN_LOCAL_RECV_MULTIPLEXED#(type ni);
     method Vector#(NUM_LANES,
                    Vector#(VCS_PER_LANE, Bool)) notEmpty(INSTANCE_ID#(ni) iid);
 
+    // Return a single lane/virtual channel from which a message
+    // may be received.  Clients may either use notEmpty() above
+    // and pick a channel using the notEmpty bits or may use the
+    // pickChannel method.  pickChannel() gets the notEmpty bits
+    // on its own and then picks a single winner.
+    method Maybe#(Tuple2#(LANE_IDX, VC_IDX)) pickChannel(INSTANCE_ID#(ni) iid);
+
     // Multi-cycle receive request/response.  The requested lane/vc must have
-    // a message, as indicated by notEmpty() above.
+    // a message, as indicated by notEmpty() or pickChannel() above.
     method Action receiveReq(INSTANCE_ID#(ni) iid, LANE_IDX lane, VC_IDX vc);
     method ActionValue#(OCN_FLIT) receiveRsp(INSTANCE_ID#(ni) iid);
 
@@ -226,6 +233,20 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     FIFO#(Tuple2#(t_IID, t_BUFFER_FIFOS)) recv2Q <- mkFIFO();
 
     //
+    // identityMap is a map from the the vector representation of each virtual
+    // channel to the index of the lane and channel pair.  The identity
+    // map can be fed into vector mapping functions.
+    //
+    Vector#(NUM_LANES,
+            Vector#(VCS_PER_LANE,
+                    Tuple2#(Integer, Integer))) identityMap = newVector();
+    for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
+    begin
+        identityMap[ln] = genWith(tuple2(ln));
+    end
+
+
+    //
     // recv1 --
     //   Receive a new message from the network port and store it in the local
     //   buffer.  This rule could logically be part of the same cycle as
@@ -285,8 +306,7 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     endrule
 
 
-    method Vector#(NUM_LANES,
-                   Vector#(VCS_PER_LANE, Bool)) notEmpty(t_IID iid);
+    function notEmptyVCs(t_IID iid);
         // Read our local state from the pools.
         Reg#(t_BUFFER_FIFOS) vcBuf = vcFIFOsPool.getReg(iid);
 
@@ -300,7 +320,45 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         end
 
         return not_empty;
+    endfunction
+
+
+    method Vector#(NUM_LANES,
+                   Vector#(VCS_PER_LANE, Bool)) notEmpty(t_IID iid);
+        return notEmptyVCs(iid);
     endmethod
+
+
+    method Maybe#(Tuple2#(LANE_IDX, VC_IDX)) pickChannel(t_IID iid);
+        // Which incoming virtual channels have messages?
+        Vector#(NUM_LANES,
+                Vector#(VCS_PER_LANE, Bool)) not_empty = notEmptyVCs(iid);
+
+        //
+        // isReadyVC --
+        //   Is a request available?
+        //
+        function Bool isReadyVC(Integer ln, Integer vc) = not_empty[ln][vc];
+
+        let ready_vcs = map(uncurry(isReadyVC), concat(identityMap));
+
+        // Static arbitration.  We might have to fix this for fairness.
+        Maybe#(Tuple2#(LANE_IDX, VC_IDX)) winner;
+        if (findElem(True, ready_vcs) matches tagged Valid .idx)
+        begin
+            match {.ln, .vc} = concat(identityMap)[idx];
+            winner = tagged Valid tuple2(fromInteger(ln),
+                                         fromInteger(vc));
+        end
+        else
+        begin
+            // Nothing to receive
+            winner = tagged Invalid;
+        end
+
+        return winner;
+    endmethod
+
 
     method Action receiveReq(t_IID iid, LANE_IDX lane, VC_IDX vc);
         // Read our local state from the pools.

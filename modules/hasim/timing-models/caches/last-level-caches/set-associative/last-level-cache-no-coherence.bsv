@@ -17,11 +17,14 @@ import Vector::*;
 `include "awb/provides/hasim_cache_algorithms.bsh"
 `include "awb/provides/hasim_last_level_cache_alg.bsh"
 `include "awb/provides/hasim_miss_tracker.bsh"
+`include "awb/provides/hasim_interconnect_common.bsh"
+
 
 // ******* Generated File Imports *******
 
 `include "awb/dict/EVENTS_LLC.bsh"
 `include "awb/dict/TOPOLOGY.bsh"
+
 
 // ****** Local Definitions *******
 
@@ -670,51 +673,46 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_RSP) rspFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_rsp");
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CC_RSP)     rspToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_rsp");
     
-    // Interface to OCN looks like lanes and virtual channels.   
-    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqFromOCN    <- mkPortRecv_Multiplexed("CoreMemInQ_enq", 1);
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)        enqToOCN      <- mkPortSend_Multiplexed("CoreMemOutQ_enq");
-    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditFromOCN <- mkPortRecv_Multiplexed("CoreMemInQ_credit", 1);
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_INFO) creditToOCN   <- mkPortSend_Multiplexed("CoreMemOutQ_credit");
+    //
+    // Wrapped interfaces to/from interconnect network.  The wrappers simplify
+    // the protocol for credit management.
+    //
+    PORT_OCN_LOCAL_SEND_MULTIPLEXED#(MAX_NUM_CPUS) ocnSend <-
+        mkLocalNetworkPortSend("CoreMemOutQ",
+                               "CoreMemInQ",
+                               debugLog);
+
+    PORT_OCN_LOCAL_RECV_MULTIPLEXED#(MAX_NUM_CPUS) ocnRecv <-
+        mkLocalNetworkPortRecv("CoreMemOutQ",
+                               "CoreMemInQ",
+                               debugLog);
+
 
     Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    inctrls[0] = reqToLLC.ctrl.in;
+    inctrls[1] = reqFromLLC.ctrl.in;
+    inctrls[2] = rspFromLLC.ctrl.in;
+    inctrls[3] = rspToLLC.ctrl.in;
+    inctrls[4] = ocnSend.ctrl.in;
+    inctrls[5] = ocnRecv.ctrl.in;
 
-    inctrls[0]  = reqToLLC.ctrl.in;
-    inctrls[1]  = reqFromLLC.ctrl.in;
-    inctrls[2]  = rspFromLLC.ctrl.in;
-    inctrls[3]  = rspToLLC.ctrl.in;
-    inctrls[4]  = enqFromOCN.ctrl;
-    inctrls[5]  = creditFromOCN.ctrl;
-    outctrls[0]  = reqToLLC.ctrl.out;
-    outctrls[1]  = reqFromLLC.ctrl.out;
-    outctrls[2]  = rspFromLLC.ctrl.out;
-    outctrls[3]  = rspToLLC.ctrl.out;
-    outctrls[4]  = enqToOCN.ctrl;
-    outctrls[5]  = creditToOCN.ctrl;
+    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    outctrls[0] = reqToLLC.ctrl.out;
+    outctrls[1] = reqFromLLC.ctrl.out;
+    outctrls[2] = rspFromLLC.ctrl.out;
+    outctrls[3] = rspToLLC.ctrl.out;
+    outctrls[4] = ocnSend.ctrl.out;
+    outctrls[5] = ocnRecv.ctrl.out;
+
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Coherence", inctrls, outctrls);
-    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage2Ctrl <- mkStageControllerVoid();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(OCN_MSG)) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(LANE_IDX)) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(LANE_IDX, OCN_FLIT))) stage3Ctrl <- mkStageController();
 
-    MULTIPLEXED_REG#(MAX_NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputCreditsPool  <- mkMultiplexedReg(replicate(replicate(False)));
-    MULTIPLEXED_REG#(MAX_NUM_CPUS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputNotFullsPool <- mkMultiplexedReg(replicate(replicate(False)));
-    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingRspPool <- mkMultiplexedReg(tagged Invalid);
-    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingReqPool <- mkMultiplexedReg(tagged Invalid);
-    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS)     physAddrPool       <- mkMemory_Multiplexed(mkBRAMInitialized(~0));
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(MEM_OPAQUE)) packetizingRspPool <- mkMultiplexedReg(tagged Invalid);
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(MEM_OPAQUE)) packetizingReqPool <- mkMultiplexedReg(tagged Invalid);
+    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS) physAddrPool <- mkMemory_Multiplexed(mkBRAMInitialized(~0));
 
-    function Maybe#(VC_IDX) vcToEnq(INSTANCE_ID#(MAX_NUM_CPUS) cpu_iid, LANE_IDX ln);
-    
-        Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) notFulls = outputNotFullsPool.getReg(cpu_iid);
-        Maybe#(VC_IDX) res = tagged Invalid;
-        
-        for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
-        begin
-            res = (notFulls[ln][vc]) ? tagged Valid fromInteger(vc) : res;
-        end
-        
-        return res;
-    
-    endfunction
     
     function STATION_ID getLLCDstForAddr(LINE_ADDRESS addr);
         // TODO: have home nodes for caches?
@@ -740,51 +738,15 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
     endfunction
 
     (* conservative_implicit_conditions *)
-    rule stage1_updateCredits (True);
-
+    rule stage1_sendToOCN (True);
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
 
-        let m_credit <- creditFromOCN.receive(cpu_iid);
-        
-        Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) notFulls = outputNotFullsPool.getReg(cpu_iid);
-        Reg#(Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool))) outputCredits = outputCreditsPool.getReg(cpu_iid);
-        
-        Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool)) new_not_fulls = notFulls;
-        Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool)) new_credits   = outputCredits;
-        
-        if (m_credit matches tagged Valid .creds)
-        begin
-            for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
-            begin
-                for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
-                begin
-                    match {.credit, .not_full} = creds[ln][vc];
-                    new_not_fulls[ln][vc] = not_full;
-                    new_credits[ln][vc] = credit;
+        // Check credits for sending to the network
+        let can_enq <- ocnSend.canEnq(cpu_iid);
 
-                    if ((not_full != notFulls[ln][vc]) ||
-                        (credit != outputCredits[ln][vc]))
-                    begin
-                       debugLog.record_next_cycle(cpu_iid, $format("1: Lane %0d, VC %0d: notFull %0d, credits %0d", ln, vc, not_full, credit));
-                    end
-                end
-            end
-        end
-        
-        notFulls <= new_not_fulls;
-        outputCredits <= new_credits;
-        
-        stage2Ctrl.ready(cpu_iid);
-    endrule
-    
-    (* conservative_implicit_conditions *)
-    rule stage2_LLCReq (True);
-    
-        let cpu_iid <- stage2Ctrl.nextReadyInstance();
-
-        Reg#(Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingRsp = packetizingRspPool.getReg(cpu_iid);
-        Reg#(Maybe#(Tuple2#(MEM_OPAQUE, VC_IDX))) packetizingReq = packetizingReqPool.getReg(cpu_iid);
+        Reg#(Maybe#(MEM_OPAQUE)) packetizingRsp = packetizingRspPool.getReg(cpu_iid);
+        Reg#(Maybe#(MEM_OPAQUE)) packetizingReq = packetizingReqPool.getReg(cpu_iid);
 
         // Start by checking for new responses from the LLC.
         // These are higher priority.
@@ -793,47 +755,61 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         // Also check for new ShReq/ExcReq from the LLC.
         let m_llc_req <- reqFromLLC.receive(cpu_iid);
 
-        if (packetizingRsp matches tagged Valid {.op, .vc_idx})
+        //
+        // Multiple messages to the OCN are possible.  The priority is defined
+        // the these conditional blocks.
+        //
+
+        if (packetizingRsp matches tagged Valid .op &&&
+            can_enq[`LANE_LLC_RSP])
         begin
-        
+            //
+            // Complete an LLC response.
+            //
             let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
-            enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_RSP, vc_idx, msg));
+            ocnSend.doEnq(cpu_iid, `LANE_LLC_RSP, msg);
             packetizingRsp <= tagged Invalid;
             rspFromLLC.noDeq(cpu_iid);
             reqFromLLC.noDeq(cpu_iid);
-
         end
-        else if (packetizingReq matches tagged Valid {.op, .vc_idx})
+        else if (packetizingReq matches tagged Valid .op &&&
+                 can_enq[`LANE_LLC_REQ])
         begin
-
+            //
+            // Complete an LLC request.
+            //
             let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
-            enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_REQ, vc_idx, msg));
+            ocnSend.doEnq(cpu_iid, `LANE_LLC_REQ, msg);
             packetizingReq <= tagged Invalid;
             rspFromLLC.noDeq(cpu_iid);
             reqFromLLC.noDeq(cpu_iid);
-
         end
-        else if (m_llc_rsp matches tagged Valid .rsp &&& vcToEnq(cpu_iid, `LANE_LLC_RSP) matches tagged Valid .vc_idx)
+        else if (m_llc_rsp matches tagged Valid .rsp &&&
+                 can_enq[`LANE_LLC_RSP])
         begin
-        
+            //
+            // Start a response.
+            //
             let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid),
                                                       dst: getLLCDstForAddr(rsp.physicalAddress),
                                                       isStore: False};
-            enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_RSP, vc_idx, msg));
-            packetizingRsp <= tagged Valid tuple2(rsp.opaque, vc_idx);
+            ocnSend.doEnq(cpu_iid, `LANE_LLC_RSP, msg);
+            packetizingRsp <= tagged Valid rsp.opaque;
             rspFromLLC.doDeq(cpu_iid);
             reqFromLLC.noDeq(cpu_iid);
-
         end
-        else if (m_llc_req matches tagged Valid .req &&& vcToEnq(cpu_iid, `LANE_LLC_REQ) matches tagged Valid .vc_idx)
+        else if (m_llc_req matches tagged Valid .req &&&
+                 can_enq[`LANE_LLC_REQ])
         begin
-        
+            //
+            // Start a request.
+            //
             let dst_node = getMemCtrlDstForAddr(req.physicalAddress);
             let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid),
                                                       dst: dst_node,
                                                       isStore: req.isStore};
-            packetizingReq <= tagged Valid tuple2(req.opaque, vc_idx);
-            enqToOCN.send(cpu_iid, tagged Valid tuple3(`LANE_LLC_REQ, vc_idx, msg));
+            ocnSend.doEnq(cpu_iid, `LANE_LLC_REQ, msg);
+            packetizingReq <= tagged Valid req.opaque;
             rspFromLLC.noDeq(cpu_iid);
             reqFromLLC.doDeq(cpu_iid);
             if (!req.isStore)
@@ -841,27 +817,50 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
                 physAddrPool.write(cpu_iid, req.opaque, req.physicalAddress);
             end
 
-            debugLog.record(cpu_iid, $format("2: Gen %s REQ for LINE 0x%x to memctrl node %0d", (req.isStore ? "STORE" : "LOAD"), req.physicalAddress, dst_node));
-
+            debugLog.record(cpu_iid, $format("1: Gen %s REQ for LINE 0x%x to memctrl node %0d", (req.isStore ? "STORE" : "LOAD"), req.physicalAddress, dst_node));
         end
         else
         begin
-
-            enqToOCN.send(cpu_iid, tagged Invalid);
+            //
+            // Nothing.  Either there isn't a flit to send or the port is busy.
+            //
+            ocnSend.noEnq(cpu_iid);
             rspFromLLC.noDeq(cpu_iid);
             reqFromLLC.noDeq(cpu_iid);
-        
         end
         
-        // Route enqueues from the OCN to the correct place. This ignores
-        // virtual channels - just lanes.
-        let m_enq <- enqFromOCN.receive(cpu_iid);
+        //
+        // Is a message available incoming from the OCN?
+        //
+        Maybe#(LANE_IDX) recv_ln = tagged Invalid;
+        if (ocnRecv.pickChannel(cpu_iid) matches tagged Valid {.ln_in, .vc_in})
+        begin
+            ocnRecv.receiveReq(cpu_iid, ln_in, vc_in);
+            recv_ln = tagged Valid ln_in;
+        end
+        else
+        begin
+            ocnRecv.noDeq(cpu_iid);
+        end
+
+        stage2Ctrl.ready(cpu_iid, recv_ln);
+    endrule
+
+
+    rule stage2_recvFromOCN (True);
+        match {.cpu_iid, .m_ln} <- stage2Ctrl.nextReadyInstance();
+
+        OCN_FLIT flit = ?;
+        if (isValid(m_ln))
+        begin
+            flit <- ocnRecv.receiveRsp(cpu_iid);
+        end
 
         // Need to read the PA associated with an incoming message?  Stage 3
         // is separate from this step to wait for the BRAM read.
-        if (m_enq matches tagged Valid {.ln, .vc_idx, .msg} &&&
+        if (m_ln matches tagged Valid .ln &&&
             ln == `LANE_LLC_RSP &&&
-            msg matches tagged FLIT_BODY .info)
+            flit matches tagged FLIT_BODY .info)
         begin
             physAddrPool.readReq(cpu_iid, info.opaque);
         end
@@ -872,26 +871,30 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
             physAddrPool.readReq(cpu_iid, unpack(0));
         end
 
-        stage3Ctrl.ready(cpu_iid, m_enq);
-
+        if (m_ln matches tagged Valid .ln)
+        begin
+            stage3Ctrl.ready(cpu_iid, tagged Valid tuple2(ln, flit));
+        end
+        else
+        begin
+            stage3Ctrl.ready(cpu_iid, tagged Invalid);
+        end
     endrule
+
 
     (* conservative_implicit_conditions *)
     rule stage3_LLCRsp (True);
-    
-        match {.cpu_iid, .m_enq} <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, .m_msg} <- stage3Ctrl.nextReadyInstance();
 
         let pa <- physAddrPool.readRsp(cpu_iid);
 
         let can_enq_req <- reqToLLC.canEnq(cpu_iid);
         let can_enq_rsp <- rspToLLC.canEnq(cpu_iid);
         
-        if (m_enq matches tagged Valid {.ln, .vc_idx, .msg})
+        if (m_msg matches tagged Valid {.ln, .msg})
         begin
-        
             if (ln == `LANE_LLC_REQ)
             begin
-
                 // assert can_enq_req
                 case (msg) matches
                     tagged FLIT_HEAD .info:
@@ -906,11 +909,9 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
                        rspToLLC.noEnq(cpu_iid);
                     end
                 endcase
-
             end
             else if (ln == `LANE_LLC_RSP)
             begin
-            
                 // assert can_enq_rsp
                 case (msg) matches
                     tagged FLIT_HEAD .info:
@@ -926,23 +927,18 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
                     end
 
                 endcase
-
             end
             else
             begin
-
                 reqToLLC.noEnq(cpu_iid);
                 rspToLLC.noEnq(cpu_iid);
-
             end
 
         end
         else
         begin
-        
             reqToLLC.noEnq(cpu_iid);
             rspToLLC.noEnq(cpu_iid);
-        
         end
         
         VC_CREDIT_INFO creds = newVector();
@@ -951,7 +947,6 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
 
         for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
         begin
-
             let have_credit_req = can_enq_req; // XXX capacity - occupancy > round-trip latency.
             let not_full_req = can_enq_req;
             creds[`LANE_LLC_REQ][vc] = tuple2(have_credit_req, not_full_req);
@@ -959,12 +954,9 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
             let have_credit_rsp = can_enq_rsp; // XXX capacity - occupancy > round-trip latency.
             let not_full_rsp = can_enq_rsp;
             creds[`LANE_LLC_RSP][vc] = tuple2(have_credit_rsp, not_full_rsp);
-
         end
         
-        creditToOCN.send(cpu_iid, tagged Valid creds);
         localCtrl.endModelCycle(cpu_iid, 0);
-        
     endrule
 
 endmodule

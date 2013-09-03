@@ -160,19 +160,6 @@ module [HASIM_MODULE] mkMemoryController()
         mkPortSparseDelay_Multiplexed(memLatency);
 
     //
-    // identityMap is a map from the the vector representation of each virtual
-    // channel to the index of the lane and channel pair.  The identity
-    // map can be fed into vector mapping functions.
-    //
-    Vector#(NUM_LANES,
-            Vector#(VCS_PER_LANE,
-                    Tuple2#(Integer, Integer))) identityMap = newVector();
-    for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
-    begin
-        identityMap[ln] = genWith(tuple2(ln));
-    end
-
-    //
     // Set the number of active nodes, given the topology.
     //
     let numActiveCtrlrs <- mkTopologyParamStream(`TOPOLOGY_NUM_MEM_CONTROLLERS);
@@ -226,31 +213,13 @@ module [HASIM_MODULE] mkMemoryController()
     (* conservative_implicit_conditions *)
     rule stage2_recvFromOCN (True);
         match {.iid, .finished_req} <- stage2Ctrl.nextReadyInstance();
-        
-        // Which incoming virtual channels have messages?
-        Vector#(NUM_LANES,
-                Vector#(VCS_PER_LANE, Bool)) not_empty = ocnRecv.notEmpty(iid);
-
-        //
-        // isReadyVC --
-        //   Is a request available combined with an available output channel?
-        //   Always use the response lane to avoid deadlocks.
-        //
-        function isReadyVC(Integer ln, Integer vc);
-            return not_empty[ln][vc];
-        endfunction
-
-        let ready_vcs = map(uncurry(isReadyVC), concat(identityMap));
 
         // Static arbitration.  We might have to fix this for fairness.
-        if (findElem(True, ready_vcs) matches tagged Valid .idx &&&
+        if (ocnRecv.pickChannel(iid) matches tagged Valid {.ln, .vc} &&&
             memRespQ.canEnq(iid))
         begin
-            // Reverse map the winning index to a lane and channel
-            match {.ln, .vc} = concat(identityMap)[idx];
-
             // Request the winning flit
-            ocnRecv.receiveReq(iid, fromInteger(ln), fromInteger(vc));
+            ocnRecv.receiveReq(iid, ln, vc);
             stage3Ctrl.ready(iid, tuple2(finished_req, True));
         end
         else

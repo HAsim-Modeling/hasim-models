@@ -6425,3 +6425,24 @@ Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
 
 Stop using debugLog.record_next_cycle() in the sample model now that it is no
 longer necessary.
+
+----------
+mcadler     Date: Tue Sep  3 18:06:23 EDT 2013  CSN: CSN-hasim-models-207
+                  Tue Sep  3 22:06:23 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          206 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          206 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          206 
+
+- Add a pickChannel() method to the OCN local port receiver wrapper that
+  picks a single lane & virtual channel from which to receive a flit.
+  Without this, clients were expected to pick a channel from the notEmpty
+  vector.  Priority in pickChannel() is currently static.
+
+- Use OCN local port wrappers for the CPU interface.
