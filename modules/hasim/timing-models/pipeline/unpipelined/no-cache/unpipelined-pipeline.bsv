@@ -201,7 +201,7 @@ module [HASIM_MODULE] mkPipeline
         Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
         let ctx_id = getContextId(cpu_iid);
         linkToITR.makeReq(initFuncpReqDoITranslate(ctx_id, pc));
-        debugLog.record_next_cycle(cpu_iid, $format("Translating virtual address: 0x%h", pc));
+        debugLog.record(cpu_iid, $format("Translating virtual address: 0x%h", pc));
         stdio1.printf(msgPC_VTOA_REQ, list1(resize(pc)));
 
     endrule

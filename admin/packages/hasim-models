@@ -6,6 +6,6 @@ Lock=asim-hasim-models
 Description=Description of hasim-models
 Name=hasim-models
 Tag=HEAD
-CSN=CSN-hasim-models-205
+CSN=CSN-hasim-models-206
 Dependencies=hasim/HEAD
 Sourceurl=http://asim.csail.mit.edu/redmine/projects/hasim-models/repository/entry/trunk/

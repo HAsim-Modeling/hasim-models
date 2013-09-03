@@ -6414,3 +6414,14 @@ Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
 
 - Remove hack for getting the debugging output's cycle number correct now that
   cycle reporting is fixed in the hasim repository.
+
+----------
+mcadler     Date: Tue Sep  3 11:44:44 EDT 2013  CSN: CSN-hasim-models-206
+                  Tue Sep  3 15:44:44 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          205 
+
+Stop using debugLog.record_next_cycle() in the sample model now that it is no
+longer necessary.
