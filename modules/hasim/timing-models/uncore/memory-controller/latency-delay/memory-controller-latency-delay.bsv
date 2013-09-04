@@ -144,7 +144,8 @@ module [HASIM_MODULE] mkMemoryController()
 
 
     STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Bool) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Tuple2#(Bool, Bool)) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Tuple2#(Bool, Bool)) stage3Ctrl <-
+        mkStageController();
 
     //
     // Queue that simulates the latency of DRAM with run-time variable
@@ -214,7 +215,7 @@ module [HASIM_MODULE] mkMemoryController()
     rule stage2_recvFromOCN (True);
         match {.iid, .finished_req} <- stage2Ctrl.nextReadyInstance();
 
-        // Static arbitration.  We might have to fix this for fairness.
+        // Pick a channel from which to receive
         if (ocnRecv.pickChannel(iid) matches tagged Valid {.ln, .vc} &&&
             memRespQ.canEnq(iid))
         begin
@@ -275,12 +276,12 @@ module [HASIM_MODULE] mkMemoryController()
                     end
                 end
 
-                tagged FLIT_BODY .info:
+                tagged FLIT_BODY .body:
                 begin
                     if (processingLoad)
                     begin
                         // Body flits just get sent back for loads, currently.
-                        memRespQ.doEnq(iid, tagged FLIT_BODY info);
+                        memRespQ.doEnq(iid, tagged FLIT_BODY body);
                         did_enq = True;
                         debugLog.record(iid, $format("3: Load recv body"));
                     end

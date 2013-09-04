@@ -6446,3 +6446,17 @@ Directory modules/hasim/timing-models/uncore/interconnects/common
   vector.  Priority in pickChannel() is currently static.
 
 - Use OCN local port wrappers for the CPU interface.
+
+----------
+mcadler     Date: Wed Sep  4 17:00:42 EDT 2013  CSN: CSN-hasim-models-208
+                  Wed Sep  4 21:00:42 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          207 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          207 
+
+The standard OCN interface now guarantees that once a packet starts only flits
+from that packet may be requested until the packet completes.

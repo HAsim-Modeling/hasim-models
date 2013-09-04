@@ -229,8 +229,15 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
                         Bit#(TLog#(n_VC_BUF_ENTRIES))),
                 OCN_FLIT) vcBufEntries <- mkBRAM();
 
+    // Once a packet begins, the entire packet is received before another
+    // may begin.
+    MULTIPLEXED_REG#(ni, Maybe#(Tuple2#(LANE_IDX, VC_IDX))) activeVCPool <-
+        mkMultiplexedReg(tagged Invalid);
+
     FIFO#(Tuple2#(t_IID, t_BUFFER_FIFOS)) recv1Q <- mkFIFO();
     FIFO#(Tuple2#(t_IID, t_BUFFER_FIFOS)) recv2Q <- mkFIFO();
+    FIFO#(Tuple3#(t_IID, LANE_IDX, VC_IDX)) rspMetaQ <- mkFIFO();
+
 
     //
     // identityMap is a map from the the vector representation of each virtual
@@ -310,13 +317,23 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         // Read our local state from the pools.
         Reg#(t_BUFFER_FIFOS) vcBuf = vcFIFOsPool.getReg(iid);
 
+        Reg#(Maybe#(Tuple2#(LANE_IDX, VC_IDX))) activeVC = activeVCPool.getReg(iid);
+        Bool locked = isValid(activeVC);
+        match {.locked_ln, .locked_vc} = validValue(activeVC);
+
+        // VC is not empty if it has data and either no VC is currently
+        // active or the VC is the active channel.
+        function Bool vcNotEmpty(Integer ln, Integer vc);
+            return funcFIFO_IDX_notEmpty(vcBuf[ln][vc]) &&
+                   (! locked || (locked_ln == fromInteger(ln) &&
+                                 locked_vc == fromInteger(vc)));
+        endfunction
+
+        // Build a mask of channels from which data may be received this cycle.
         Vector#(NUM_LANES, Vector#(VCS_PER_LANE, Bool)) not_empty = newVector();
         for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
         begin
-            for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
-            begin
-                not_empty[ln][vc] = funcFIFO_IDX_notEmpty(vcBuf[ln][vc]);
-            end
+            not_empty[ln] = genWith(vcNotEmpty(ln));
         end
 
         return not_empty;
@@ -367,6 +384,7 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
 
         let idx = funcFIFO_IDX_UGfirst(upd_vc_buf[lane][vc]);
         vcBufEntries.readReq(tuple4(iid, lane, vc, idx));
+        rspMetaQ.enq(tuple3(iid, lane, vc));
 
         upd_vc_buf[lane][vc] = funcFIFO_IDX_UGdeq(upd_vc_buf[lane][vc]);
 
@@ -376,7 +394,40 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     endmethod
 
     method ActionValue#(OCN_FLIT) receiveRsp(t_IID iid);
+        match {.iid, .lane, .vc} = rspMetaQ.first();
+        rspMetaQ.deq();
+
         let flit <- vcBufEntries.readRsp();
+
+        //
+        // Track the active channel.  A channel remains active from first
+        // flit in a packet until the tail.  This forces the receiver to
+        // receive a packet completely before starting another from a
+        // different channel.
+        //
+        // It might seem too late to track active packets late in the pipeline
+        // here.  It is not because the local controller permits only one cycle
+        // to be active for an instance.  Thus, receiveRsp() will be invoked
+        // for an instance before notEmpty() may be called for the next cycle.
+        //
+        Reg#(Maybe#(Tuple2#(LANE_IDX, VC_IDX))) activeVC = activeVCPool.getReg(iid);
+        case (flit) matches 
+            tagged FLIT_HEAD .info:
+            begin
+                activeVC <= tagged Valid tuple2(lane, vc);
+                debugLog.record(iid, $format("lpRecv rsp: HEAD ln %0d, vc %0d", lane, vc));
+            end
+
+            tagged FLIT_BODY .body:
+            begin
+                if (body.isTail)
+                begin
+                    activeVC <= tagged Invalid;
+                    debugLog.record(iid, $format("lpRecv rsp: TAIL ln %0d, vc %0d", lane, vc));
+                end
+            end
+        endcase
+
         return flit;
     endmethod
 
