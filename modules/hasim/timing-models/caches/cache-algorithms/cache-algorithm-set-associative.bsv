@@ -18,12 +18,14 @@
 
 import Vector::*;
 import FIFOF::*;
+import DefaultValue::*;
 
 `include "asim/provides/librl_bsv_base.bsh"
 `include "asim/provides/librl_bsv_storage.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/mem_services.bsh"
 `include "asim/provides/common_services.bsh"
+`include "asim/provides/scratchpad_memory_common.bsh"
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/fpga_components.bsh"
 
@@ -56,7 +58,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
                                        Bit#(t_IDX_SIZE),
                                        Vector#(t_NUM_WAYS, t_INTERNAL_ENTRY))
         tagStoreBanks <- (storeTagsInScratchpad ?
-                              mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED) :
+                              mkMultiReadScratchpad_Multiplexed(opaque_name, defaultValue) :
                               mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False)));
     
     // Smaller cache management meta-data fits in local BRAM

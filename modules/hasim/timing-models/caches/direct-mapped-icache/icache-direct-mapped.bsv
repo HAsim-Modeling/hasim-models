@@ -1,5 +1,6 @@
 import Vector::*;
 import FIFO::*;
+import DefaultValue::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
@@ -15,6 +16,7 @@ import FIFO::*;
 
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/scratchpad_memory_common.bsh"
 
 `include "asim/dict/PARAMS_HASIM_ICACHE.bsh"
 `include "asim/dict/VDEV_SCRATCH.bsh"
@@ -118,7 +120,8 @@ module [HASIM_MODULE] mkICache();
     // let cachememory <- mkICacheMemory();
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <- mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, SCRATCHPAD_CACHED);
+    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_INDEX, Maybe#(ICACHE_TAG)) iCacheTagStore <-
+        mkScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_ICACHE_TAGS, defaultValue);
 
     // Track the next miss ID to give out.
     MULTIPLEXED#(MAX_NUM_CPUS, COUNTER#(ICACHE_MISS_ID_SIZE)) nextMissIDPool <- mkMultiplexed(mkLCounter(0));

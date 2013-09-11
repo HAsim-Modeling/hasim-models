@@ -1,5 +1,6 @@
 import Vector::*;
 import FIFO::*;
+import DefaultValue::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/soft_connections.bsh"
@@ -15,6 +16,7 @@ import FIFO::*;
 
 `include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/memory_base_types.bsh"
+`include "asim/provides/scratchpad_memory_common.bsh"
 
 `include "asim/dict/PARAMS_HASIM_DCACHE.bsh"
 `include "asim/dict/VDEV_SCRATCH.bsh"
@@ -103,7 +105,7 @@ module [HASIM_MODULE] mkDCache();
     // ****** Model State ******
 
     // Initialize a scratchpad memory to store our tags in.   
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(MAX_NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, True);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(MAX_NUM_CPUS, 2, DCACHE_INDEX, Maybe#(DCACHE_TAG)) dCacheTagStore <- mkMultiReadScratchpad_Multiplexed(`VDEV_SCRATCH_DIRECT_MAPPED_WRITETHROUGH_DCACHE_TAGS, defaultValue);
 
     
     // ****** Ports ******

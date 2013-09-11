@@ -6460,3 +6460,23 @@ Directory modules/hasim/timing-models/uncore/interconnects/common
 
 The standard OCN interface now guarantees that once a packet starts only flits
 from that packet may be requested until the packet completes.
+
+----------
+mcadler     Date: Wed Sep 11 15:47:28 EDT 2013  CSN: CSN-hasim-models-209
+                  Wed Sep 11 19:47:28 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ dcache-direct-mapped-writeback.bsv Locally Modified          208 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          208 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          208 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          208 
+ cache-algorithm-direct-mapped.bsv Locally Modified          208 
+
+New scratchpad parameters.

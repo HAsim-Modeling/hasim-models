@@ -16,11 +16,15 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
+import DefaultValue::*;
+
+
 `include "asim/provides/librl_bsv_base.bsh"
 `include "asim/provides/librl_bsv_storage.bsh"
 `include "asim/provides/soft_connections.bsh"
 `include "asim/provides/mem_services.bsh"
 `include "asim/provides/common_services.bsh"
+`include "asim/provides/scratchpad_memory_common.bsh"
 
 `define PORT_LOAD 0
 `define PORT_STORE 1
@@ -47,7 +51,7 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name,
                                        Bit#(t_IDX_SIZE),
                                        Maybe#(t_INTERNAL_ENTRY))
         tagStore <- (storeTagsInScratchpad ?
-                         mkMultiReadScratchpad_Multiplexed(opaque_name, SCRATCHPAD_CACHED) :
+                         mkMultiReadScratchpad_Multiplexed(opaque_name, defaultValue) :
                          mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, tagged Invalid)));
 
     function Maybe#(CACHE_ENTRY#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr, Maybe#(t_INTERNAL_ENTRY) m_entry);
