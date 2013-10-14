@@ -166,8 +166,11 @@ module [HASIM_MODULE] mkMemoryController()
     let numActiveCtrlrs <- mkTopologyParamStream(`TOPOLOGY_NUM_MEM_CONTROLLERS);
 
     rule initNumActiveCtrlrs (True);
-        let n <- numActiveCtrlrs.get();
-        localCtrl.setMaxActiveInstance(tpl_1(n) - 1);
+        let m_n_ctrl <- numActiveCtrlrs.get();
+        if (m_n_ctrl matches tagged Valid .n)
+        begin
+            localCtrl.setMaxActiveInstance(n - 1);
+        end
     endrule
 
 

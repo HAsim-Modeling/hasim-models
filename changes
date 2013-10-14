@@ -6480,3 +6480,25 @@ Directory modules/hasim/timing-models/caches/cache-algorithms
  cache-algorithm-direct-mapped.bsv Locally Modified          208 
 
 New scratchpad parameters.
+
+----------
+mcadler     Date: Mon Oct 14 15:54:26 EDT 2013  CSN: CSN-hasim-models-210
+                  Mon Oct 14 19:54:26 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/topology/std
+ topology-std.bsv          Locally Modified          209 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          209 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          209 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          209 
+
+- Changes for RAM initialization interface.
+
+- Begin restructuring LLC for actually distributing it.  Current implementation
+  treats LLC as private, incohoerent, caches.

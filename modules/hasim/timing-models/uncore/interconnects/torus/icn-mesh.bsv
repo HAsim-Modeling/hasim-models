@@ -339,34 +339,40 @@ module [HASIM_MODULE] mkInterconnect
     //
     // Set the number of active nodes, given the topology.
     //
-    Get#(Tuple2#(STATION_IID, Bool)) numActiveNodes <-
+    Get#(Maybe#(STATION_IID)) numActiveNodes <-
         mkTopologyParamStream(`TOPOLOGY_NET_MAX_NODE_IID);
 
     rule initNumActiveNodes (True);
-        let n <- numActiveNodes.get();
-        localCtrl.setMaxActiveInstance(tpl_1(n));
+        let m_n_nodes <- numActiveNodes.get();
+        if (m_n_nodes matches tagged Valid .n)
+        begin
+            localCtrl.setMaxActiveInstance(n);
+        end
     endrule
 
 
     // ******* Rules *******
 
     Reg#(STATION_ID) initRTStationID <- mkReg(0);
-    Get#(Tuple2#(t_ROUTING_TABLE, Bool)) routingTableInitStream <-
+    Get#(Maybe#(t_ROUTING_TABLE)) routingTableInitStream <-
         mkTopologyParamStream(`TOPOLOGY_NET_ROUTING_TABLE);
 
     rule initRouterTable (True);
-        match {.t, .last} <- routingTableInitStream.get();
-        $display("ICN_MESH: %0d  0x%h", initRTStationID, t);
+        let m_entry <- routingTableInitStream.get();
+        if (m_entry matches tagged Valid .t)
+        begin
+            $display("ICN_MESH: %0d  0x%h", initRTStationID, t);
 
-        Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(initRTStationID);
-        r_table <= t;
-        
-        if (last)
+            Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(initRTStationID);
+            r_table <= t;
+
+            initRTStationID <= initRTStationID + 1;
+        end
+        else
         begin
             state <= RUNNING;
             $display("ICN_MESH: Go!");
         end
-        initRTStationID <= initRTStationID + 1;
     endrule
 
 

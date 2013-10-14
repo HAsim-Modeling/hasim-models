@@ -135,14 +135,15 @@ module [HASIM_MODULE] mkLastLevelCache();
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore <-
         mkPortStallSend_Multiplexed("Uncore_to_CorePvtCacheQ");
     
+    // Requests to memory from the LLC instance responsible for an address.
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CC_REQ) reqToCC <-
+        mkPortStallSend_Multiplexed("LLC_to_MEM_req");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CC_RSP) rspFromCC <-
+        mkPortStallRecv_Multiplexed("MEM_to_LLC_rsp");
+
     // Queues to/from coherence engine.
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_REQ) reqFromCC <-
         mkPortStallRecv_Multiplexed("CC_to_LLC_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CC_REQ) reqToCC <-
-        mkPortStallSend_Multiplexed("LLC_to_CC_req");
-    
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CC_RSP) rspFromCC <-
-        mkPortStallRecv_Multiplexed("CC_to_LLC_rsp");
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_RSP) rspToCC <-
         mkPortStallSend_Multiplexed("LLC_to_CC_rsp");
     
@@ -659,19 +660,31 @@ module [HASIM_MODULE] mkLastLevelCache();
 
 endmodule
 
-`define LANE_LLC_REQ 0
-`define LANE_LLC_RSP 1
+//
+// Lanes used for primary memory operations (load and store requests).  These
+// may be requests from a core to the instance of the LLC distributed cache
+// that handles the request's address.  They may also be requests from LLC
+// instances to memory controllers.
+//
+`define LANE_MEMOP_REQ 0
+`define LANE_MEMOP_RSP 1
 
 module [HASIM_MODULE] mkCacheCoherenceInterface();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc_coherence.out");
 
+    //
+    // Messages that travel from this portion of the distrubted LLC to/from
+    // memory controllers.  This module will route the messages through the
+    // network.
+    //
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CC_REQ) cacheToMem <- mkPortStallRecv_Multiplexed("LLC_to_MEM_req");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CC_RSP) memToCache <- mkPortStallSend_Multiplexed("MEM_to_LLC_rsp");
+
     // Queues to/from last level cache.
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_REQ) reqToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CC_REQ)     reqFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_req");
     
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_CC_RSP) rspFromLLC <- mkPortStallRecv_Multiplexed("LLC_to_CC_rsp");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CC_RSP)     rspToLLC   <- mkPortStallSend_Multiplexed("CC_to_LLC_rsp");
     
     //
     // Wrapped interfaces to/from interconnect network.  The wrappers simplify
@@ -689,18 +702,18 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
 
 
     Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    inctrls[0] = reqToLLC.ctrl.in;
-    inctrls[1] = reqFromLLC.ctrl.in;
-    inctrls[2] = rspFromLLC.ctrl.in;
-    inctrls[3] = rspToLLC.ctrl.in;
+    inctrls[0] = cacheToMem.ctrl.in;
+    inctrls[1] = memToCache.ctrl.in;
+    inctrls[2] = reqToLLC.ctrl.in;
+    inctrls[3] = rspFromLLC.ctrl.in;
     inctrls[4] = ocnSend.ctrl.in;
     inctrls[5] = ocnRecv.ctrl.in;
 
     Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
-    outctrls[0] = reqToLLC.ctrl.out;
-    outctrls[1] = reqFromLLC.ctrl.out;
-    outctrls[2] = rspFromLLC.ctrl.out;
-    outctrls[3] = rspToLLC.ctrl.out;
+    outctrls[0] = cacheToMem.ctrl.out;
+    outctrls[1] = memToCache.ctrl.out;
+    outctrls[2] = reqToLLC.ctrl.out;
+    outctrls[3] = rspFromLLC.ctrl.out;
     outctrls[4] = ocnSend.ctrl.out;
     outctrls[5] = ocnRecv.ctrl.out;
 
@@ -709,9 +722,22 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(LANE_IDX)) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(LANE_IDX, OCN_FLIT))) stage3Ctrl <- mkStageController();
 
-    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(MEM_OPAQUE)) packetizingRspPool <- mkMultiplexedReg(tagged Invalid);
-    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(MEM_OPAQUE)) packetizingReqPool <- mkMultiplexedReg(tagged Invalid);
-    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS) physAddrPool <- mkMemory_Multiplexed(mkBRAMInitialized(~0));
+    //
+    // Messages are broken into flits in this module when transmitted on the
+    // OCN.  For now we always used packets that are two flits.  These
+    // registers hold the tail flits after a head is transmitted.
+    //
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(MEM_OPAQUE)) packetizingCacheToMemPool <-
+        mkMultiplexedReg(tagged Invalid);
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(MEM_OPAQUE)) packetizingRspPool <-
+        mkMultiplexedReg(tagged Invalid);
+
+    //
+    // Side memories hold the actual contents of a packet instead of forcing all
+    // datapaths in the simulated OCN to be wide enough to pass a full packet.
+    //
+    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS) physAddrPool <-
+        mkMemory_Multiplexed(mkBRAMInitialized(~0));
 
     
     function STATION_ID getLLCDstForAddr(LINE_ADDRESS addr);
@@ -746,46 +772,46 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         let can_enq <- ocnSend.canEnq(cpu_iid);
 
         Reg#(Maybe#(MEM_OPAQUE)) packetizingRsp = packetizingRspPool.getReg(cpu_iid);
-        Reg#(Maybe#(MEM_OPAQUE)) packetizingReq = packetizingReqPool.getReg(cpu_iid);
+        Reg#(Maybe#(MEM_OPAQUE)) packetizingCacheToMem = packetizingCacheToMemPool.getReg(cpu_iid);
 
         // Start by checking for new responses from the LLC.
         // These are higher priority.
         let m_llc_rsp <- rspFromLLC.receive(cpu_iid);
 
-        // Also check for new ShReq/ExcReq from the LLC.
-        let m_llc_req <- reqFromLLC.receive(cpu_iid);
+        // Requests from the local LLC instance (the one responsible for the
+        // request's address) to a memory controller.
+        let m_cacheToMem <- cacheToMem.receive(cpu_iid);
 
         //
         // Multiple messages to the OCN are possible.  The priority is defined
         // the these conditional blocks.
         //
 
+        Bool did_deq_rspFromLLC = False;
+        Bool did_deq_cacheToMem = False;
+
         if (packetizingRsp matches tagged Valid .op &&&
-            can_enq[`LANE_LLC_RSP])
+            can_enq[`LANE_MEMOP_RSP])
         begin
             //
             // Complete an LLC response.
             //
             let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
-            ocnSend.doEnq(cpu_iid, `LANE_LLC_RSP, msg);
+            ocnSend.doEnq(cpu_iid, `LANE_MEMOP_RSP, msg);
             packetizingRsp <= tagged Invalid;
-            rspFromLLC.noDeq(cpu_iid);
-            reqFromLLC.noDeq(cpu_iid);
         end
-        else if (packetizingReq matches tagged Valid .op &&&
-                 can_enq[`LANE_LLC_REQ])
+        else if (packetizingCacheToMem matches tagged Valid .op &&&
+                 can_enq[`LANE_MEMOP_REQ])
         begin
             //
-            // Complete an LLC request.
+            // Complete a request from the cache to a memory controller.
             //
             let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
-            ocnSend.doEnq(cpu_iid, `LANE_LLC_REQ, msg);
-            packetizingReq <= tagged Invalid;
-            rspFromLLC.noDeq(cpu_iid);
-            reqFromLLC.noDeq(cpu_iid);
+            ocnSend.doEnq(cpu_iid, `LANE_MEMOP_REQ, msg);
+            packetizingCacheToMem <= tagged Invalid;
         end
         else if (m_llc_rsp matches tagged Valid .rsp &&&
-                 can_enq[`LANE_LLC_RSP])
+                 can_enq[`LANE_MEMOP_RSP])
         begin
             //
             // Start a response.
@@ -793,26 +819,27 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
             let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid),
                                                       dst: getLLCDstForAddr(rsp.physicalAddress),
                                                       isStore: False};
-            ocnSend.doEnq(cpu_iid, `LANE_LLC_RSP, msg);
+            ocnSend.doEnq(cpu_iid, `LANE_MEMOP_RSP, msg);
             packetizingRsp <= tagged Valid rsp.opaque;
             rspFromLLC.doDeq(cpu_iid);
-            reqFromLLC.noDeq(cpu_iid);
+            did_deq_rspFromLLC = True;
         end
-        else if (m_llc_req matches tagged Valid .req &&&
-                 can_enq[`LANE_LLC_REQ])
+        else if (m_cacheToMem matches tagged Valid .req &&&
+                 can_enq[`LANE_MEMOP_REQ])
         begin
             //
-            // Start a request.
+            // Start a request from the cache to a memory controller.
             //
             let dst_node = getMemCtrlDstForAddr(req.physicalAddress);
             let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid),
                                                       dst: dst_node,
                                                       isStore: req.isStore};
-            ocnSend.doEnq(cpu_iid, `LANE_LLC_REQ, msg);
-            packetizingReq <= tagged Valid req.opaque;
-            rspFromLLC.noDeq(cpu_iid);
-            reqFromLLC.doDeq(cpu_iid);
-            if (!req.isStore)
+            ocnSend.doEnq(cpu_iid, `LANE_MEMOP_REQ, msg);
+            packetizingCacheToMem <= tagged Valid req.opaque;
+            cacheToMem.doDeq(cpu_iid);
+            did_deq_cacheToMem = True;
+
+            if (! req.isStore)
             begin
                 physAddrPool.write(cpu_iid, req.opaque, req.physicalAddress);
             end
@@ -822,11 +849,19 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         else
         begin
             //
-            // Nothing.  Either there isn't a flit to send or the port is busy.
+            // Nothing to send.
             //
             ocnSend.noEnq(cpu_iid);
+        end
+
+        if (! did_deq_rspFromLLC)
+        begin
             rspFromLLC.noDeq(cpu_iid);
-            reqFromLLC.noDeq(cpu_iid);
+        end
+
+        if (! did_deq_cacheToMem)
+        begin
+            cacheToMem.noDeq(cpu_iid);
         end
         
         //
@@ -859,7 +894,7 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         // Need to read the PA associated with an incoming message?  Stage 3
         // is separate from this step to wait for the BRAM read.
         if (m_ln matches tagged Valid .ln &&&
-            ln == `LANE_LLC_RSP &&&
+            ln == `LANE_MEMOP_RSP &&&
             flit matches tagged FLIT_BODY .info)
         begin
             physAddrPool.readReq(cpu_iid, info.opaque);
@@ -889,71 +924,53 @@ module [HASIM_MODULE] mkCacheCoherenceInterface();
         let pa <- physAddrPool.readRsp(cpu_iid);
 
         let can_enq_req <- reqToLLC.canEnq(cpu_iid);
-        let can_enq_rsp <- rspToLLC.canEnq(cpu_iid);
+        let can_enq_memToCache <- memToCache.canEnq(cpu_iid);
         
+        Bool did_enq_reqToLLC = False;
+        Bool did_enq_memToCache = False;
+
         if (m_msg matches tagged Valid {.ln, .msg})
         begin
-            if (ln == `LANE_LLC_REQ)
+            if (ln == `LANE_MEMOP_REQ)
             begin
                 // assert can_enq_req
                 case (msg) matches
                     tagged FLIT_HEAD .info:
                     begin
                         // Drop heads at this point.
-                        reqToLLC.noEnq(cpu_iid);
-                        rspToLLC.noEnq(cpu_iid);
                     end
                     tagged FLIT_BODY .info:
                     begin
-                       reqToLLC.doEnq(cpu_iid, LLC_CC_REQ_WB); //TODO: actually distinguish.
-                       rspToLLC.noEnq(cpu_iid);
+                        reqToLLC.doEnq(cpu_iid, LLC_CC_REQ_WB); //TODO: actually distinguish.
+                        did_enq_reqToLLC = True;
                     end
                 endcase
             end
-            else if (ln == `LANE_LLC_RSP)
+            else if (ln == `LANE_MEMOP_RSP)
             begin
-                // assert can_enq_rsp
+                // assert can_enq_memToCache
                 case (msg) matches
                     tagged FLIT_HEAD .info:
                     begin
                         // Drop heads at this point.
-                        reqToLLC.noEnq(cpu_iid);
-                        rspToLLC.noEnq(cpu_iid);
                     end
                     tagged FLIT_BODY .info:
                     begin
-                       reqToLLC.noEnq(cpu_iid);
-                       rspToLLC.doEnq(cpu_iid, initMemRsp(pa, info.opaque));
+                        memToCache.doEnq(cpu_iid, initMemRsp(pa, info.opaque));
+                        did_enq_memToCache = True;
                     end
-
                 endcase
             end
-            else
-            begin
-                reqToLLC.noEnq(cpu_iid);
-                rspToLLC.noEnq(cpu_iid);
-            end
-
         end
-        else
+
+        if (! did_enq_reqToLLC)
         begin
             reqToLLC.noEnq(cpu_iid);
-            rspToLLC.noEnq(cpu_iid);
         end
         
-        VC_CREDIT_INFO creds = newVector();
-        creds[`LANE_LLC_REQ] = newVector();
-        creds[`LANE_LLC_RSP] = newVector();
-
-        for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
+        if (! did_enq_memToCache)
         begin
-            let have_credit_req = can_enq_req; // XXX capacity - occupancy > round-trip latency.
-            let not_full_req = can_enq_req;
-            creds[`LANE_LLC_REQ][vc] = tuple2(have_credit_req, not_full_req);
-
-            let have_credit_rsp = can_enq_rsp; // XXX capacity - occupancy > round-trip latency.
-            let not_full_rsp = can_enq_rsp;
-            creds[`LANE_LLC_RSP][vc] = tuple2(have_credit_rsp, not_full_rsp);
+            memToCache.noEnq(cpu_iid);
         end
         
         localCtrl.endModelCycle(cpu_iid, 0);

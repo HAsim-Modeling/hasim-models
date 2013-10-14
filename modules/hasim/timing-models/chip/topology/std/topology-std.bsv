@@ -121,20 +121,22 @@ endmodule
 //
 // mkTopologyParamStream --
 //   A topology parameter that is a stream of data (e.g. initialization of
-//   a table.)  The Bool element of the outbound Tuple indicates completion
-//   of a parameter.  Some streams may be broken down into components that
-//   cause the completion bit to be set multiple times.
+//   a table.)  The output value is marked valid until end of stream.  End of
+//   stream is indicated by a single invalid message.  Some streams may have
+//   multiple chunks, indicated by multiple data/end of stream sequences.
 //
 module [CONNECTED_MODULE] mkTopologyParamStream#(Integer paramID)
     // Interface:
-    (Get#(Tuple2#(t_VALUE, Bool)))
+    (Get#(Maybe#(t_VALUE)))
     provisos (Bits#(t_VALUE, t_VALUE_SZ));
 
     // Receive values
     CONNECTION_CHAIN#(TOPOLOGY_PARAM_MSG) chain <- mkConnectionChain("TopologyConfigRing");
 
     // Use "slow" FIFO1 to save space.  Performance doesn't matter.
-    FIFO#(Tuple2#(t_VALUE, Bool)) valueQ <- mkFIFO1();
+    FIFO#(Maybe#(t_VALUE)) valueQ <- mkFIFO1();
+
+    Reg#(Bool) eos <- mkReg(False);
 
     //
     // Does the value fit in a single message?
@@ -144,7 +146,7 @@ module [CONNECTED_MODULE] mkTopologyParamStream#(Integer paramID)
         //
         // Simple version.  One message per stream entry.
         //
-        rule recvValues (True);
+        rule recvValues (! eos);
             // Get the next message
             let msg <- chain.recvFromPrev();
             // Forward it around the chain
@@ -153,8 +155,8 @@ module [CONNECTED_MODULE] mkTopologyParamStream#(Integer paramID)
             // Does message hold the requested parameter?
             if (fromInteger(paramID) == msg.id)
             begin
-                valueQ.enq(tuple2(unpack(truncateNP(msg.value)),
-                                  msg.lastForStream));
+                valueQ.enq(tagged Valid unpack(truncateNP(msg.value)));
+                eos <= msg.lastForStream;
             end
         endrule
     end
@@ -168,7 +170,7 @@ module [CONNECTED_MODULE] mkTopologyParamStream#(Integer paramID)
         Reg#(Vector#(TDiv#(t_VALUE_SZ, TOPOLOGY_VALUE_SZ),
                      Bit#(TOPOLOGY_VALUE_SZ))) value <- mkRegU();
 
-        rule recvValues (True);
+        rule recvValues (! eos);
             // Get the next message
             let msg <- chain.recvFromPrev();
             // Forward it around the chain
@@ -183,15 +185,21 @@ module [CONNECTED_MODULE] mkTopologyParamStream#(Integer paramID)
 
                 if (msg.lastForID)
                 begin
-                    valueQ.enq(tuple2(unpack(truncateNP(pack(n_value))),
-                                      msg.lastForStream));
+                    valueQ.enq(tagged Valid unpack(truncateNP(pack(n_value))));
+                    eos <= msg.lastForStream;
                 end
             end
         endrule
     end
 
 
-    method ActionValue#(Tuple2#(t_VALUE, Bool)) get();
+    rule endOfStream (eos);
+        valueQ.enq(tagged Invalid);
+        eos <= False;
+    endrule
+
+
+    method ActionValue#(Maybe#(t_VALUE)) get();
         let m = valueQ.first();
         valueQ.deq();
 
