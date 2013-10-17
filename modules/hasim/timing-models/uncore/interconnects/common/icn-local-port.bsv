@@ -87,15 +87,21 @@ interface PORT_OCN_LOCAL_RECV_MULTIPLEXED#(type ni);
     // and pick a channel using the notEmpty bits or may use the
     // pickChannel method.  pickChannel() gets the notEmpty bits
     // on its own and then picks a single winner.
-    method Maybe#(Tuple2#(LANE_IDX, VC_IDX)) pickChannel(INSTANCE_ID#(ni) iid);
+    //
+    // pickChannel() will only select a lane that has the corresponding
+    // bit set in the "request" parameter.
+    method Maybe#(Tuple2#(LANE_IDX,
+                          VC_IDX)) pickChannel(INSTANCE_ID#(ni) iid,
+                                               Vector#(NUM_LANES, Bool) request);
 
     // Multi-cycle receive request/response.  The requested lane/vc must have
     // a message, as indicated by notEmpty() or pickChannel() above.
     method Action receiveReq(INSTANCE_ID#(ni) iid, LANE_IDX lane, VC_IDX vc);
     method ActionValue#(OCN_FLIT) receiveRsp(INSTANCE_ID#(ni) iid);
 
-    // receiveReq or noDeq must be called exactly once for each simulated
-    // cycle for each iid.  If no receiveReq is issued, call noDeq.
+    // doDeq or noDeq must be called exactly once for each simulated
+    // cycle for each iid.
+    method Action doDeq(INSTANCE_ID#(ni) iid, LANE_IDX lane, VC_IDX vc);
     method Action noDeq(INSTANCE_ID#(ni) iid);
 
     interface INSTANCE_CONTROL_IN_OUT#(ni) ctrl;
@@ -346,7 +352,9 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     endmethod
 
 
-    method Maybe#(Tuple2#(LANE_IDX, VC_IDX)) pickChannel(t_IID iid);
+    method Maybe#(Tuple2#(LANE_IDX,
+                          VC_IDX)) pickChannel(t_IID iid,
+                                               Vector#(NUM_LANES, Bool) request);
         // Which incoming virtual channels have messages?
         Vector#(NUM_LANES,
                 Vector#(VCS_PER_LANE, Bool)) not_empty = notEmptyVCs(iid);
@@ -355,7 +363,8 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         // isReadyVC --
         //   Is a request available?
         //
-        function Bool isReadyVC(Integer ln, Integer vc) = not_empty[ln][vc];
+        function Bool isReadyVC(Integer ln, Integer vc) = not_empty[ln][vc] &&
+                                                          request[ln];
 
         let ready_vcs = map(uncurry(isReadyVC), concat(identityMap));
 
@@ -386,10 +395,6 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         vcBufEntries.readReq(tuple4(iid, lane, vc, idx));
         rspMetaQ.enq(tuple2(lane, vc));
 
-        upd_vc_buf[lane][vc] = funcFIFO_IDX_UGdeq(upd_vc_buf[lane][vc]);
-
-        // Side effect of receiveReq: check for new messages
-        recv1Q.enq(tuple2(iid, upd_vc_buf));
         debugLog.record(iid, $format("lpRecv req: ln %0d, vc %0d", lane, vc));
     endmethod
 
@@ -431,6 +436,18 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         return flit;
     endmethod
 
+    method Action doDeq(t_IID iid, LANE_IDX lane, VC_IDX vc);
+        // Read our local state from the pools.
+        Reg#(t_BUFFER_FIFOS) vcBuf = vcFIFOsPool.getReg(iid);
+        t_BUFFER_FIFOS upd_vc_buf = vcBuf;
+
+        upd_vc_buf[lane][vc] = funcFIFO_IDX_UGdeq(upd_vc_buf[lane][vc]);
+
+        // Side effect of doDeq: check for new messages
+        recv1Q.enq(tuple2(iid, upd_vc_buf));
+        debugLog.record(iid, $format("lpRecv Do deq: ln %0d, vc %0d", lane, vc));
+    endmethod
+
     method Action noDeq(t_IID iid);
         // Read our local state from the pools.
         Reg#(t_BUFFER_FIFOS) vcBuf = vcFIFOsPool.getReg(iid);
@@ -438,7 +455,7 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
 
         // Side effect of noDeq: check for new messages
         recv1Q.enq(tuple2(iid, upd_vc_buf));
-        debugLog.record(iid, $format("lpRecv no req"));
+        debugLog.record(iid, $format("lpRecv no deq"));
     endmethod
 
 

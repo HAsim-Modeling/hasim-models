@@ -1045,10 +1045,20 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
         // Is a message available incoming from the OCN?  We start here
         // because it is a multi-cycle operation.
         //
+
+        // Only request packets that can be forwarded this cycle.
+        let can_enq_reqToLLC <- reqToLLC.canEnq(cpu_iid);
+        let can_enq_rspToLLC <- rspToLLC.canEnq(cpu_iid);
+        Vector#(NUM_LANES, Bool) can_enq_vec = replicate(False);
+        can_enq_vec[`LANE_MEMOP_REQ] = can_enq_reqToLLC;
+        can_enq_vec[`LANE_MEMOP_RSP] = can_enq_rspToLLC;
+
         Maybe#(LANE_IDX) recv_ln = tagged Invalid;
-        if (ocnRecv.pickChannel(cpu_iid) matches tagged Valid {.ln_in, .vc_in})
+        if (ocnRecv.pickChannel(cpu_iid, can_enq_vec) matches
+                tagged Valid {.ln_in, .vc_in})
         begin
             ocnRecv.receiveReq(cpu_iid, ln_in, vc_in);
+            ocnRecv.doDeq(cpu_iid, ln_in, vc_in);
             recv_ln = tagged Valid ln_in;
         end
         else
@@ -1101,9 +1111,6 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
 
         let pa <- physAddrPool.readRsp(cpu_iid);
 
-        let can_enq_reqToLLC <- reqToLLC.canEnq(cpu_iid);
-        let can_enq_rspToLLC <- rspToLLC.canEnq(cpu_iid);
-        
         Bool did_enq_reqToLLC = False;
         Bool did_enq_rspToLLC = False;
 

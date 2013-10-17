@@ -6525,3 +6525,25 @@ It still behaves as a set of private, incoherent, LLCs.
   This module is responsible for buffering multi-flit packets on entry/exit
   to the OCN so that other modules can treat messages as single-cycle
   objects.
+
+----------
+mcadler     Date: Thu Oct 17 17:40:36 EDT 2013  CSN: CSN-hasim-models-212
+                  Thu Oct 17 21:40:36 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          211 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          211 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          211 
+
+The OCN read interface is now rich enough to deal with a client that reads
+an incoming message but choses not to dequeue it because the client doesn't
+have anywhere to put the new message.  The previous code worked, mostly,
+because the OCN is typically the rate limiting step and clients are
+typically always ready to receive a message.
+
+Both the memory and LLC clients now use the interface properly.

@@ -219,11 +219,12 @@ module [HASIM_MODULE] mkMemoryController()
         match {.iid, .finished_req} <- stage2Ctrl.nextReadyInstance();
 
         // Pick a channel from which to receive
-        if (ocnRecv.pickChannel(iid) matches tagged Valid {.ln, .vc} &&&
-            memRespQ.canEnq(iid))
+        if (ocnRecv.pickChannel(iid, replicate(memRespQ.canEnq(iid))) matches
+                tagged Valid {.ln, .vc})
         begin
             // Request the winning flit
             ocnRecv.receiveReq(iid, ln, vc);
+            ocnRecv.doDeq(iid, ln, vc);
             stage3Ctrl.ready(iid, tuple2(finished_req, True));
         end
         else
