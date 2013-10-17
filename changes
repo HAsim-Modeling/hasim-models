@@ -6502,3 +6502,26 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 - Begin restructuring LLC for actually distributing it.  Current implementation
   treats LLC as private, incohoerent, caches.
+
+----------
+mcadler     Date: Wed Oct 16 20:17:57 EDT 2013  CSN: CSN-hasim-models-211
+                  Thu Oct 17 00:17:57 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          210 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          210 
+
+Restructure the LLC in preparation for making the cache distributed.
+It still behaves as a set of private, incoherent, LLCs.
+
+- A new router module manages all I/O to the core and between an LLC
+  entity and the OCN.  The module will, eventually, be responsible for
+  routing new requests either to the local LLC or to a remote instance.
+
+- All OCN traffic now goes through a single module (connected by A-Ports).
+  This module is responsible for buffering multi-flit packets on entry/exit
+  to the OCN so that other modules can treat messages as single-cycle
+  objects.

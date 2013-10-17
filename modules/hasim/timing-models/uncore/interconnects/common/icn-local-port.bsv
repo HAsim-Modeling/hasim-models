@@ -236,7 +236,7 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
 
     FIFO#(Tuple2#(t_IID, t_BUFFER_FIFOS)) recv1Q <- mkFIFO();
     FIFO#(Tuple2#(t_IID, t_BUFFER_FIFOS)) recv2Q <- mkFIFO();
-    FIFO#(Tuple3#(t_IID, LANE_IDX, VC_IDX)) rspMetaQ <- mkFIFO();
+    FIFO#(Tuple2#(LANE_IDX, VC_IDX)) rspMetaQ <- mkFIFO();
 
 
     //
@@ -384,7 +384,7 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
 
         let idx = funcFIFO_IDX_UGfirst(upd_vc_buf[lane][vc]);
         vcBufEntries.readReq(tuple4(iid, lane, vc, idx));
-        rspMetaQ.enq(tuple3(iid, lane, vc));
+        rspMetaQ.enq(tuple2(lane, vc));
 
         upd_vc_buf[lane][vc] = funcFIFO_IDX_UGdeq(upd_vc_buf[lane][vc]);
 
@@ -394,7 +394,7 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     endmethod
 
     method ActionValue#(OCN_FLIT) receiveRsp(t_IID iid);
-        match {.iid, .lane, .vc} = rspMetaQ.first();
+        match {.lane, .vc} = rspMetaQ.first();
         rspMetaQ.deq();
 
         let flit <- vcBufEntries.readRsp();
