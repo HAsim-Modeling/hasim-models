@@ -53,6 +53,13 @@ typedef TAdd#(MAX_NUM_CPUS, MAX_NUM_MEM_CTRLS) NUM_STATIONS;
 typedef INSTANCE_ID#(NUM_STATIONS) STATION_IID;
 typedef STATION_IID STATION_ID;
 
+//
+// An opaque storage container in flit bodies.  This is typically used to store
+// a pointer to a packet descriptor.  The size is chosen because it matches
+// the size of an OCN_FLIT_HEAD.
+//
+typedef Bit#(TMul#(2, INSTANCE_ID_BITS#(NUM_STATIONS))) OCN_FLIT_OPAQUE;
+
 
 typedef struct
 {
@@ -65,7 +72,7 @@ OCN_FLIT_HEAD
 
 typedef struct
 {
-    MEM_OPAQUE opaque;
+    OCN_FLIT_OPAQUE opaque;
     Bool isTail;
 }
 OCN_FLIT_BODY

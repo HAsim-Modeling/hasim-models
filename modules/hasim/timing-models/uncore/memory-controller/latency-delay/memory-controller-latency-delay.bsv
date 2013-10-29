@@ -142,6 +142,14 @@ module [HASIM_MODULE] mkMemoryController()
     MULTIPLEXED_REG#(MAX_NUM_MEM_CTRLS, UInt#(TLog#(n_MAX_IN_FLIGHT))) nInFlightPool <-
         mkMultiplexedReg(0);
 
+    //
+    // Side memories hold the actual contents of a packet instead of forcing all
+    // datapaths in the simulated OCN to be wide enough to pass a full packet.
+    // The memory is actually allocated in the LLC controller.  Here we just
+    // connect to a port.
+    //
+    OCN_PACKET_PAYLOAD_CLIENT payloadStorage <- mkNetworkPacketPayloadClient(0);
+
 
     STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Bool) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(MAX_NUM_MEM_CTRLS, Tuple2#(Bool, Bool)) stage3Ctrl <-

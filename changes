@@ -6547,3 +6547,34 @@ because the OCN is typically the rate limiting step and clients are
 typically always ready to receive a message.
 
 Both the memory and LLC clients now use the interface properly.
+
+----------
+mcadler     Date: Tue Oct 29 16:22:12 EDT 2013  CSN: CSN-hasim-models-213
+                  Tue Oct 29 20:22:12 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          212 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          212 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.bsv Locally Modified          212 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          212 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-common.awb            Locally Modified          212 
+ icn-packet-payload.bsv    Locally Added               0 
+
+Instead of sending a real packet across the simulated network, we send narrow
+messages with routing information and a pointer to the full packet.  This
+saves a lot of FPGA memory since the network FIFOs can be smaller.  Until
+now, the only messages were loads and stores.  In order to support coherence
+traffic and requests to remove LLC segments the messages types must be
+richer.  This is the first step.
+
+icn-packet-payload.bsv defines a service in which packet descriptors are
+stored.  In the current code, only the LLC actually uses the service.

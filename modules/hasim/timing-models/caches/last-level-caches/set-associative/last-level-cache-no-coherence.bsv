@@ -914,8 +914,11 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
 
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Network Connection", inctrls, outctrls);
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(LANE_IDX)) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(LANE_IDX, OCN_FLIT))) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(Bool, Maybe#(LANE_IDX))) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(Bool,
+                                            Maybe#(OCN_PACKET_HANDLE),
+                                            Maybe#(Tuple2#(LANE_IDX, OCN_FLIT)))) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage4Ctrl <- mkBufferedStageController();
 
     //
     // Messages are broken into flits in this module when transmitted on the
@@ -923,18 +926,17 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
     // registers hold the tail flits after a head is transmitted.
     //
     Vector#(NUM_LANES, MULTIPLEXED_REG#(MAX_NUM_CPUS,
-                                        Maybe#(MEM_OPAQUE))) packetizingToOCNPool <-
+                                        Maybe#(OCN_FLIT_OPAQUE))) packetizingToOCNPool <-
         replicateM(mkMultiplexedReg(tagged Invalid));
     Vector#(NUM_LANES, MULTIPLEXED_REG#(MAX_NUM_CPUS,
-                                        Maybe#(MEM_OPAQUE))) packetizingFromOCNPool <-
+                                        Maybe#(OCN_FLIT_OPAQUE))) packetizingFromOCNPool <-
         replicateM(mkMultiplexedReg(tagged Invalid));
 
     //
     // Side memories hold the actual contents of a packet instead of forcing all
     // datapaths in the simulated OCN to be wide enough to pass a full packet.
     //
-    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, MEM_OPAQUE, LINE_ADDRESS) physAddrPool <-
-        mkMemory_Multiplexed(mkBRAMInitialized(~0));
+    OCN_PACKET_PAYLOAD_CLIENT payloadStorage <- mkNetworkPacketPayloadClient(1);
 
 
     (* conservative_implicit_conditions *)
@@ -946,7 +948,7 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
         let can_enq <- ocnSend.canEnq(cpu_iid);
 
         // Remaining packets for all outbound lanes.
-        Vector#(NUM_LANES, Reg#(Maybe#(MEM_OPAQUE))) packetizingToOCN =
+        Vector#(NUM_LANES, Reg#(Maybe#(OCN_FLIT_OPAQUE))) packetizingToOCN =
             map(getMultiplexedReg(cpu_iid), packetizingToOCNPool);
 
         //
@@ -963,11 +965,12 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
 
         Bool did_deq_reqFromLLC = False;
         Bool did_deq_rspFromLLC = False;
+        Bool did_payload_storage_write = False;
 
         // Function that will be used to test whether a buffered flit remains
         // to be sent on a port.  The function returns true iff there is a
         // flit and the port can accept a message this cycle.
-        function Bool oldFlitRemains(Tuple2#(Bool, Reg#(Maybe#(MEM_OPAQUE))) state);
+        function Bool oldFlitRemains(Tuple2#(Bool, Reg#(Maybe#(OCN_FLIT_OPAQUE))) state);
             match {.can_enq_port, .flit} = state;
             return can_enq_port && isValid(flit);
         endfunction
@@ -995,32 +998,43 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
                                                       dst: dst,
                                                       isStore: False};
             ocnSend.doEnq(cpu_iid, `LANE_MEMOP_RSP, msg);
-            packetizingToOCN[`LANE_MEMOP_RSP] <= tagged Valid rsp.opaque;
+            packetizingToOCN[`LANE_MEMOP_RSP] <= tagged Valid zeroExtend(rsp.opaque);
             rspFromLLC.doDeq(cpu_iid);
             did_deq_rspFromLLC = True;
 
             debugLog.record(cpu_iid, $format("1: Lane %0d: Response to node %0d", `LANE_MEMOP_RSP, dst));
         end
         else if (m_reqFromLLC matches tagged Valid {.dst, .req} &&&
-                 can_enq[`LANE_MEMOP_REQ])
+                 can_enq[`LANE_MEMOP_REQ] &&&
+                 payloadStorage.allocNotEmpty)
         begin
             //
-            // Start a request from the cache to a memory controller.
+            // Start a request from the cache to a memory controller.  Note
+            // that this fires only if there is a free entry in the payloadStorage
+            // heap.  This is an artifical restriction.  Just make the heap
+            // large enough.
             //
             let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: zeroExtend(cpu_iid),
                                                       dst: dst,
                                                       isStore: req.isStore};
             ocnSend.doEnq(cpu_iid, `LANE_MEMOP_REQ, msg);
-            packetizingToOCN[`LANE_MEMOP_REQ] <= tagged Valid req.opaque;
             reqFromLLC.doDeq(cpu_iid);
             did_deq_reqFromLLC = True;
 
             if (! req.isStore)
             begin
-                physAddrPool.write(cpu_iid, req.opaque, req.physicalAddress);
-            end
+                let h <- payloadStorage.allocHandle();
+                payloadStorage.write(h, zeroExtend(pack(tuple2(req.opaque, req.physicalAddress))));
+                did_payload_storage_write = True;
 
-            debugLog.record(cpu_iid, $format("1: Lane %0d: Gen %s REQ for LINE 0x%x to memctrl node %0d", `LANE_MEMOP_REQ, (req.isStore ? "STORE" : "LOAD"), req.physicalAddress, dst));
+                packetizingToOCN[`LANE_MEMOP_REQ] <= tagged Valid h;
+                debugLog.record(cpu_iid, $format("1: Lane %0d: Gen LOAD REQ for LINE 0x%x, ID %0d, handle 0x%x to memctrl node %0d", `LANE_MEMOP_REQ, req.physicalAddress, req.opaque, h, dst));
+            end
+            else
+            begin
+                packetizingToOCN[`LANE_MEMOP_REQ] <= tagged Valid (?);
+                debugLog.record(cpu_iid, $format("1: Lane %0d: Gen STORE REQ for LINE 0x%x to memctrl node %0d", `LANE_MEMOP_REQ, req.physicalAddress, dst));
+            end
         end
         else
         begin
@@ -1066,12 +1080,16 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
             ocnRecv.noDeq(cpu_iid);
         end
 
-        stage2Ctrl.ready(cpu_iid, recv_ln);
+        stage2Ctrl.ready(cpu_iid, tuple2(did_payload_storage_write, recv_ln));
     endrule
 
 
     rule stage2_lookupAddr (True);
-        match {.cpu_iid, .m_ln} <- stage2Ctrl.nextReadyInstance();
+        match {.cpu_iid,
+               .did_payload_storage_write,
+               .m_ln} <- stage2Ctrl.nextReadyInstance();
+
+        Maybe#(OCN_PACKET_HANDLE) m_payload_storage_read = tagged Invalid;
 
         OCN_FLIT flit = ?;
         if (isValid(m_ln))
@@ -1085,34 +1103,48 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
             ln == `LANE_MEMOP_RSP &&&
             flit matches tagged FLIT_BODY .info)
         begin
-            physAddrPool.readReq(cpu_iid, info.opaque);
-        end
-        else
-        begin
-            // Trigger a read request just so one is outstanding.  It is needed
-            // for the schedule, but not the data.
-            physAddrPool.readReq(cpu_iid, unpack(0));
+            payloadStorage.readReq(info.opaque);
+            m_payload_storage_read = tagged Valid info.opaque;
         end
 
         if (m_ln matches tagged Valid .ln)
         begin
-            stage3Ctrl.ready(cpu_iid, tagged Valid tuple2(ln, flit));
+            stage3Ctrl.ready(cpu_iid, tuple3(did_payload_storage_write,
+                                             m_payload_storage_read,
+                                             tagged Valid tuple2(ln, flit)));
         end
         else
         begin
-            stage3Ctrl.ready(cpu_iid, tagged Invalid);
+            stage3Ctrl.ready(cpu_iid, tuple3(did_payload_storage_write,
+                                             m_payload_storage_read,
+                                             tagged Invalid));
         end
     endrule
 
 
-    (* conservative_implicit_conditions *)
     rule stage3_recvFromOCN (True);
-        match {.cpu_iid, .m_flit} <- stage3Ctrl.nextReadyInstance();
-
-        let pa <- physAddrPool.readRsp(cpu_iid);
-
+        match {.cpu_iid,
+               .did_payload_storage_write,
+               .m_payload_storage_read,
+               .m_flit} <- stage3Ctrl.nextReadyInstance();
+        
         Bool did_enq_reqToLLC = False;
         Bool did_enq_rspToLLC = False;
+
+        // Looking up payload contents in the side storage buffer?
+        MEM_OPAQUE opaque = ?;
+        LINE_ADDRESS pa = ?;
+        if (m_payload_storage_read matches tagged Valid .h)
+        begin
+            let v <- payloadStorage.readRsp();
+            Tuple2#(MEM_OPAQUE, LINE_ADDRESS) info = unpack(truncate(v));
+            opaque = tpl_1(info);
+            pa = tpl_2(info);
+            
+            // Packet complete.  Release the buffer entry.
+            payloadStorage.freeHandle(h);
+            debugLog.record(cpu_iid, $format("3: Free 0x%0x", h));
+        end
 
         //
         // The head flit can be ignored.  All we need is in the body (tail).
@@ -1134,10 +1166,10 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
                 end
                 else if (ln == `LANE_MEMOP_RSP)
                 begin
-                    let rsp = initMemRsp(pa, info.opaque);
+                    let rsp = initMemRsp(pa, opaque);
                     rspToLLC.doEnq(cpu_iid, rsp);
                     did_enq_rspToLLC = True;
-                    debugLog.record(cpu_iid, $format("3: Lane %0d: Recv load rsp for LINE 0x%x", ln, rsp.physicalAddress));
+                    debugLog.record(cpu_iid, $format("3: Lane %0d: Recv load rsp for LINE 0x%x, ID %0d", ln, rsp.physicalAddress, opaque));
                 end
             end
         end
@@ -1152,6 +1184,23 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
             rspToLLC.noEnq(cpu_iid);
         end
         
+        stage4Ctrl.ready(cpu_iid, did_payload_storage_write);
+    endrule
+
+
+    //
+    // Wait for confirmation that the payload storage buffer has been updated
+    // and is visible to the recipient.
+    //
+    rule stage4_writeAck (True);
+        match {.cpu_iid,
+               .did_payload_storage_write} <- stage4Ctrl.nextReadyInstance();
+
+        if (did_payload_storage_write)
+        begin
+            payloadStorage.writeAck();
+        end
+
         localCtrl.endModelCycle(cpu_iid, 0);
     endrule
 endmodule

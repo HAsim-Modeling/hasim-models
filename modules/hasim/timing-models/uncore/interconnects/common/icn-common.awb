@@ -5,3 +5,6 @@
 %attributes hasim uncore
  
 %public  icn-local-port.bsv
+%public  icn-packet-payload.bsv
+
+%param OCN_PACKET_PAYLOAD_BITS  64   "Size of side-buffer in which OCN packet payloads are stored"
