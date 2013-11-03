@@ -6578,3 +6578,21 @@ richer.  This is the first step.
 
 icn-packet-payload.bsv defines a service in which packet descriptors are
 stored.  In the current code, only the LLC actually uses the service.
+
+----------
+mcadler     Date: Sat Nov  2 23:07:31 EDT 2013  CSN: CSN-hasim-models-214
+                  Sun Nov  3 03:07:31 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          213 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          213 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-packet-payload.bsv    Locally Modified          213 
+
+- Generate metadata for stores passing through OCN.  They used to have no payload.
+
+- Trigger an error if the OCN metadata heap is ever empty.

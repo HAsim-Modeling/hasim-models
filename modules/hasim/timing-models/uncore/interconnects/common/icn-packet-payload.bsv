@@ -166,6 +166,21 @@ module [HASIM_MODULE] mkNetworkPacketPayloadStorage#(NumTypeParam#(n_CLIENTS) p)
         writeAckQ[i] <- mkConnectionSend("OCN_PACKET_PAYLOAD_WRITEACK_" + suffix);
     end
 
+
+    //
+    // Raise an error if the heap is empty.  Check our assumption that the
+    // heap is large enough to accommodate all outstanding traffic.  If wrong,
+    // the address space will have to grow.
+    //
+    let checkHeap <- mkAssertionStrPvtChecker("icn-packet-payload.bsv: Heap is empty!",
+                                              ASSERT_ERROR);
+
+    (* fire_when_enabled, no_implicit_conditions *)
+    rule assertHeapNotEmpty (True);
+        checkHeap(mem.heapNotEmpty);
+    endrule
+
+
     //
     // Keep the alloc queues full using the heap's free list.
     //

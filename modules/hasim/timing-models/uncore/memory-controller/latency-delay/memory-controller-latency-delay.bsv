@@ -293,13 +293,21 @@ module [HASIM_MODULE] mkMemoryController()
                     if (processingLoad)
                     begin
                         // Body flits just get sent back for loads, currently.
+                        // This would normally be the time when we remove the
+                        // packet's payload metadata from payloadStorage.
+                        // Since the packet is going right back to the network
+                        // we don't, instead reusing the metadata for the
+                        // response packet.
                         memRespQ.doEnq(iid, tagged FLIT_BODY body);
                         did_enq = True;
                         debugLog.record(iid, $format("3: Load recv body"));
                     end
                     else
                     begin
-                        debugLog.record(iid, $format("3: Dropping store body"));
+                        // Packet complete.  Release the buffer entry.
+                        let h = body.opaque;
+                        payloadStorage.freeHandle(h);
+                        debugLog.record(iid, $format("3: Dropping store body, 0x%0x", h));
                     end
                 end
             endcase

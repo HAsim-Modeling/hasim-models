@@ -1021,20 +1021,15 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
             reqFromLLC.doDeq(cpu_iid);
             did_deq_reqFromLLC = True;
 
-            if (! req.isStore)
-            begin
-                let h <- payloadStorage.allocHandle();
-                payloadStorage.write(h, zeroExtend(pack(tuple2(req.opaque, req.physicalAddress))));
-                did_payload_storage_write = True;
+            let h <- payloadStorage.allocHandle();
+            payloadStorage.write(h, zeroExtend(pack(tuple2(req.opaque,
+                                                           req.physicalAddress))));
+            did_payload_storage_write = True;
 
-                packetizingToOCN[`LANE_MEMOP_REQ] <= tagged Valid h;
-                debugLog.record(cpu_iid, $format("1: Lane %0d: Gen LOAD REQ for LINE 0x%x, ID %0d, handle 0x%x to memctrl node %0d", `LANE_MEMOP_REQ, req.physicalAddress, req.opaque, h, dst));
-            end
-            else
-            begin
-                packetizingToOCN[`LANE_MEMOP_REQ] <= tagged Valid (?);
-                debugLog.record(cpu_iid, $format("1: Lane %0d: Gen STORE REQ for LINE 0x%x to memctrl node %0d", `LANE_MEMOP_REQ, req.physicalAddress, dst));
-            end
+            packetizingToOCN[`LANE_MEMOP_REQ] <= tagged Valid h;
+
+            String ld_st = req.isStore ? "STORE" : "LOAD";
+            debugLog.record(cpu_iid, $format("1: Lane %0d: Gen %s REQ for LINE 0x%x, ID %0d, handle 0x%x to memctrl node %0d", `LANE_MEMOP_REQ, ld_st, req.physicalAddress, req.opaque, h, dst));
         end
         else
         begin
