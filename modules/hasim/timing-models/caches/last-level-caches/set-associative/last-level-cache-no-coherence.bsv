@@ -205,13 +205,6 @@ module [HASIM_MODULE] mkLastLevelCache();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(LANE_IDX)) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(LANE_IDX, OCN_FLIT))) stage3Ctrl <- mkStageController();
 
-    
-    function STATION_ID getLLCDstForAddr(LINE_ADDRESS addr);
-        // TODO: have home nodes for caches?
-        // For now just send everything to the memory controller.
-        return 0; // XXX
-    endfunction
-
     //
     // Physical addresses are assigned to memory controllers during setup
     // by software.  The map table is larger than the number of controllers
@@ -221,13 +214,32 @@ module [HASIM_MODULE] mkLastLevelCache();
     //
 
     let ctrlAddrMapInit <- mkTopologyParamStream(`TOPOLOGY_NET_MEM_CTRL_MAP);
-    LUTRAM#(Bit#(10), STATION_ID) memCtrlDstForAddr <-
+    // The table holds 8 entries for every memory controller.
+    LUTRAM#(Bit#(TLog#(TMul#(8, MAX_NUM_MEM_CTRLS))),
+            STATION_ID) memCtrlDstForAddr <-
         mkLUTRAMWithGet(ctrlAddrMapInit);
 
     function STATION_ID getMemCtrlDstForAddr(LINE_ADDRESS addr);
-        Bit#(10) a = resize(addr);
-        return memCtrlDstForAddr.sub(a);
+        return memCtrlDstForAddr.sub(resize(addr));
     endfunction
+
+
+    //
+    // The LLC is distributed across all cores, with each address having a
+    // single entry in a particular LLC.  We use a mapping table, similar
+    // to the memory controller table above.  The table is initialized
+    // by software.
+    //
+    
+    let llcAddrMapInit <- mkTopologyParamStream(`TOPOLOGY_NET_LLC_ADDR_MAP);
+    // The table holds 8 entries for every cache instance.
+    LUTRAM#(Bit#(TLog#(TMul#(8, MAX_NUM_CPUS))), STATION_ID) llcDstForAddr <-
+        mkLUTRAMWithGet(llcAddrMapInit);
+
+    function STATION_ID getLLCDstForAddr(LINE_ADDRESS addr);
+        return llcDstForAddr.sub(resize(addr));
+    endfunction
+
 
     (* conservative_implicit_conditions *)
     rule stage1_routing (True);

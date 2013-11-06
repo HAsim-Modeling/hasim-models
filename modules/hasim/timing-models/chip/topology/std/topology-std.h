@@ -95,14 +95,17 @@ class HASIM_CHIP_TOPOLOGY_MAPPERS_CLASS
 // Top-level framework for managing topology.
 //
 
-class HASIM_CHIP_TOPOLOGY_CLASS
+class HASIM_CHIP_TOPOLOGY_CLASS : PLATFORMS_MODULE_CLASS
 {
   private:
     TOPOLOGY_CLIENT_STUB clientStub;
     map<TOPOLOGY_DICT_ENUM, TOPOLOGY_VALUE> topoParams;
 
   public:
-    HASIM_CHIP_TOPOLOGY_CLASS() {};
+    HASIM_CHIP_TOPOLOGY_CLASS() :
+        clientStub(new TOPOLOGY_CLIENT_STUB_CLASS(this))
+    {};
+
     ~HASIM_CHIP_TOPOLOGY_CLASS() {};
 
     void Init() {};

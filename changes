@@ -6596,3 +6596,22 @@ Directory modules/hasim/timing-models/uncore/interconnects/common
 - Generate metadata for stores passing through OCN.  They used to have no payload.
 
 - Trigger an error if the OCN metadata heap is ever empty.
+
+----------
+mcadler     Date: Wed Nov  6 18:13:01 EST 2013  CSN: CSN-hasim-models-215
+                  Wed Nov  6 23:13:01 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/topology/std
+ topology-std.h            Locally Modified          214 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          214 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.dic              Locally Modified          214 
+ icn-mesh.cpp              Locally Modified          214 
+
+- Call constructor for RRR client stop in topology-std.
+
+- Add a new table for mapping cache lines to LLC instances.

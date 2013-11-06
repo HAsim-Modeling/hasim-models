@@ -16,10 +16,28 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
+#include <math.h>
+
 #include "asim/syntax.h"
 #include "awb/provides/hasim_interconnect.h"
 #include "awb/provides/chip_base_types.h"
 #include "awb/provides/hasim_chip_topology.h"
+
+//
+// numericToBits --
+//   Number of bits needed to represent n elements.  Like Bluespec's TLog.
+//
+static unsigned int numericToBits(unsigned int n)
+{
+    if (n <= 2)
+    {
+        return 1;
+    }
+    else
+    {
+        return ceil(log2(n));
+    }
+}
 
 
 // constructor
@@ -125,6 +143,9 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     // Put the cores in the center.
     //
     int net_core_slots = num_cols * MESH_HEIGHT;
+
+    // Cores map is like memctrl_map.  Value 0 means a core is present.
+    // 2 means nothing is in the slot.  (1 means memory controller.)
     TOPOLOGY_VALUE* cores_map = new TOPOLOGY_VALUE[net_core_slots];
 
     // Start with all positions empty
@@ -147,6 +168,25 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
         VERIFYX((pos + 1) < net_core_slots);
         cores_map[++pos] = 0;
+    }
+
+    //
+    // Compute the network positions of all the assigned cores.
+    //
+    TOPOLOGY_VALUE* cores_net_pos = new TOPOLOGY_VALUE[num_cores];
+    int c_idx = 0;
+    for (int c = 0; c < net_core_slots; c++)
+    {
+        // If cores_map[c] is 0 this position is assigned a core.  If it
+        // is some other value, it is not a core.
+        if (cores_map[c] == 0)
+        {
+            VERIFY(c_idx < num_cores, "Too many cores were mapped!");
+
+            // Add num_cols to compute the network index because there is
+            // one row of memory controllers at the top.
+            cores_net_pos[c_idx++] = c + num_cols;
+        }
     }
 
     pos = 0;
@@ -200,26 +240,42 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
                             true);
     }
 
-    delete[] memctrl_map;
-    delete[] cores_map;
-
     VERIFY(num_mem_ctrl == memctrl_idx,
            "Failed to lay down requested number of memory controllers!");
 
 
     //
-    // Map addresses to memory controllers.  The map has 1K entries to
-    // allow an even spread of addresses to controllers.
+    // Map addresses to memory controllers.  The map has 8 entries for
+    // every memory controller, allowing an even spread of addresses to
+    // controllers.
     //
-    for (int addr_idx = 0; addr_idx < 1024; addr_idx++)
+    int n_mem_map_entries = 1 << numericToBits(8 * MAX_NUM_MEM_CTRLS);
+    for (int addr_idx = 0; addr_idx < n_mem_map_entries; addr_idx++)
     {
+        bool is_last = (addr_idx + 1 == n_mem_map_entries);
         topology->SendParam(TOPOLOGY_NET_MEM_CTRL_MAP,
                             &memctrl_net_pos[addr_idx % num_mem_ctrl],
                             sizeof(TOPOLOGY_VALUE),
-                            addr_idx == 1023);
+                            is_last);
     }
 
+    //
+    // Build a similar map for distributed LLC entries.
+    //
+    int n_llc_map_entries = 1 << numericToBits(8 * MAX_NUM_CPUS);
+    for (int addr_idx = 0; addr_idx < n_llc_map_entries; addr_idx++)
+    {
+        bool is_last = (addr_idx + 1 == n_llc_map_entries);
+        topology->SendParam(TOPOLOGY_NET_LLC_ADDR_MAP,
+                            &cores_net_pos[addr_idx % num_cores],
+                            sizeof(TOPOLOGY_VALUE),
+                            is_last);
+    }
+
+    delete[] memctrl_map;
     delete[] memctrl_net_pos;
+    delete[] cores_map;
+    delete[] cores_net_pos;
 
 
     //
