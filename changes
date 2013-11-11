@@ -6615,3 +6615,15 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 - Call constructor for RRR client stop in topology-std.
 
 - Add a new table for mapping cache lines to LLC instances.
+
+----------
+keflemin    Date: Mon Nov 11 11:22:12 EST 2013  CSN: CSN-hasim-models-216
+                  Mon Nov 11 16:22:12 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/topology/std
+ topology-std.log          Locally Added               0 
+ topology-std.awb          Locally Modified          215 
+
+
+Added log file to capture topology mapper RRR. 

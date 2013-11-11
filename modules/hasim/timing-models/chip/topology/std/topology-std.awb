@@ -5,6 +5,7 @@
 
 %attributes hasim model
 
+%sources -t LOG -v PUBLIC topology-std.log
 %public topology-std.h
 %private topology-std.cpp
 %public topology-std.bsv
