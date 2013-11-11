@@ -23,6 +23,20 @@
 #include "awb/provides/chip_base_types.h"
 #include "awb/provides/hasim_chip_topology.h"
 
+
+//
+// The FPGA uses a table to map local ports to either cores or memory
+// controllers.  These are the possible values.
+//
+typedef enum
+{
+    ICN_LOCAL_PORT_CORE = 0,
+    ICN_LOCAL_PORT_MEMCTRL = 1,
+    ICN_LOCAL_PORT_NONE = 2
+}
+ICN_LOCAL_PORT_TYPE;
+
+
 //
 // numericToBits --
 //   Number of bits needed to represent n elements.  Like Bluespec's TLog.
@@ -51,6 +65,7 @@ void
 HASIM_INTERCONNECT_CLASS::Init()
 {
 }
+
 
 bool
 HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
@@ -107,7 +122,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     // Start with all positions empty
     for (int c = 0; c < num_cols; c++)
     {
-        memctrl_map[c] = 2;
+        memctrl_map[c] = ICN_LOCAL_PORT_NONE;
     }
 
     // Lay down 1/4th of the controllers in the top left quadrant.  Addition
@@ -117,7 +132,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
         VERIFYX(pos >= 0);
         memctrl_net_pos[memctrl_idx++] = pos;
-        memctrl_map[pos--] = 1;
+        memctrl_map[pos--] = ICN_LOCAL_PORT_MEMCTRL;
     }
 
     // Top right quadrant.
@@ -125,13 +140,13 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     for (int m = (num_mem_ctrl + 1) >> 2; m > 0; m--)
     {
         VERIFYX((pos + 1) < num_cols);
-        memctrl_map[++pos] = 1;
+        memctrl_map[++pos] = ICN_LOCAL_PORT_MEMCTRL;
         memctrl_net_pos[memctrl_idx++] = pos;
     }
 
     for (int c = 0; c < num_cols; c++)
     {
-        printf(" %c", memctrl_map[c] == 1 ? 'M' : 'x');
+        printf(" %c", memctrl_map[c] == ICN_LOCAL_PORT_MEMCTRL ? 'M' : 'x');
     }
     printf("\n");
 
@@ -144,14 +159,13 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     //
     int net_core_slots = num_cols * MESH_HEIGHT;
 
-    // Cores map is like memctrl_map.  Value 0 means a core is present.
-    // 2 means nothing is in the slot.  (1 means memory controller.)
+    // Cores map is like memctrl_map.
     TOPOLOGY_VALUE* cores_map = new TOPOLOGY_VALUE[net_core_slots];
 
     // Start with all positions empty
     for (int c = 0; c < net_core_slots; c++)
     {
-        cores_map[c] = 2;
+        cores_map[c] = ICN_LOCAL_PORT_NONE;
     }
 
     // First half of cores
@@ -159,7 +173,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     for (int c = (num_cores + 1) >> 1; c > 0; c--)
     {
         VERIFYX(pos >= 0);
-        cores_map[pos--] = 0;
+        cores_map[pos--] = ICN_LOCAL_PORT_CORE;
     }
 
     // Second half of cores
@@ -167,7 +181,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     for (int c = num_cores >> 1; c > 0; c--)
     {
         VERIFYX((pos + 1) < net_core_slots);
-        cores_map[++pos] = 0;
+        cores_map[++pos] = ICN_LOCAL_PORT_CORE;
     }
 
     //
@@ -177,9 +191,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     int c_idx = 0;
     for (int c = 0; c < net_core_slots; c++)
     {
-        // If cores_map[c] is 0 this position is assigned a core.  If it
-        // is some other value, it is not a core.
-        if (cores_map[c] == 0)
+        if (cores_map[c] == ICN_LOCAL_PORT_CORE)
         {
             VERIFY(c_idx < num_cores, "Too many cores were mapped!");
 
@@ -194,7 +206,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
         for (int c = 0; c < num_cols; c++)
         {
-            printf(" %c", cores_map[pos++] == 0 ? 'C' : 'x');
+            printf(" %c", cores_map[pos++] == ICN_LOCAL_PORT_CORE ? 'C' : 'x');
         }
         printf("\n");
     }
@@ -208,7 +220,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     {
         for (int c = 0; c < num_cols; c++)
         {
-            memctrl_map[c] = 2;
+            memctrl_map[c] = ICN_LOCAL_PORT_NONE;
         }
 
         // Bottom left quadrant
@@ -216,7 +228,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
         for (int m = num_mem_ctrl >> 2; m > 0; m--)
         {
             VERIFYX(pos > 0);
-            memctrl_map[--pos] = 1;
+            memctrl_map[--pos] = ICN_LOCAL_PORT_MEMCTRL;
             memctrl_net_pos[memctrl_idx++] = pos + net_core_slots + num_cols;
         }
 
@@ -226,12 +238,12 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
         {
             VERIFYX(pos < num_cols);
             memctrl_net_pos[memctrl_idx++] = pos + net_core_slots + num_cols;
-            memctrl_map[pos++] = 1;
+            memctrl_map[pos++] = ICN_LOCAL_PORT_MEMCTRL;
         }
 
         for (int c = 0; c < num_cols; c++)
         {
-            printf(" %c", memctrl_map[c] == 1 ? 'M' : 'x');
+            printf(" %c", memctrl_map[c] == ICN_LOCAL_PORT_MEMCTRL ? 'M' : 'x');
         }
         printf("\n");
 
@@ -270,6 +282,17 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
                             &cores_net_pos[addr_idx % num_cores],
                             sizeof(TOPOLOGY_VALUE),
                             is_last);
+    }
+
+    //
+    // Send the map of core ID to network station ID.
+    //
+    for (int c = 0; c < num_cores; c++)
+    {
+        topology->SendParam(TOPOLOGY_NET_CORE_STATION_ID_MAP,
+                            &cores_net_pos[c],
+                            sizeof(TOPOLOGY_VALUE),
+                            num_cores - 1 == c);
     }
 
     delete[] memctrl_map;

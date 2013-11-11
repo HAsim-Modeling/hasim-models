@@ -3,6 +3,7 @@ def TOPOLOGY.NET_MESH_HEIGHT          "Mesh network height";
 def TOPOLOGY.NET_MAX_NODE_IID         "Maximum active network node instance ID";
 def TOPOLOGY.NET_ROUTING_TABLE        "Network routing table (streamed in)";
 def TOPOLOGY.NET_LOCAL_PORT_TYPE_MAP  "Type of local port for each network node (streamed in)";
+def TOPOLOGY.NET_CORE_STATION_ID_MAP  "Map core ID to network station ID";
 def TOPOLOGY.NET_MEM_CTRL_MAP         "Address to memory controller instance map";
 def TOPOLOGY.NET_LLC_ADDR_MAP         "Address to last level cache instance map";
 

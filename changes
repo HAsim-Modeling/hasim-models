@@ -6627,3 +6627,18 @@ Directory modules/hasim/timing-models/chip/topology/std
 
 
 Added log file to capture topology mapper RRR. 
+
+----------
+mcadler     Date: Mon Nov 11 18:16:34 EST 2013  CSN: CSN-hasim-models-217
+                  Mon Nov 11 23:16:34 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          216 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.dic              Locally Modified          216 
+ icn-mesh.cpp              Locally Modified          216 
+
+- Add a map from core ID to network station ID.
+- Clean up some of the topology code.

@@ -28,6 +28,23 @@ import Vector::*;
 
 // ****** Local Definitions *******
 
+typedef struct
+{
+    STATION_ID src;
+    MEMORY_REQ req;
+}
+LLC_REQ
+    deriving (Eq, Bits);
+
+typedef struct
+{
+    STATION_ID dst;
+    MEMORY_RSP rsp;
+}
+LLC_RSP
+    deriving (Eq, Bits);
+
+
 typedef enum
 {
     LLC_CC_REQ_WB,
@@ -206,6 +223,16 @@ module [HASIM_MODULE] mkLastLevelCache();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(LANE_IDX, OCN_FLIT))) stage3Ctrl <- mkStageController();
 
     //
+    // Map core ID to network station ID.  This table is computed by the
+    // software-side topology manager.
+    //
+    let coreToStationMapInit <-
+        mkTopologyParamStream(`TOPOLOGY_NET_CORE_STATION_ID_MAP);
+    // The table holds 8 entries for every memory controller.
+    LUTRAM#(CPU_INSTANCE_ID, STATION_ID) coreToStationMap <-
+        mkLUTRAMWithGet(coreToStationMapInit);
+
+    //
     // Physical addresses are assigned to memory controllers during setup
     // by software.  The map table is larger than the number of controllers
     // in order to enable relatively even mapping even when the number of
@@ -245,6 +272,8 @@ module [HASIM_MODULE] mkLastLevelCache();
     rule stage1_routing (True);
         let cpu_iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(cpu_iid);
+
+        let station_iid = coreToStationMap.sub(cpu_iid);
 
         //
         // Collect incoming messages.  The "receive" operation here is not a
