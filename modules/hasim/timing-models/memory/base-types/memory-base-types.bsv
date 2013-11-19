@@ -1,6 +1,28 @@
+//
+// Copyright (C) 2013 Intel Corporation
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+//
+
+import FShow::*;
+
+
 // ******* Project Imports *******
 
 `include "asim/provides/hasim_common.bsh"
+`include "asim/provides/chip_base_types.bsh"
 `include "asim/provides/funcp_memstate_base_types.bsh"
 
 typedef 5 MEM_WORD_OFFSET_SIZE;
@@ -25,52 +47,49 @@ typedef struct
     Bool isStore;
     MEM_OPAQUE opaque;
 }
-CORE_MEMORY_REQ deriving (Eq, Bits);
+MEMORY_REQ deriving (Eq, Bits);
 
-function CORE_MEMORY_REQ initMemLoad(LINE_ADDRESS addr);
-
-    return CORE_MEMORY_REQ
+function MEMORY_REQ initMemLoad(LINE_ADDRESS addr);
+    return MEMORY_REQ
     {
         physicalAddress: addr,
         isStore: False,
         opaque: 0
     };
-
 endfunction
 
-function CORE_MEMORY_REQ initMemStore(LINE_ADDRESS addr);
-
-    return CORE_MEMORY_REQ
+function MEMORY_REQ initMemStore(LINE_ADDRESS addr);
+    return MEMORY_REQ
     {
         physicalAddress: addr,
         isStore: True,
         opaque: 0
     };
-
 endfunction
 
-function CORE_MEMORY_RSP initMemRsp(LINE_ADDRESS addr, MEM_OPAQUE op);
-
-    return CORE_MEMORY_RSP
-    {
-        physicalAddress: addr,
-        opaque: op
-    };
-
-endfunction
 
 typedef struct
 {
     LINE_ADDRESS physicalAddress;
     MEM_OPAQUE   opaque;
 }
-CORE_MEMORY_RSP deriving (Eq, Bits);
+MEMORY_RSP deriving (Eq, Bits);
 
-typedef CORE_MEMORY_REQ MEMORY_REQ;
-typedef CORE_MEMORY_RSP MEMORY_RSP;
+function MEMORY_RSP initMemRspFromReq(MEMORY_REQ req);
+    return MEMORY_RSP
+    {
+        physicalAddress: req.physicalAddress,
+        opaque: req.opaque
+    };
+endfunction
 
-typedef CORE_MEMORY_REQ CORE_IC_REQ;
-typedef CORE_MEMORY_RSP CORE_IC_RSP;
+function MEMORY_RSP initMemRsp(LINE_ADDRESS addr, MEM_OPAQUE op);
+    return MEMORY_RSP
+    {
+        physicalAddress: addr,
+        opaque: op
+    };
+endfunction
 
 
 function MEM_OPAQUE toMemOpaque(t_ANY x)
@@ -106,3 +125,27 @@ function MEM_OPAQUE updateMemOpaque(MEM_OPAQUE orig, t_ANY x)
     
     return unpack({ truncateLSB(orig), pack(x) });
 endfunction
+
+
+instance FShow#(MEMORY_REQ);
+    function Fmt fshow(MEMORY_REQ req);
+        if (req.isStore)
+        begin
+            return $format("STORE line=0x%x", req.physicalAddress);
+        end
+        else
+        begin
+            return $format("LOAD line=0x%x, opaque=%0d",
+                           req.physicalAddress,
+                           req.opaque);
+        end
+    endfunction
+endinstance
+
+instance FShow#(MEMORY_RSP);
+    function Fmt fshow(MEMORY_RSP rsp);
+        return $format("RSP line=0x%x, opaque=%0d",
+                       rsp.physicalAddress,
+                       rsp.opaque);
+    endfunction
+endinstance

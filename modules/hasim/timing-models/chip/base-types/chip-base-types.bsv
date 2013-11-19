@@ -21,7 +21,6 @@ import FShow::*;
 
 `include "asim/provides/hasim_common.bsh"
 `include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/memory_base_types.bsh"
 
 
 typedef `MAX_NUM_CPUS MAX_NUM_CPUS;

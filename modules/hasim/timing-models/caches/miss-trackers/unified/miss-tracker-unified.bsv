@@ -383,12 +383,19 @@ module [HASIM_MODULE] mkCacheMissTracker
         freelist <- mkMultiReadLUTRAM_Multiplexed(mkMultiReadLUTRAMWith(freeListInitFunc));
 
     // A register to store the current token that is the tail of a "run".
-    MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTailPool <- mkMultiplexedReg(0);
+    MULTIPLEXED_REG#(t_NUM_INSTANCES,
+                     CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTailPool <-
+        mkMultiplexedReg(0);
 
     // Track the state of the freelist. Initially the freelist is full and
     // every ID is on the list.
-    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtrPool <- mkMultiplexedRegPseudoMultiWrite(minBound);
-    MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtrPool <- mkMultiplexedReg(maxBound);
+    MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2,
+                                 CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtrPool <-
+        mkMultiplexedRegPseudoMultiWrite(minBound);
+
+    MULTIPLEXED_REG#(t_NUM_INSTANCES,
+                     CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtrPool <-
+        mkMultiplexedReg(maxBound);
     
 
     // ******* Local Functions *******
@@ -397,12 +404,14 @@ module [HASIM_MODULE] mkCacheMissTracker
     // empty()
     
     // Return true if the freelist for this instance is out of IDs.
-    // Note that we only allocate half of the IDs at a time for a given instance.
-    // This acts as an epoch which stops collisions of "deallocate ID, reallocate the same ID"
-    // We accomplish this by ignoring the high bit in the equality.
+    // Note that we only allocate half of the IDs at a time for a given
+    // instance.  This acts as an epoch which stops collisions of
+    // "deallocate ID, reallocate the same ID."  We accomplish this by
+    // ignoring the high bit in the equality.
     
     function Bool empty(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
+            headPtrPool.getRegWithWritePort(iid, 0);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
         
         Bit#(TSub#(t_MISS_ID_SZ,1)) hp = truncate(headPtr);
@@ -412,7 +421,8 @@ module [HASIM_MODULE] mkCacheMissTracker
     endfunction
         
     function Bool full(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
+            headPtrPool.getRegWithWritePort(iid, 0);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
 
         return (tailPtr + 1) == headPtr;
@@ -449,32 +459,33 @@ module [HASIM_MODULE] mkCacheMissTracker
     endmethod
     
 
+    //
     // allocateLoad/Store
     //
     // Pop the freelist and return the head, coloring the token as appropriate.
+    // Load and store use identical algorithms since this version of the tracker
+    // does not coalesce consecutive loads to the same address.
+    //
 
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTail = runTailPool.getReg(iid);
-
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                                                                      LINE_ADDRESS addr);
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
+            headPtrPool.getRegWithWritePort(iid, 0);
         let idx = freelist.getRAM(iid, 0).sub(headPtr);
-
         headPtr <= headPtr + 1;
-
-        runTail <= idx;
 
         return initMissTokLoad(idx);
     endmethod
     
-    method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+    method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                                 LINE_ADDRESS addr);
         noAction;
     endmethod
 
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 1);
-
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
+            headPtrPool.getRegWithWritePort(iid, 1);
         let idx = freelist.getRAM(iid, 0).sub(headPtr);
-
         headPtr <= headPtr + 1;
 
         return initMissTokStore(idx);
@@ -485,7 +496,8 @@ module [HASIM_MODULE] mkCacheMissTracker
     //
     // Push the freed ID back onto the freelist.
     // Since we're unified this method is load/store-agnostic.
-    method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid, CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok);
+    method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                       CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
 
         let miss_idx = missTokIndex(miss_tok);
@@ -499,4 +511,3 @@ module [HASIM_MODULE] mkCacheMissTracker
     endmethod
 
 endmodule
-

@@ -6642,3 +6642,39 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 - Add a map from core ID to network station ID.
 - Clean up some of the topology code.
+
+----------
+mcadler     Date: Tue Nov 19 17:48:21 EST 2013  CSN: CSN-hasim-models-218
+                  Tue Nov 19 22:48:21 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          217 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          217 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-set-associative.bsv Locally Modified          217 
+ last-level-cache-no-coherence.bsv Locally Modified          217 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/null
+ last-level-cache-null.bsv Locally Modified          217 
+
+Directory modules/hasim/timing-models/memory/base-types
+ memory-base-types.bsv     Locally Modified          217 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/magic
+ memory-controller-magic.bsv Locally Modified          217 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          217 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          217 
+
+- The LLC is finally a distributed cache (no coherence, yet).  The model now
+  supports requests from a core to a remote LLC.  Requests for a given
+  physical address are always routed to the same location.
+
+- Clean up memory types and code.

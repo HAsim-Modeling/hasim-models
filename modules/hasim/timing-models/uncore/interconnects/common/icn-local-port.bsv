@@ -99,9 +99,13 @@ interface PORT_OCN_LOCAL_RECV_MULTIPLEXED#(type ni);
     method Action receiveReq(INSTANCE_ID#(ni) iid, LANE_IDX lane, VC_IDX vc);
     method ActionValue#(OCN_FLIT) receiveRsp(INSTANCE_ID#(ni) iid);
 
-    // doDeq or noDeq must be called exactly once for each simulated
-    // cycle for each iid.
-    method Action doDeq(INSTANCE_ID#(ni) iid, LANE_IDX lane, VC_IDX vc);
+    // Either receiveReq/Rsp or noDeq must be called for each cyle for each iid.
+    // There is no doDeq() because receiveReq/Rsp already have side effects
+    // and calling them is a commitment to deq a flit.  Adding doDeq would
+    // make the interface uniform but is otherwise of no value.  Supporting
+    // doDeq either requires more tracking state to prevent bugs or opens
+    // the possibility of a bug in which receiveReq and noDeq are called
+    // together.
     method Action noDeq(INSTANCE_ID#(ni) iid);
 
     interface INSTANCE_CONTROL_IN_OUT#(ni) ctrl;
@@ -205,6 +209,14 @@ endmodule
 // mkLocalNetworkPortRecv --
 //   Wrap the ports for sending from the OCN to a local controller.  Credit
 //   and local VC buffer management is hidden inside the module.
+//
+//   A key attribute of this receiver:  once the header of a packet is
+//   accepted, the only channel available on subsequent cycles will be
+//   the flit's channel until the entire packet is received.  Receivers
+//   should not start a packet unless they can fully buffer it.  The
+//   advantage of this is that receivers tracking state for multi-flit
+//   packets need only track one packet at a time and do not need to
+//   track each channel separately.
 //
 module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     String portNameSend,
@@ -395,7 +407,15 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         vcBufEntries.readReq(tuple4(iid, lane, vc, idx));
         rspMetaQ.enq(tuple2(lane, vc));
 
-        debugLog.record(iid, $format("lpRecv req: ln %0d, vc %0d", lane, vc));
+        // Calling receiveReq() is an implicit deq of the flit.  There
+        // is no doDeq().  See comment on PORT_OCN_LOCAL_RECV_MULTIPLEXED
+        // noDeq() method for details.
+        upd_vc_buf[lane][vc] = funcFIFO_IDX_UGdeq(upd_vc_buf[lane][vc]);
+
+        // Side effect of deq: check for new messages
+        recv1Q.enq(tuple2(iid, upd_vc_buf));
+
+        debugLog.record(iid, $format("lpRecv req and deq: ln %0d, vc %0d", lane, vc));
     endmethod
 
     method ActionValue#(OCN_FLIT) receiveRsp(t_IID iid);
@@ -434,18 +454,6 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         endcase
 
         return flit;
-    endmethod
-
-    method Action doDeq(t_IID iid, LANE_IDX lane, VC_IDX vc);
-        // Read our local state from the pools.
-        Reg#(t_BUFFER_FIFOS) vcBuf = vcFIFOsPool.getReg(iid);
-        t_BUFFER_FIFOS upd_vc_buf = vcBuf;
-
-        upd_vc_buf[lane][vc] = funcFIFO_IDX_UGdeq(upd_vc_buf[lane][vc]);
-
-        // Side effect of doDeq: check for new messages
-        recv1Q.enq(tuple2(iid, upd_vc_buf));
-        debugLog.record(iid, $format("lpRecv Do deq: ln %0d, vc %0d", lane, vc));
     endmethod
 
     method Action noDeq(t_IID iid);

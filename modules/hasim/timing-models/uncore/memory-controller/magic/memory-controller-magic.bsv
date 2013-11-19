@@ -31,26 +31,15 @@ typedef struct
 MEM_CTRL_RSP deriving (Eq, Bits);
 
 
-function CORE_MEMORY_RSP initMemRsp(LINE_ADDRESS addr, MEM_OPAQUE op);
-
-    return CORE_MEMORY_RSP
-    {
-        physicalAddress: addr,
-        opaque: op
-    };
-
-endfunction
-
 function MEM_CTRL_RSP initMemCtrlRsp(MEM_CTRL_REQ req);
-
     return MEM_CTRL_RSP
     {
         physicalAddress: req.physicalAddress,
         opaque: req.opaque,
         destination: req.destination
     };
-
 endfunction
+
 
 module [HASIM_MODULE] mkMemoryController();
 

@@ -22,10 +22,10 @@ typedef enum
 }
 LLC_CC_REQ deriving (Eq, Bits);
 
-typedef CORE_MEMORY_REQ LLC_CC_RSP;
+typedef MEMORY_REQ LLC_CC_RSP;
 
-typedef CORE_MEMORY_REQ CC_REQ;
-typedef CORE_MEMORY_RSP CC_RSP;
+typedef MEMORY_REQ CC_REQ;
+typedef MEMORY_RSP CC_RSP;
 
 module [HASIM_MODULE] mkLastLevelCache();
 

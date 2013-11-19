@@ -61,25 +61,13 @@ typedef struct
 MEM_CTRL_RSP deriving (Eq, Bits);
 
 
-function CORE_MEMORY_RSP initMemRsp(LINE_ADDRESS addr, MEM_OPAQUE op);
-
-    return CORE_MEMORY_RSP
-    {
-        physicalAddress: addr,
-        opaque: op
-    };
-
-endfunction
-
 function MEM_CTRL_RSP initMemCtrlRsp(MEM_CTRL_REQ req);
-
     return MEM_CTRL_RSP
     {
         physicalAddress: req.physicalAddress,
         opaque: req.opaque,
         destination: req.destination
     };
-
 endfunction
 
 `define LANE_MEM_REQ 0
@@ -232,7 +220,6 @@ module [HASIM_MODULE] mkMemoryController()
         begin
             // Request the winning flit
             ocnRecv.receiveReq(iid, ln, vc);
-            ocnRecv.doDeq(iid, ln, vc);
             stage3Ctrl.ready(iid, tuple2(finished_req, True));
         end
         else
