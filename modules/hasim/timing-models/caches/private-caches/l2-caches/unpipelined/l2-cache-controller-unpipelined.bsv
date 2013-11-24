@@ -225,6 +225,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventHit  <- mkEventRecorder_Multiplexed(`EVENTS_L2_HIT);
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventMiss <- mkEventRecorder_Multiplexed(`EVENTS_L2_MISS);
+    EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventFill <- mkEventRecorder_Multiplexed(`EVENTS_L2_FILL);
 
 
     //
@@ -404,6 +405,16 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             // No fill received
             rspFromCC.noDeq(cpu_iid);
         
+        end
+
+        if (local_state.writePortUsed)
+        begin
+            eventFill.recordEvent(cpu_iid,
+                                  tagged Valid resize({ local_state.writePortData, 1'b0 }));
+        end
+        else
+        begin
+            eventFill.recordEvent(cpu_iid, tagged Invalid);
         end
 
 

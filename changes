@@ -6678,3 +6678,39 @@ Directory modules/hasim/timing-models/uncore/interconnects/common
   physical address are always routed to the same location.
 
 - Clean up memory types and code.
+
+----------
+mcadler     Date: Sun Nov 24 09:22:01 EST 2013  CSN: CSN-hasim-models-219
+                  Sun Nov 24 14:22:01 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          218 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified          218 
+ mem.bsv                   Locally Modified          218 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          218 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          218 
+
+Directory modules/hasim/timing-models/caches/translation-buffers/null
+ dtlb-null.bsv             Locally Modified          218 
+ itlb-null.bsv             Locally Modified          218 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          218 
+ l2-cache-controller-unpipelined.dic Locally Modified          218 
+
+- Race in in-order decode stage caused variations in arrival time of register
+  writeback notification.  Results were always correct but not always the same.
+
+- Add an L2 fill event.
+
+- The functional virtual to physical address translation request interface is
+  now like A-Ports.  A message must be sent every model cycle in order to force
+  translations to be requested in the same order.  This eliminates run-to-run
+  variations in Gem5 address mapping.

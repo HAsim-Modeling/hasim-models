@@ -90,7 +90,7 @@ module [HASIM_MODULE] mkPipeline
 
     Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        linkModelCommit <- mkConnection_Send("model_commits");
 
-    Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, 
+    Connection_Client#(Maybe#(FUNCP_REQ_DO_ITRANSLATE),
                        FUNCP_RSP_DO_ITRANSLATE)       linkToITR <- mkConnection_Client("funcp_doITranslate");
 
     Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
@@ -102,7 +102,7 @@ module [HASIM_MODULE] mkPipeline
     Connection_Client#(FUNCP_REQ_GET_RESULTS,
                        FUNCP_RSP_GET_RESULTS)         linkToEXE <- mkConnection_Client("funcp_getResults");
 
-    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE,
+    Connection_Client#(Maybe#(FUNCP_REQ_DO_DTRANSLATE),
                        FUNCP_RSP_DO_DTRANSLATE)       linkToDTR <- mkConnection_Client("funcp_doDTranslate");
 
     Connection_Client#(FUNCP_REQ_DO_LOADS,
@@ -219,6 +219,10 @@ module [HASIM_MODULE] mkPipeline
             stalledFetch <= UNSTALLING(inst);
             debugLog.record_next_cycle(cpu_iid, $format("ICache responded from Miss."));
             
+            // Unlike most functional methods, doITranslate requires
+            // a no-message.  There will be no response.
+            linkToITR.makeReq(tagged Invalid);
+
             // Skip translation, ICache load.
             stage2Ctrl.ready(cpu_iid, False);
         
@@ -230,18 +234,21 @@ module [HASIM_MODULE] mkPipeline
             stalledLoad <= UNSTALLING(tok);
             debugLog.record_next_cycle(cpu_iid, $format("DCache responded from Load Miss."));
             
+            linkToITR.makeReq(tagged Invalid);
+
             // Skip all stages except commit.
             stage2Ctrl.ready(cpu_iid, False);
         
         end
         else if (stalledStore matches tagged STALLED {.tok, .addr} &&& m_st_rsp matches tagged Valid .rsp)
         begin
-        
 
             // Unstall.
             stalledStore <= UNSTALLING(tuple2(tok, addr));
             debugLog.record_next_cycle(cpu_iid, $format("DCache responded from Store Miss."));
             
+            linkToITR.makeReq(tagged Invalid);
+
             // Skip all stages except store + commit.
             stage2Ctrl.ready(cpu_iid, tagged False);
         
@@ -251,7 +258,7 @@ module [HASIM_MODULE] mkPipeline
         
             // Translate next pc.
             let ctx_id = getContextId(cpu_iid);
-            linkToITR.makeReq(initFuncpReqDoITranslate(ctx_id, pc));
+            linkToITR.makeReq(tagged Valid initFuncpReqDoITranslate(ctx_id, pc));
             debugLog.record_next_cycle(cpu_iid, $format("Translating virtual address: 0x%h", pc));
             stage2Ctrl.ready(cpu_iid, True);
 
@@ -262,6 +269,8 @@ module [HASIM_MODULE] mkPipeline
             // Stalled, so just bubble.
             debugLog.record_next_cycle(cpu_iid, $format("STALL"));
             stage2Ctrl.ready(cpu_iid, False);
+            
+            linkToITR.makeReq(tagged Invalid);
 
         end
 
@@ -500,13 +509,17 @@ module [HASIM_MODULE] mkPipeline
 
             if (is_load || is_store)
             begin
-
                 // Memory ops require more work.
                 debugLog.record(cpu_iid, $format("DTranslate request for token: %0d", tokTokenId(tok)));
 
                 // Get the physical address(es) of the memory access.
-                linkToDTR.makeReq(initFuncpReqDoDTranslate(tok));
-
+                linkToDTR.makeReq(tagged Valid initFuncpReqDoDTranslate(tok));
+            end
+            else
+            begin
+                // Unlike most functional methods, doITranslate requires
+                // a no-message.  There will be no response.
+                doDTranslate.makeReq(tagged Invalid);
             end
 
             stage7Ctrl.ready(cpu_iid, tagged Valid tok);
@@ -514,6 +527,7 @@ module [HASIM_MODULE] mkPipeline
         end
         else
         begin
+            doDTranslate.makeReq(tagged Invalid);
             stage7Ctrl.ready(cpu_iid, tagged Invalid);
         end
 

@@ -96,7 +96,7 @@ module [HASIM_MODULE] mkPipeline
 
     Connection_Send#(CONTROL_MODEL_COMMIT_MSG)        linkModelCommit <- mkConnection_Send("model_commits");
 
-    Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, 
+    Connection_Client#(Maybe#(FUNCP_REQ_DO_ITRANSLATE),
                        FUNCP_RSP_DO_ITRANSLATE)       linkToITR <- mkConnection_Client("funcp_doITranslate");
 
     Connection_Client#(FUNCP_REQ_GET_INSTRUCTION,
@@ -108,7 +108,7 @@ module [HASIM_MODULE] mkPipeline
     Connection_Client#(FUNCP_REQ_GET_RESULTS,
                        FUNCP_RSP_GET_RESULTS)         linkToEXE <- mkConnection_Client("funcp_getResults");
 
-    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE,
+    Connection_Client#(Maybe#(FUNCP_REQ_DO_DTRANSLATE),
                        FUNCP_RSP_DO_DTRANSLATE)       linkToDTR <- mkConnection_Client("funcp_doDTranslate");
 
     Connection_Client#(FUNCP_REQ_DO_LOADS,
@@ -200,7 +200,7 @@ module [HASIM_MODULE] mkPipeline
         // Translate next pc.
         Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];
         let ctx_id = getContextId(cpu_iid);
-        linkToITR.makeReq(initFuncpReqDoITranslate(ctx_id, pc));
+        linkToITR.makeReq(tagged Valid initFuncpReqDoITranslate(ctx_id, pc));
         debugLog.record(cpu_iid, $format("Translating virtual address: 0x%h", pc));
         stdio1.printf(msgPC_VTOA_REQ, list1(resize(pc)));
 
@@ -332,13 +332,17 @@ module [HASIM_MODULE] mkPipeline
 
         if (is_load || is_store)
         begin
-
             // Memory ops require more work.
             debugLog.record(cpu_iid, $format("DTranslate request for token: %0d", tokTokenId(tok)));
 
             // Get the physical address(es) of the memory access.
-            linkToDTR.makeReq(initFuncpReqDoDTranslate(tok));
-
+            linkToDTR.makeReq(tagged Valid initFuncpReqDoDTranslate(tok));
+        end
+        else
+        begin
+            // Unlike most functional methods, doITranslate requires
+            // a no-message.  There will be no response.
+            linkToDTR.makeReq(tagged Invalid);
         end
 
         // Everything else is a no-op in the next stage.

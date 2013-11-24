@@ -53,7 +53,7 @@ module [HASIM_MODULE] mkFetch();
     PORT_NO_STALL_RECEIVE#(REWIND_BUNDLE, 1)                                    resteerPort <- mkPortNoStallReceive("resteer");
     PORT_NO_STALL_RECEIVE#(FAULT_BUNDLE, 1)                                       faultPort <- mkPortNoStallReceive("fault");
 
-    Connection_Client#(FUNCP_REQ_DO_ITRANSLATE, FUNCP_RSP_DO_ITRANSLATE)         iTranslate <- mkConnection_Client("funcp_doITranslate");
+    Connection_Client#(Maybe#(FUNCP_REQ_DO_ITRANSLATE), FUNCP_RSP_DO_ITRANSLATE) iTranslate <- mkConnection_Client("funcp_doITranslate");
     Connection_Client#(FUNCP_REQ_GET_INSTRUCTION, FUNCP_RSP_GET_INSTRUCTION) getInstruction <- mkConnection_Client("funcp_getInstruction");
     Connection_Client#(FUNCP_REQ_REWIND_TO_TOKEN, FUNCP_RSP_REWIND_TO_TOKEN)  rewindToToken <- mkConnection_Client("funcp_rewindToToken");
 
@@ -152,7 +152,7 @@ module [HASIM_MODULE] mkFetch();
         if(fetchPort.canSend())
         begin
             debugLog.record($format("iTranslate req"));
-            iTranslate.makeReq(FUNCP_REQ_DO_ITRANSLATE{contextId: 0, virtualAddress: pc});
+            iTranslate.makeReq(tagged Valid FUNCP_REQ_DO_ITRANSLATE{contextId: 0, virtualAddress: pc});
             state <= FETCH_STATE_INST_REQ;
         end
         else

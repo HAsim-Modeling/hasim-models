@@ -58,7 +58,7 @@ module [HASIM_MODULE] mkMem();
     PORT_FIFO_RECEIVE#(MEM_ADDRESS_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)     memAddressFifo <- mkPortFifoReceive("memAddress", True, `MEM_CREDITS);
     PORT_CREDIT_SEND#(MEM_WRITEBACK_BUNDLE, `MEM_NUM, LOG_MEM_CREDITS)  memWritebackPort <- mkPortCreditSend("memWriteback");
 
-    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE, FUNCP_RSP_DO_DTRANSLATE)    doDTranslate <- mkConnection_Client("funcp_doDTranslate");
+    Connection_Client#(Maybe#(FUNCP_REQ_DO_DTRANSLATE), FUNCP_RSP_DO_DTRANSLATE) doDTranslate <- mkConnection_Client("funcp_doDTranslate");
     Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS)                   doLoads <- mkConnection_Client("funcp_doLoads");
     Connection_Client#(FUNCP_REQ_DO_STORES, FUNCP_RSP_DO_STORES)                doStores <- mkConnection_Client("funcp_doSpeculativeStores");
 
@@ -68,7 +68,7 @@ module [HASIM_MODULE] mkMem();
         if(memAddressFifo.canReceive() && memWritebackPort.canSend())
         begin
             debugLog.record($format(fshow(memAddressFifo.first().token) + $format(": doDTranslate request")));
-            doDTranslate.makeReq(FUNCP_REQ_DO_DTRANSLATE{token: memAddressFifo.first().token});
+            doDTranslate.makeReq(tagged Valid FUNCP_REQ_DO_DTRANSLATE{token: memAddressFifo.first().token});
             state <= MEM_STATE_MEM_REQ;
         end
         else

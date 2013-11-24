@@ -35,7 +35,7 @@ module [HASIM_MODULE] mkDTLB();
 
     // ****** Soft Connections *******
 
-    Connection_Client#(FUNCP_REQ_DO_DTRANSLATE,
+    Connection_Client#(Maybe#(FUNCP_REQ_DO_DTRANSLATE),
                        FUNCP_RSP_DO_DTRANSLATE)      doDTranslate   <- mkConnection_Client("funcp_doDTranslate");
 
 
@@ -89,7 +89,7 @@ module [HASIM_MODULE] mkDTLB();
             
                 // Pass it to the the functional partition, 
                 // which actually translates the address.
-                doDTranslate.makeReq(initFuncpReqDoDTranslate(req.token));
+                doDTranslate.makeReq(tagged Valid initFuncpReqDoDTranslate(req.token));
             
                 // Tell the next stage to get the response.
                 stage2Ctrl.ready(cpu_iid, tagged STAGE2_dTransRsp req);
@@ -103,6 +103,10 @@ module [HASIM_MODULE] mkDTLB();
                 // Tell the next stage to just send the request on.
                 stage2Ctrl.ready(cpu_iid, tagged STAGE2_nonMemOp req);
             
+                // Unlike most functional methods, doITranslate requires
+                // a no-message.  There will be no response.
+                doDTranslate.makeReq(tagged Invalid);
+
             end
 
 	end
@@ -114,6 +118,10 @@ module [HASIM_MODULE] mkDTLB();
             
             // Finish the bubble in the next stage.
             stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
+
+            // Unlike most functional methods, doITranslate requires
+            // a no-message.  There will be no response.
+            doDTranslate.makeReq(tagged Invalid);
 
 	end
          

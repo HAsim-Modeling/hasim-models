@@ -639,10 +639,23 @@ module [HASIM_MODULE] mkDecode ();
     // * bundleToIssueQ
     // * deqToInstQ
     // * allocToSB
-    rule stage4_attemptIssue (True);
+
+    // Register writebacks are consumed by this stage.
+    let writebacksFinished = wbExeCtrl.consumerCanStart() &&
+                             wbHitCtrl.consumerCanStart() &&
+                             wbMissCtrl.consumerCanStart() &&
+                             wbStoreCtrl.consumerCanStart();
+
+    rule stage4_attemptIssue (writebacksFinished);
     
         // Extract the next active instance.
         match {.cpu_iid, {.stage4state, .local_state}} <- stage4Ctrl.nextReadyInstance();
+
+        // Registers ready flags are consumed here by readyToGo()
+        wbExeCtrl.consumerStart();
+        wbHitCtrl.consumerStart();
+        wbMissCtrl.consumerStart();
+        wbStoreCtrl.consumerStart();
 
         // Get the store buffer credit in case we're dealing with a store...
         let m_credit <- creditFromSB.receive(cpu_iid);
@@ -754,26 +767,18 @@ module [HASIM_MODULE] mkDecode ();
     //   timing.
     //
 
-    let writebacksFinished = wbExeCtrl.consumerCanStart() &&
-                             wbHitCtrl.consumerCanStart() &&
-                             wbMissCtrl.consumerCanStart() &&
-                             wbStoreCtrl.consumerCanStart();
-
     // Specify a rule urgency so that if the Scoreboard has less
     // parallelism so there are no compiler warnings.
     (* conservative_implicit_conditions, descending_urgency = "stage1_writebackMemMiss, stage1_writebackMemHit, stage1_writebackExe, stage5_completeIssue" *)
-    rule stage5_completeIssue (writebacksFinished);
+    rule stage5_completeIssue (True);
         // Extract the next active instance.
         match {.cpu_iid, .cmd} <- stage5Ctrl.nextReadyInstance();
 
-        // Make sure all previous dependencies are taken care of.        
-        wbExeCtrl.consumerStart();
+        // Done with register flag updates for the new instruction.  Allow
+        // the next producer cycle to begin.
         wbExeCtrl.consumerDone();
-        wbHitCtrl.consumerStart();
         wbHitCtrl.consumerDone();
-        wbMissCtrl.consumerStart();
         wbMissCtrl.consumerDone();
-        wbStoreCtrl.consumerStart();
         wbStoreCtrl.consumerDone();
 
         if (cmd matches tagged Valid {.tok, .dst_map})
