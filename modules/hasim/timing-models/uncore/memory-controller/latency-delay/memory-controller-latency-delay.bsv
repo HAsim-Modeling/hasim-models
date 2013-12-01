@@ -90,7 +90,8 @@ module [HASIM_MODULE] mkMemoryController()
                                "ocn_to_memctrl",
                                debugLog);
 
-    PORT_OCN_LOCAL_RECV_MULTIPLEXED#(MAX_NUM_MEM_CTRLS) ocnRecv <-
+    PORT_OCN_LOCAL_RECV_MULTIPLEXED#(MAX_NUM_MEM_CTRLS,
+                                     MAX_FLITS_PER_PACKET) ocnRecv <-
         mkLocalNetworkPortRecv("memctrl_to_ocn",
                                "ocn_to_memctrl",
                                debugLog);

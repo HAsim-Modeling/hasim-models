@@ -76,7 +76,12 @@ endinterface
 //   a request/response interface in order to implement channel buffers as
 //   BRAM.
 //   
-interface PORT_OCN_LOCAL_RECV_MULTIPLEXED#(type ni);
+//   n_MAX_FLITS_PER_PACKET is needed to guarantee proper internal buffering
+//   and credit management so that credits are passed to the OCN only when
+//   buffer space is available for an entire packet.
+//
+interface PORT_OCN_LOCAL_RECV_MULTIPLEXED#(type ni,
+                                           numeric type n_MAX_FLITS_PER_PACKET);
     // Returns a vector indicating which lanes/virtual channels have
     // incoming messages.
     method Vector#(NUM_LANES,
@@ -127,11 +132,57 @@ module [HASIM_MODULE] mkLocalNetworkPortSend#(
 
     PORT_SEND_MULTIPLEXED#(ni, OCN_MSG) enqToOCN <-
         mkPortSend_Multiplexed(portNameSend + "_enq");
-    PORT_RECV_MULTIPLEXED#(ni, VC_CREDIT_INFO) creditFromOCN <-
+    PORT_RECV_MULTIPLEXED#(ni, VC_CREDIT_MSG) creditFromOCN <-
         mkPortRecv_Multiplexed(portNameRecv + "_credit", 1);
 
-    MULTIPLEXED_REG#(ni, Vector#(NUM_LANES, Bool)) notFullsPool <-
-        mkMultiplexedReg(replicate(False));
+    MULTIPLEXED_REG#(ni, Vector#(NUM_LANES, VC_CREDIT_CNT)) senderCreditsPool <-
+        mkMultiplexedReg(replicate(0));
+
+
+    //
+    // updateCredits --
+    //   Used by both doEnq() and noEnq() to update credits, both for outbound
+    //   messages and for credits received from remote receivers.
+    //
+    function Action updateCredits(t_IID iid, Maybe#(LANE_IDX) m_lane);
+    action
+        Reg#(Vector#(NUM_LANES, VC_CREDIT_CNT)) senderCredits =
+            senderCreditsPool.getReg(iid);
+
+        Vector#(NUM_LANES, VC_CREDIT_CNT) new_sender_credits = senderCredits;
+
+        //
+        // Decrement credits for a message sent?
+        //
+        if (m_lane matches tagged Valid .ln)
+        begin
+            new_sender_credits[ln] = new_sender_credits[ln] - 1;
+            debugLog.record(iid, $format("lpSend lane %0d: Used 1 credit, now %0d", ln, new_sender_credits[ln]));
+        end
+
+        //
+        // Collect credits from remote receiver.
+        //
+        let m_credits <- creditFromOCN.receive(iid);
+        if (m_credits matches tagged Valid .creds)
+        begin
+            for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
+            begin
+                // Only interested in VC 0.
+                new_sender_credits[ln] = boundedPlus(new_sender_credits[ln],
+                                                     creds[ln][0]);
+
+                if (creds[ln][0] != 0)
+                begin
+                    debugLog.record(iid, $format("lpSend lane %0d: %0d new credits, now %0d", ln, creds[ln][0], new_sender_credits[ln]));
+                end
+            end
+        end
+
+        senderCredits <= new_sender_credits;
+    endaction
+    endfunction
+
 
     method Action doEnq(t_IID iid, LANE_IDX lane, OCN_FLIT flit);
         // Sender always uses virtual channel 0.  The network may switch to
@@ -139,40 +190,41 @@ module [HASIM_MODULE] mkLocalNetworkPortSend#(
         OCN_MSG msg = tuple3(lane, 0, flit);
         enqToOCN.send(iid, tagged Valid msg);
 
-        debugLog.record(iid, $format("lpSend: ENQ (ln %0d)", lane));
+        // Update credits.  A credit is consumed at the TAIL of a packet.
+        // This may seem counterintuitive.  A credit guarantees space for
+        // a full packet -- head to tail.  If the credit were decremented
+        // at head we would need a more complex scheme for canEnq() below to
+        // know that credit is available.
+        Maybe#(LANE_IDX) m_used_credit = tagged Invalid;
+        if (flit matches tagged FLIT_BODY .body &&& body.isTail)
+        begin
+            m_used_credit = tagged Valid lane;
+        end
+        updateCredits(iid, m_used_credit);
+
+        debugLog.record(iid, $format("lpSend: ENQ ") + fshow(msg));
     endmethod
 
     method Action noEnq(t_IID iid);
         enqToOCN.send(iid, tagged Invalid);
+        updateCredits(iid, tagged Invalid);
 
         debugLog.record(iid, $format("lpSend: No ENQ"));
     endmethod
 
     method ActionValue#(Vector#(NUM_LANES, Bool)) canEnq(t_IID iid);
         // Read our local state from the pools.
-        Reg#(Vector#(NUM_LANES, Bool)) notFulls = notFullsPool.getReg(iid);
+        Reg#(Vector#(NUM_LANES, VC_CREDIT_CNT)) senderCredits =
+            senderCreditsPool.getReg(iid);
 
-        Vector#(NUM_LANES, Bool) new_not_fulls = notFulls;
-        let m_credits <- creditFromOCN.receive(iid);
+        //
+        // Reduce sender credits to a bit vector and return the vector.
+        //
+        function Bool notZero(val) = (val != 0);
+        let can_enq = map(notZero, senderCredits);
+        debugLog.record(iid, $format("lpSend: Can ENQ %b", pack(can_enq)));
 
-        // Update our notion of credits.
-        if (m_credits matches tagged Valid .creds)
-        begin
-            for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
-            begin
-                // Only interested in VC 0.
-                match {.cred, .out_not_full} = creds[ln][0];
-                new_not_fulls[ln] = out_not_full;
-            end
-            debugLog.record(iid, $format("lpSend canEnq: Update credits (%b)", pack(new_not_fulls)));
-        end
-        else
-        begin
-            debugLog.record(iid, $format("lpSend canEnq: No credits"));
-        end
-
-        notFulls <= new_not_fulls;
-        return new_not_fulls;
+        return can_enq;
     endmethod
 
 
@@ -223,18 +275,23 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     String portNameRecv,
     TIMEP_DEBUG_FILE_MULTIPLEXED#(ni) debugLog)
     // Interface:
-    (PORT_OCN_LOCAL_RECV_MULTIPLEXED#(ni))
+    (PORT_OCN_LOCAL_RECV_MULTIPLEXED#(ni, n_MAX_FLITS_PER_PACKET))
     provisos (Alias#(t_IID, INSTANCE_ID#(ni)),
               // Incoming buffering for each virtual channel
-              NumAlias#(n_VC_BUF_ENTRIES, 4),
-              Alias#(t_VC_FIFO, FUNC_FIFO_IDX#(n_VC_BUF_ENTRIES)),
+              NumAlias#(n_VC_BUF_PACKETS, 2),
+              NumAlias#(n_VC_BUF_FLITS, TMul#(n_VC_BUF_PACKETS, n_MAX_FLITS_PER_PACKET)),
+              Alias#(t_VC_FIFO, FUNC_FIFO_IDX#(n_VC_BUF_FLITS)),
               // All FIFOs managing channel buffers for an instance
               Alias#(t_BUFFER_FIFOS, Vector#(NUM_LANES, Vector#(VCS_PER_LANE, t_VC_FIFO))));
 
     PORT_RECV_MULTIPLEXED#(ni, OCN_MSG) enqFromOCN <-
         mkPortRecv_Multiplexed(portNameRecv + "_enq", 1);
-    PORT_SEND_MULTIPLEXED#(ni, VC_CREDIT_INFO) creditToOCN <-
+    PORT_SEND_MULTIPLEXED#(ni, VC_CREDIT_MSG) creditToOCN <-
         mkPortSend_Multiplexed(portNameSend + "_credit");
+
+    // Assertion objects
+    let checkBufNotFull <- mkAssertionStrPvtChecker("icn-local-port.bsv: " + portNameRecv + " flit received but buffer is full!",
+                                                    ASSERT_ERROR);
 
     // Each virtual channel has an associated incoming buffer (FIFO)
     MULTIPLEXED_REG#(ni, t_BUFFER_FIFOS) vcFIFOsPool <-
@@ -244,17 +301,22 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
     // pointers to this storage.
     MEMORY_IFC#(Tuple4#(INSTANCE_ID#(ni),
                         LANE_IDX, VC_IDX,
-                        Bit#(TLog#(n_VC_BUF_ENTRIES))),
+                        Bit#(TLog#(n_VC_BUF_FLITS))),
                 OCN_FLIT) vcBufEntries <- mkBRAM();
+    // Same indexed storage, but just the "isTail" flag
+    LUTRAM#(Tuple4#(INSTANCE_ID#(ni),
+                    LANE_IDX, VC_IDX,
+                    Bit#(TLog#(n_VC_BUF_FLITS))),
+            Bool) vcBufIsTail <- mkLUTRAMU();
 
     // Once a packet begins, the entire packet is received before another
     // may begin.
     MULTIPLEXED_REG#(ni, Maybe#(Tuple2#(LANE_IDX, VC_IDX))) activeVCPool <-
         mkMultiplexedReg(tagged Invalid);
 
-    FIFO#(Tuple2#(t_IID, t_BUFFER_FIFOS)) recv1Q <- mkFIFO();
-    FIFO#(Tuple2#(t_IID, t_BUFFER_FIFOS)) recv2Q <- mkFIFO();
-    FIFO#(Tuple2#(LANE_IDX, VC_IDX)) rspMetaQ <- mkFIFO();
+    MULTIPLEXED_REG#(ni, Bool) creditInitializedPool <- mkMultiplexedReg(False);
+
+    FIFO#(Tuple2#(LANE_IDX, VC_IDX)) rspMetaQ <- mkSizedFIFO(4);
 
 
     //
@@ -272,63 +334,79 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
 
 
     //
-    // recv1 --
-    //   Receive a new message from the network port and store it in the local
-    //   buffer.  This rule could logically be part of the same cycle as
-    //   the first stage of the receive pipeline, but the hardware is simpler
-    //   given the complexity of managing multiple lanes and virtual channels.
+    // updCredit --
+    //   Forward credits to remote senders as packets are consumed.
     //
-    rule recv1 (True);
-        match {.iid, .upd_vc_buf} = recv1Q.first();
-        recv1Q.deq();
+    function Action updCredit(t_IID iid,
+                              Maybe#(Tuple2#(LANE_IDX, VC_IDX)) m_vc_credit);
+    action
+        Reg#(Bool) creditInitialized = creditInitializedPool.getReg(iid);
 
+        //
+        // Send updated credits to the network.
+        //
+        if (! creditInitialized)
+        begin
+            // Send full buffer credits at startup.
+            creditInitializedPool.getReg(iid) <= True;
+
+            VC_CREDIT_MSG creds = replicate(replicate(fromInteger(valueOf(n_VC_BUF_PACKETS))));
+            creditToOCN.send(iid, tagged Valid creds);
+            debugLog.record(iid, $format("lpRecv creditToOCN: init all with %0d", valueOf(n_VC_BUF_PACKETS)));
+        end
+        else if (m_vc_credit matches tagged Valid {.ln, .vc})
+        begin
+            VC_CREDIT_MSG creds = replicate(replicate(0));
+            creds[ln][vc] = 1;
+            creditToOCN.send(iid, tagged Valid creds);
+            debugLog.record(iid, $format("lpRecv creditToOCN: ln %0d, vc %0d", ln, vc));
+        end
+        else
+        begin
+            creditToOCN.send(iid, tagged Invalid);
+        end
+    endaction
+    endfunction
+
+
+    //
+    // recvFlits --
+    //   Receive a new message from the network port and store it in the local
+    //   buffer.
+    //
+    function Action recvFlits(t_IID iid, t_BUFFER_FIFOS upd_vc_buf);
+    action
         //
         // Check the network port for a new incoming message.
         //
         let m_enq <- enqFromOCN.receive(iid);
         if (m_enq matches tagged Valid {.lane, .vc, .flit})
         begin
+            checkBufNotFull(funcFIFO_IDX_notFull(upd_vc_buf[lane][vc]));
+
             match {.upd_fifo, .idx} = funcFIFO_IDX_UGenq(upd_vc_buf[lane][vc]);
             upd_vc_buf[lane][vc] = upd_fifo;
-            vcBufEntries.write(tuple4(iid, lane, vc, idx), flit);
+            let entry_idx = tuple4(iid, lane, vc, idx);
+            vcBufEntries.write(entry_idx, flit);
 
-            debugLog.record(iid, $format("lpRecv recv1: New msg ln %0d, vc %0d", lane, vc));
+            Bool is_tail = False;
+            if (flit matches tagged FLIT_BODY .body &&& body.isTail)
+            begin
+                is_tail = True;
+            end
+            vcBufIsTail.upd(entry_idx, is_tail);
+
+            debugLog.record(iid, $format("lpRecv in: ") + fshow(validValue(m_enq)));
         end
         else
         begin
-            debugLog.record(iid, $format("lpRecv recv1: No message"));
+            debugLog.record(iid, $format("lpRecv in: No message"));
         end
 
         Reg#(t_BUFFER_FIFOS) vcBuf = vcFIFOsPool.getReg(iid);
         vcBuf <= upd_vc_buf;
-
-        recv2Q.enq(tuple2(iid, upd_vc_buf));
-    endrule
-
-    rule recv2 (True);
-        match {.iid, .upd_vc_buf} = recv2Q.first();
-        recv2Q.deq();
-
-        //
-        // Send updated credits to the network.
-        //
-        VC_CREDIT_INFO creds = newVector();
-
-        for (Integer ln = 0; ln < valueof(NUM_LANES); ln = ln + 1)
-        begin
-            creds[ln] = newVector();
-
-            for (Integer vc = 0; vc < valueof(VCS_PER_LANE); vc = vc + 1)
-            begin
-                let have_credit = ! funcFIFO_IDX_notEmpty(upd_vc_buf[ln][vc]); // XXX capacity - occupancy > round-trip latency.
-                let not_full = ! funcFIFO_IDX_notEmpty(upd_vc_buf[ln][vc]);
-                creds[ln][vc] = tuple2(have_credit, not_full);
-            end
-        end
-        
-        creditToOCN.send(iid, tagged Valid creds);
-        debugLog.record(iid, $format("lpRecv creditToOCN: %b", pack(creds)));
-    endrule
+    endaction
+    endfunction
 
 
     function notEmptyVCs(t_IID iid);
@@ -404,8 +482,8 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         t_BUFFER_FIFOS upd_vc_buf = vcBuf;
 
         let idx = funcFIFO_IDX_UGfirst(upd_vc_buf[lane][vc]);
-        vcBufEntries.readReq(tuple4(iid, lane, vc, idx));
-        rspMetaQ.enq(tuple2(lane, vc));
+        let entry_idx = tuple4(iid, lane, vc, idx);
+        vcBufEntries.readReq(entry_idx);
 
         // Calling receiveReq() is an implicit deq of the flit.  There
         // is no doDeq().  See comment on PORT_OCN_LOCAL_RECV_MULTIPLEXED
@@ -413,9 +491,18 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         upd_vc_buf[lane][vc] = funcFIFO_IDX_UGdeq(upd_vc_buf[lane][vc]);
 
         // Side effect of deq: check for new messages
-        recv1Q.enq(tuple2(iid, upd_vc_buf));
+        recvFlits(iid, upd_vc_buf);
+
+        // Release the packet's buffer and pass credit to the sender.
+        Maybe#(Tuple2#(LANE_IDX, VC_IDX)) vc_credit = tagged Invalid;
+        if (vcBufIsTail.sub(entry_idx))
+        begin
+            vc_credit = tagged Valid tuple2(lane, vc);
+        end
+        updCredit(iid, vc_credit);
 
         debugLog.record(iid, $format("lpRecv req and deq: ln %0d, vc %0d", lane, vc));
+        rspMetaQ.enq(tuple2(lane, vc));
     endmethod
 
     method ActionValue#(OCN_FLIT) receiveRsp(t_IID iid);
@@ -436,11 +523,11 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         // for an instance before notEmpty() may be called for the next cycle.
         //
         Reg#(Maybe#(Tuple2#(LANE_IDX, VC_IDX))) activeVC = activeVCPool.getReg(iid);
+
         case (flit) matches 
             tagged FLIT_HEAD .info:
             begin
                 activeVC <= tagged Valid tuple2(lane, vc);
-                debugLog.record(iid, $format("lpRecv rsp: HEAD ln %0d, vc %0d", lane, vc));
             end
 
             tagged FLIT_BODY .body:
@@ -448,10 +535,12 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
                 if (body.isTail)
                 begin
                     activeVC <= tagged Invalid;
-                    debugLog.record(iid, $format("lpRecv rsp: TAIL ln %0d, vc %0d", lane, vc));
                 end
             end
         endcase
+
+        OCN_MSG dbg_msg = tuple3(lane, vc, flit);
+        debugLog.record(iid, $format("lpRecv rsp: ") + fshow(dbg_msg));
 
         return flit;
     endmethod
@@ -462,7 +551,11 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         t_BUFFER_FIFOS upd_vc_buf = vcBuf;
 
         // Side effect of noDeq: check for new messages
-        recv1Q.enq(tuple2(iid, upd_vc_buf));
+        recvFlits(iid, upd_vc_buf);
+
+        // Update credits
+        updCredit(iid, tagged Invalid);
+
         debugLog.record(iid, $format("lpRecv no deq"));
     endmethod
 

@@ -6714,3 +6714,37 @@ Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipeline
   now like A-Ports.  A message must be sent every model cycle in order to force
   translations to be requested in the same order.  This eliminates run-to-run
   variations in Gem5 address mapping.
+
+----------
+mcadler     Date: Sat Nov 30 20:58:47 EST 2013  CSN: CSN-hasim-models-220
+                  Sun Dec  1 01:58:47 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          219 
+ chip-base-types.bsv       Locally Modified          219 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          219 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          219 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          219 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          219 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          219 
+
+- Use a real credit scheme for the OCN.  The old code just passed the notFull
+  flags for receive buffers to senders.  Given the latency between sender and
+  receiver and in the routing pipeline, this led to instances of receive buffer
+  overrun.
+
+- Add a lane to separate LLC to LLC requests and LLC to memory controller
+  requests.  Sharing request lanes caused deadlocks in large models with high
+  traffic.  LLC to LLC requests could fill a lane, making it impossible to send
+  out memory requests.

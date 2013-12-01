@@ -10,7 +10,9 @@
 
 %param MAX_NUM_CPUS         2   "Maximum number of CPUs on the chip."
 %param MAX_NUM_MEM_CTRLS    1   "Maximum number of on-chip memory controllers."
-%param NUM_LANES            2   "Number of lanes in in the on-chip network."
+%param NUM_LANES            3   "Number of lanes in in the on-chip network."
 %param VCS_PER_LANE         1   "Number of virtual channels per lane in the on-chip network."
+
+%param MAX_FLITS_PER_PACKET 2   "Maximum flits in an on-chip network packet."
 
 %AWB_END

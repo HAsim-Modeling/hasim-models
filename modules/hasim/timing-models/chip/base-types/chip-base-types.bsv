@@ -41,8 +41,15 @@ typedef INSTANCE_ID_BITS#(VCS_PER_LANE) VC_IDX_SZ;
 
 typedef Vector#(NUM_LANES, Vector#(VCS_PER_LANE, t_DATA)) VC_INFO#(parameter type t_DATA);
 
-// First Bool is credit, second Bool is NotFull.
-typedef VC_INFO#(Tuple2#(Bool, Bool)) VC_CREDIT_INFO;
+// Bucket for tracking sender-side credits in on-chip network links.
+// Credits are counted as packets, not flits!  The number of flit buffer
+// slots is MAX_FLITS_PER_PACKET * credits.
+typedef UInt#(4) VC_CREDIT_CNT;
+
+// Message sent with credit updates.
+typedef VC_INFO#(VC_CREDIT_CNT) VC_CREDIT_MSG;
+
+typedef `MAX_FLITS_PER_PACKET MAX_FLITS_PER_PACKET;
 
 //
 // The number of stations is the number of CPUs plus the number of
@@ -101,7 +108,8 @@ instance FShow#(OCN_FLIT);
         end
         else if (ocnFlit matches tagged FLIT_BODY .flit)
         begin
-            return flit.isTail ? fshow("{TAIL}") : fshow("{BODY}");
+            String b_type = flit.isTail ? "TAIL" : "BODY";
+            return $format("{%s} flit_opaque %d", b_type, flit.opaque);
         end
         else
         begin

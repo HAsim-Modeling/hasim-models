@@ -731,7 +731,17 @@ module [HASIM_MODULE] mkDecode ();
                 begin
 
                     // Nope, we're waiting on an older instruction to write its results.
-                    debugLog.record(cpu_iid, fshow(tok) + fshow(": STALL ON DEPENDENCY"));
+                    String stall_reason = "unknown";
+                    if (! data_ready)
+                        stall_reason = "data";
+                    else if (! store_ready)
+                        stall_reason = "store";
+                    else if (! readyDrainAfter(local_state))
+                        stall_reason = "drain after";
+                    else if (! readyDrainBefore(local_state, fetchbundle.inst))
+                        stall_reason = "drain before";
+
+                    debugLog.record(cpu_iid, fshow(tok) + $format(": STALL ON DEPENDENCY (%s)", stall_reason));
                     eventDec.recordEvent(cpu_iid, tagged Invalid);
 
                     // Propogate the bubble.
