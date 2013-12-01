@@ -118,10 +118,10 @@ module [HASIM_MODULE] mkDCache();
    
    // Stats
    STAT_ID statIDs[4] = {
-       statName("SETASSOC_DCACHE_WRITEBACK_READ_HITS", "DCache Read Hits"),
-       statName("SETASSOC_DCACHE_WRITEBACK_READ_MISSES", "DCache Read Misses"),
-       statName("SETASSOC_DCACHE_WRITEBACK_WRITE_HITS", "DCache Write Hits"),
-       statName("SETASSOC_DCACHE_WRITEBACK_WRITE_MISSES", "DCache Write Misses")
+       statName("MODEL_SETASSOC_DCACHE_WRITEBACK_READ_HITS", "DCache Read Hits"),
+       statName("MODEL_SETASSOC_DCACHE_WRITEBACK_READ_MISSES", "DCache Read Misses"),
+       statName("MODEL_SETASSOC_DCACHE_WRITEBACK_WRITE_HITS", "DCache Write Hits"),
+       statName("MODEL_SETASSOC_DCACHE_WRITEBACK_WRITE_MISSES", "DCache Write Misses")
    };
 
    STAT_VECTOR#(4) stats <- mkStatCounter_Vector(statIDs);

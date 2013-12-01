@@ -144,7 +144,7 @@ module [HASIM_MODULE] mkPipeline
 
     // Stats
     STAT_VECTOR#(MAX_NUM_CPUS) statCom <-
-        mkStatCounter_Multiplexed(statName("CPU_INSTRUCTION_COMMIT",
+        mkStatCounter_Multiplexed(statName("MODEL_CPU_INSTRUCTION_COMMIT",
                                            "Committed Instructions"));
 
     Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();

@@ -118,7 +118,7 @@ module [HASIM_MODULE] mkExecute ();
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventExe <- mkEventRecorder_Multiplexed(`EVENTS_EXECUTE_INSTRUCTION_EXECUTE);
 
     STAT_VECTOR#(MAX_NUM_CPUS) statMispred <-
-        mkStatCounter_Multiplexed(statName("EXECUTE_BPRED_MISPREDS",
+        mkStatCounter_Multiplexed(statName("MODEL_EXECUTE_BPRED_MISPREDS",
                                            "Branch Mispredicts"));
 
     // ****** Helper functions ******

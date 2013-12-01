@@ -111,10 +111,10 @@ module [HASIM_MODULE] mkMemoryController()
     // Compute average latency from Little's Law:
     //     statPacketsInFlight / statPackets
     STAT_VECTOR#(MAX_NUM_MEM_CTRLS) statPackets <-
-        mkStatCounter_Multiplexed(statName("MEM_CTRL_LOAD_REQ",
+        mkStatCounter_Multiplexed(statName("MODEL_MEM_CTRL_LOAD_REQ",
                                            "Number of load requests"));
     STAT_VECTOR#(MAX_NUM_MEM_CTRLS) statPacketsInFlight <-
-        mkStatCounter_Multiplexed(statName("MEM_CTRL_LOAD_REQ_IN_FLIGHT",
+        mkStatCounter_Multiplexed(statName("MODEL_MEM_CTRL_LOAD_REQ_IN_FLIGHT",
                                            "Sum of packets in flight each cycle (used for Little's Law)"));
 
     // Coordinate between the pipeline stages.

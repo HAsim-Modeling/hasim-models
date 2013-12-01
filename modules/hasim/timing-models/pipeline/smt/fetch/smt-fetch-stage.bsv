@@ -107,10 +107,10 @@ module [HASIM_MODULE] mkFetch (SMTFetch);
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventFet <- mkEventRecorder_Multiplexed(`EVENTS_FETCH_INSTRUCTION_FET);
 
     STAT_VECTOR#(MAX_NUM_CPUS) statCycles <-
-        mkStatCounter_Multiplexed(statName("FETCH_TOTAL_CYCLES",
+        mkStatCounter_Multiplexed(statName("MODEL_FETCH_TOTAL_CYCLES",
                                            "Total Cycles"));
     STAT_VECTOR#(MAX_NUM_CPUS) statFet <-
-        mkStatCounter_Multiplexed(statName("FETCH_INSTS_FETCHED",
+        mkStatCounter_Multiplexed(statName("MODEL_FETCH_INSTS_FETCHED",
                                            "Instructions Fetched"));
 
 

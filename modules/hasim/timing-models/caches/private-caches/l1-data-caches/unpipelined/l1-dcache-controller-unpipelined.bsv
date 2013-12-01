@@ -182,22 +182,22 @@ module [HASIM_MODULE] mkL1DCache ();
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statReadHit <-
-        mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_HIT",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_DCACHE_READ_HIT",
                                            "L1 DCache Read Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadMiss <-
-        mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_MISS",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_DCACHE_READ_MISS",
                                            "L1 DCache Read Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadRetry <-
-        mkStatCounter_Multiplexed(statName("L1_DCACHE_READ_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_DCACHE_READ_RETRY",
                                            "L1 DCache Read Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteHit <-
-        mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_HIT",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_DCACHE_WRITE_HIT",
                                            "L1 DCache Write Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteMiss <-
-        mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_MISS",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_DCACHE_WRITE_MISS",
                                            "L1 DCache Write Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteRetry <-
-        mkStatCounter_Multiplexed(statName("L1_DCACHE_WRITE_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_DCACHE_WRITE_RETRY",
                                            "L1 DCache Write Retries"));
 
 

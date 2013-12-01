@@ -119,7 +119,7 @@ module [HASIM_MODULE] mkCommit ();
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventCom <- mkEventRecorder_Multiplexed(`EVENTS_COMMIT_INSTRUCTION_WRITEBACK);
 
     STAT_VECTOR#(MAX_NUM_CPUS) statCom <-
-        mkStatCounter_Multiplexed(statName("COMMIT_INSTS_COMMITTED",
+        mkStatCounter_Multiplexed(statName("MODEL_COMMIT_INSTS_COMMITTED",
                                            "Instructions Committed"));
 
     // ****** Rules ******

@@ -6748,3 +6748,81 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   requests.  Sharing request lanes caused deadlocks in large models with high
   traffic.  LLC to LLC requests could fill a lane, making it impossible to send
   out memory requests.
+
+----------
+mcadler     Date: Sat Nov 30 23:27:21 EST 2013  CSN: CSN-hasim-models-221
+                  Sun Dec  1 04:27:21 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/execute
+ ooo-execute-stage.bsv     Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/commit
+ ooo-commit-stage.bsv      Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/smt/execute
+ smt-execute-stage.bsv     Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/smt/pccalc
+ smt-pccalc-stage.bsv      Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.bsv      Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.bsv       Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writeback-dcache
+ dcache-direct-mapped-writeback.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-dcache/direct-mapped-writethrough-dcache
+ dcache-direct-mapped-writethrough.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/pseudorandom-caches
+ icache-pseudorandom.bsv   Locally Modified          220 
+ dcache-pseudorandom.bsv   Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/direct-mapped-icache
+ icache-direct-mapped.bsv  Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ dcache-setassoc-writeback.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-set-associative.bsv Locally Modified          220 
+ last-level-cache-no-coherence.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ icache-setassoc.bsv       Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          220 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          220 
+
+MODEL_ prefix on all timing model statistics.

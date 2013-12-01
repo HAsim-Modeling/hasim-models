@@ -112,7 +112,7 @@ module [HASIM_MODULE] mkPCCalc
 
     // ****** Stats ******
     STAT_VECTOR#(MAX_NUM_CPUS) statLpBpMismatches <-
-        mkStatCounter_Multiplexed(statName("PCCALC_LP_BP_MISMATCHES",
+        mkStatCounter_Multiplexed(statName("MODEL_PCCALC_LP_BP_MISMATCHES",
                                            "Line Prediction/Branch Prediction Mismatches"));
 
     // ****** Rules ******

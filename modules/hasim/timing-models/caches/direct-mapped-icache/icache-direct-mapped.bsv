@@ -107,10 +107,10 @@ module [HASIM_MODULE] mkICache();
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statHits <-
-        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_ICACHE_HITS",
+        mkStatCounter_Multiplexed(statName("MODEL_DIRECT_MAPPED_ICACHE_HITS",
                                            "ICache Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statMisses <-
-        mkStatCounter_Multiplexed(statName("DIRECT_MAPPED_ICACHE_MISSES",
+        mkStatCounter_Multiplexed(statName("MODEL_DIRECT_MAPPED_ICACHE_MISSES",
                                            "ICache Misses"));
    
     // ****** Model State (Per Instance) *****

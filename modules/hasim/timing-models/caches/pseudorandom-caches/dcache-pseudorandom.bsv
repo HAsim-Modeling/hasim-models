@@ -121,25 +121,25 @@ module [HASIM_MODULE] mkDCache();
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statLoadHits <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_READ_HITS",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_DCACHE_READ_HITS",
                                            "DCache Read Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statLoadMisses <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_READ_MISSES",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_DCACHE_READ_MISSES",
                                            "DCache Read Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statLoadRetries <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_READ_RETRIES",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_DCACHE_READ_RETRIES",
                                            "DCache Read Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statStoreHits <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_WRITE_HITS",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_DCACHE_WRITE_HITS",
                                            "DCache Write Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statStoreMisses <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_WRITE_MISSES",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_DCACHE_WRITE_MISSES",
                                            "DCache Write Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statStoreRetries <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_WRITE_RETRIES",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_DCACHE_WRITE_RETRIES",
                                            "DCache Write Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statPortCollisions <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_DCACHE_PORT_COLLISIONS",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_DCACHE_PORT_COLLISIONS",
                                            "DCache Port Collisions"));
 
 

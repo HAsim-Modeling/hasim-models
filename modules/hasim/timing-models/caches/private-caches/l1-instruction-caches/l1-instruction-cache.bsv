@@ -119,13 +119,13 @@ module [HASIM_MODULE] mkL1ICache ();
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statHits <-
-        mkStatCounter_Multiplexed(statName("L1_ICACHE_HIT",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_ICACHE_HIT",
                                            "L1 ICache Controller Read Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statMisses <-
-        mkStatCounter_Multiplexed(statName("L1_ICACHE_MISS",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_ICACHE_MISS",
                                            "L1 ICache Controller Read Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statRetries <-
-        mkStatCounter_Multiplexed(statName("L1_ICACHE_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_L1_ICACHE_RETRY",
                                            "L1 ICache Controller Read Retries"));
 
     // ****** Rules ******

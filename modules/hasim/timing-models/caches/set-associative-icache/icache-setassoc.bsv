@@ -121,8 +121,8 @@ module [HASIM_MODULE] mkICache();
    
    // Stats
    STAT_ID statIDs[2] = {
-       statName("SET_ASSOC_ICACHE_HITS", "ICache Hits"),
-       statName("SET_ASSOC_ICACHE_MISSES", "ICache Misses")
+       statName("MODEL_SET_ASSOC_ICACHE_HITS", "ICache Hits"),
+       statName("MODEL_SET_ASSOC_ICACHE_MISSES", "ICache Misses")
    };
 
    STAT_VECTOR#(2) stats <- mkStatCounter_Vector(statIDs);

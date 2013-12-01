@@ -205,22 +205,22 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statReadHit <-
-        mkStatCounter_Multiplexed(statName("L2_READ_HIT",
+        mkStatCounter_Multiplexed(statName("MODEL_L2_READ_HIT",
                                            "L2 Read Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadMiss <-
-        mkStatCounter_Multiplexed(statName("L2_READ_MISS",
+        mkStatCounter_Multiplexed(statName("MODEL_L2_READ_MISS",
                                            "L2 Read Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadRetry <-
-        mkStatCounter_Multiplexed(statName("L2_READ_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_L2_READ_RETRY",
                                            "L2 Read Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteHit <-
-        mkStatCounter_Multiplexed(statName("L2_WRITE_HIT",
+        mkStatCounter_Multiplexed(statName("MODEL_L2_WRITE_HIT",
                                            "L2 Write Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteRetry <-
-        mkStatCounter_Multiplexed(statName("L2_WRITE_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_L2_WRITE_RETRY",
                                            "L2 Write Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statFillRetry <-
-        mkStatCounter_Multiplexed(statName("L2_FILL_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_L2_FILL_RETRY",
                                            "L2 Fill Retries"));
 
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventHit  <- mkEventRecorder_Multiplexed(`EVENTS_L2_HIT);

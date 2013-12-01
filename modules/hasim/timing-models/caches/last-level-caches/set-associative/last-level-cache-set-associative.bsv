@@ -149,15 +149,15 @@ module [HASIM_MODULE] mkLastLevelCache();
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statReadHit <-
-        mkStatCounter_Multiplexed(statName("L1_LLC_READ_HIT", "LLC Read Hits"));
+        mkStatCounter_Multiplexed(statName("MODEL_L1_LLC_READ_HIT", "LLC Read Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadMiss <-
-        mkStatCounter_Multiplexed(statName("L1_LLC_READ_MISS", "LLC Read Misses"));
+        mkStatCounter_Multiplexed(statName("MODEL_L1_LLC_READ_MISS", "LLC Read Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadRetry <-
-        mkStatCounter_Multiplexed(statName("L1_LLC_READ_RETRY", "LLC Read Retries"));
+        mkStatCounter_Multiplexed(statName("MODEL_L1_LLC_READ_RETRY", "LLC Read Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteHit <-
-        mkStatCounter_Multiplexed(statName("L1_LLC_WRITE_HIT", "LLC Write Hits"));
+        mkStatCounter_Multiplexed(statName("MODEL_L1_LLC_WRITE_HIT", "LLC Write Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteRetry <-
-        mkStatCounter_Multiplexed(statName("L1_LLC_WRITE_RETRY", "LLC Write Retries"));
+        mkStatCounter_Multiplexed(statName("MODEL_L1_LLC_WRITE_RETRY", "LLC Write Retries"));
 
 
     (* conservative_implicit_conditions *)

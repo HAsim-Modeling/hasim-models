@@ -629,22 +629,22 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statReadHit <-
-        mkStatCounter_Multiplexed(statName("LLC_READ_HIT",
+        mkStatCounter_Multiplexed(statName("MODEL_LLC_READ_HIT",
                                            "LLC Read Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadMiss <-
-        mkStatCounter_Multiplexed(statName("LLC_READ_MISS",
+        mkStatCounter_Multiplexed(statName("MODEL_LLC_READ_MISS",
                                            "LLC Read Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statReadRetry <-
-        mkStatCounter_Multiplexed(statName("LLC_READ_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_LLC_READ_RETRY",
                                            "LLC Read Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteHit <-
-        mkStatCounter_Multiplexed(statName("LLC_WRITE_HIT",
+        mkStatCounter_Multiplexed(statName("MODEL_LLC_WRITE_HIT",
                                            "LLC Write Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statWriteRetry <-
-        mkStatCounter_Multiplexed(statName("LLC_WRITE_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_LLC_WRITE_RETRY",
                                            "LLC Write Retries"));
     STAT_VECTOR#(MAX_NUM_CPUS) statFillRetry <-
-        mkStatCounter_Multiplexed(statName("LLC_FILL_RETRY",
+        mkStatCounter_Multiplexed(statName("MODEL_LLC_FILL_RETRY",
                                            "LLC Fill Retries"));
 
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventHit  <- mkEventRecorder_Multiplexed(`EVENTS_LLC_HIT);

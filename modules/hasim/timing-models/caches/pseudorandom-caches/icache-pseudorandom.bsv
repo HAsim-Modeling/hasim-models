@@ -101,13 +101,13 @@ module [HASIM_MODULE] mkICache();
     // ****** Stats ******
 
     STAT_VECTOR#(MAX_NUM_CPUS) statHits <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_ICACHE_HITS",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_ICACHE_HITS",
                                            "ICache Read Hits"));
     STAT_VECTOR#(MAX_NUM_CPUS) statMisses <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_ICACHE_MISSES",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_ICACHE_MISSES",
                                            "ICache Read Misses"));
     STAT_VECTOR#(MAX_NUM_CPUS) statRetries <-
-        mkStatCounter_Multiplexed(statName("PSEUDORANDOM_ICACHE_RETRIES",
+        mkStatCounter_Multiplexed(statName("MODEL_PSEUDORANDOM_ICACHE_RETRIES",
                                            "ICache Read Retries"));
 
 
