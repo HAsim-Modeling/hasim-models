@@ -6826,3 +6826,37 @@ Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
  memory-controller-latency-delay.bsv Locally Modified          220 
 
 MODEL_ prefix on all timing model statistics.
+
+----------
+mcadler     Date: Tue Dec  3 23:08:48 EST 2013  CSN: CSN-hasim-models-222
+                  Wed Dec  4 04:08:48 UTC 2013
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          221 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          221 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          221 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          221 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          221 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          221 
+
+- Poisoned instructions flowing through the pipeline were capable of signalling
+  a register write, though the physical register may already have been released
+  and reassigned to a new token in the functional model.  Fixed by passing
+  the epoch along with writeback messages and ignoring the writeback for
+  moribund instructions.
+
+- Simplify writeback receiver logic in decode.
+
+- Add STDIO debugging to decode.  There are certainly generalizations to the
+  debug code that should be added.

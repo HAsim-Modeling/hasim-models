@@ -302,8 +302,11 @@ module [HASIM_MODULE] mkDMem ();
                 // (Stores in the SB are always younger than those.)
                 debugLog.record(cpu_iid, fshow("2: SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
-                // Send the writeback to decode.
+                // Send the writeback to decode.  The branch epoch is irrelevant
+                // at this late stage.
+                let epoch = initEpoch(?, rsp.bundle.faultEpoch);
                 writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token,
+                                                                        epoch,
                                                                         rsp.bundle.dests));
 
                 // Pass it to the next stage through the functional partition, 
@@ -322,7 +325,9 @@ module [HASIM_MODULE] mkDMem ();
                 debugLog.record(cpu_iid, fshow("2: SB MISS/WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
                 // Send the writeback to decode.
+                let epoch = initEpoch(?, rsp.bundle.faultEpoch);
                 writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token,
+                                                                        epoch,
                                                                         rsp.bundle.dests));
 
                 // Pass it to the next stage through the functional partition, 
@@ -349,7 +354,10 @@ module [HASIM_MODULE] mkDMem ();
                         debugLog.record(cpu_iid, fshow("2: SB/WB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                         // Send the writeback to decode.
-                        writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok, bundle.dests));
+                        let epoch = initEpoch(?, bundle.faultEpoch);
+                        writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok,
+                                                                                epoch,
+                                                                                bundle.dests));
 
                         // Pass it to the next stage through the functional partition, 
                         // which actually retrieves the data.

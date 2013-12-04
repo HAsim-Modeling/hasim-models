@@ -226,8 +226,13 @@ module [HASIM_MODULE] mkCommitQueue
             // Mark this slot as complete.
             completions.upd(slot, True);
 
-            // Tell Decode to writeback the destination.
-            writebackToDec.send(cpu_iid, tagged Valid genBusMessage(bundle.token, bundle.dests));
+            // Tell Decode to writeback the destination.  The branch epoch is
+            // irrelevant at this late stage, so only send fault epoch.
+            let epoch = initEpoch(?, bundle.faultEpoch);
+            writebackToDec.send(cpu_iid,
+                                tagged Valid genBusMessage(bundle.token,
+                                                           epoch,
+                                                           bundle.dests));
             debugLog.record(cpu_iid, fshow("3: FWD COMPLETE: ") + fshow(bundle.token));
         end
         else

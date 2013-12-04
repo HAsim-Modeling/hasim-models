@@ -26,20 +26,21 @@ import FIFO::*;
 
 // ****** Project imports ******
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/fpga_components.bsh"
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_isa.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/pipeline_base_types.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/funcp_interface.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/fpga_components.bsh"
+`include "awb/provides/common_services.bsh"
+`include "awb/provides/hasim_modellib.bsh"
+`include "awb/provides/hasim_isa.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/pipeline_base_types.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/funcp_interface.bsh"
 
 
 // ****** Generated files ******
 
-`include "asim/dict/EVENTS_DECODE.bsh"
+`include "awb/dict/EVENTS_DECODE.bsh"
 
 // ****** Local Datatypes ******
 
@@ -105,6 +106,11 @@ module [HASIM_MODULE] mkDecode ();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_decode.out");
 
+    STDIO#(Bit#(64)) stdioDbg <- mkStdIO_Debug();
+    let stdio <- mkStdIO_CondPrintf(ioMask_TIMEP_START, stdioDbg);
+
+    let msgSendInst <- getGlobalStringUID("TIMEP Decode %016lld: PC 0x%016llx, TOKEN (%lld, %lld), dst0=%lld\n");
+    Reg#(Bit#(64)) modelCycle <- mkReg(-1);
 
     // ****** Ports *****
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUNDLE)        bundleToIssueQ <- mkPortStallSend_Multiplexed("IssueQ");
@@ -179,6 +185,12 @@ module [HASIM_MODULE] mkDecode ();
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Decode", inports, depports, outports);
 
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DECODE_STATE) stage1aExeCtrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DECODE_STATE) stage1aMemHitCtrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DECODE_STATE) stage1aMemMissCtrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DECODE_STATE) stage1aStoreCtrl <- mkStageController();
+
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, DECODE_STATE) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(DEC_STAGE3_STATE, DECODE_STATE)) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(DEC_STAGE4_STATE, DECODE_STATE)) stage4Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(TOKEN, ISA_DST_MAPPING))) stage5Ctrl <- mkStageController();
@@ -284,7 +296,28 @@ module [HASIM_MODULE] mkDecode ();
 
     // ****** Rules ******
 
-    // stage1_writebacks
+    // stage1
+
+    // Head of the pipeline.  Load state.
+
+    (* conservative_implicit_conditions *)
+    rule stage1 (True);
+        // Begin model cycle.
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
+        
+        // Extract local state from the cpu instance.
+        let local_state <- statePool.extractState(cpu_iid);
+
+        stage1aExeCtrl.ready(cpu_iid, local_state);
+        stage1aMemHitCtrl.ready(cpu_iid, local_state);
+        stage1aMemMissCtrl.ready(cpu_iid, local_state);
+        stage1aStoreCtrl.ready(cpu_iid, local_state);
+        stage2Ctrl.ready(cpu_iid, local_state);
+    endrule
+
+
+    // stage1a_writebacks
     
     // Begin simulating a new context.
     // Get any writebacks from Exe, Mem, or Com and update the scoreboard.
@@ -294,118 +327,115 @@ module [HASIM_MODULE] mkDecode ();
     // * writebackFromMemHit
     // * writebackFromMemMiss
     // * writebackFromStore
-    // * writebackFromCom
-    // * writebackFromWB
     
     // Ports written:
     // * None
 
+    //
+    // markPRegsReady --
+    //   Common code for updating physical register ready flag, used by all
+    //   writeback update rules.
+    //
+    function Action markPRegsReady(INSTANCE_ID#(MAX_NUM_CPUS) cpu_iid,
+                                   DECODE_STATE local_state,
+                                   Maybe#(BUS_MESSAGE) m_msg,
+                                   Vector#(ISA_MAX_DSTS,
+                                           DECODE_PRF_SCOREBOARD_WB_PORT) wbPort,
+                                   String dbgSource,
+                                   Bool testBranchEpoch);
+    action
+        if (m_msg matches tagged Valid .msg)
+        begin
+            // Does the epoch match?  If not, the PR may have been reassigned
+            // already.  Ignore the update.
+            Bool epoch_valid = (msg.epoch.fault == local_state.epoch.fault);
+
+            // Late pipeline stages don't track the branch epoch, since it
+            // is relevant only up to EXE.
+            if (testBranchEpoch)
+            begin
+                epoch_valid = epoch_valid &&
+                              (msg.epoch.branch == local_state.epoch.branch);
+            end
+
+            // Also ignore dummy tokens for which the destination physical
+            // registers may have been reassigned.
+            Bool do_update = epoch_valid && ! tokIsDummy(msg.token);
+
+            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
+            begin
+                if (msg.destRegs[x] matches tagged Valid .pr)
+                begin
+                    if (do_update)
+                    begin
+                        wbPort[x].ready(pr);
+                        debugLog.record(cpu_iid, fshow(msg.token) + $format(": PR %0d is ready -- %s", pr, dbgSource));
+                    end
+                    else
+                    begin
+                        debugLog.record(cpu_iid, fshow(msg.token) + $format(": Squash dead PR %0d update -- %s", pr, dbgSource));
+                    end
+                end
+            end
+        end
+    endaction
+    endfunction
+
+
     (* conservative_implicit_conditions *)
-    rule stage1_writebackExe (writebackFromExe.ctrl.nextReadyInstance() matches tagged Valid .iid 
-                                &&& wbExeCtrl.producerCanStart());
-    
+    rule stage1a_writebackExe (writebackFromExe.ctrl.nextReadyInstance() matches tagged Valid .iid 
+                               &&& wbExeCtrl.producerCanStart());
+        match {.cpu_iid, .local_state} <- stage1aExeCtrl.nextReadyInstance();
+
         // Process writes from EXE
-        let bus_exe <- writebackFromExe.receive(iid);
+        let m_msg <- writebackFromExe.receive(cpu_iid);
         wbExeCtrl.producerStart();
         wbExeCtrl.producerDone();
 
-        if (bus_exe matches tagged Valid .msg)
-        begin
-        
-            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
-            begin
-            
-                if (msg.destRegs[x] matches tagged Valid .pr)
-                begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
-                    prfScoreboard.wbExe[x].ready(pr);
-                end
-
-            end
-        
-        end
-        
+        markPRegsReady(cpu_iid, local_state,
+                       m_msg, prfScoreboard.wbExe, "EXE", True);
     endrule
     
     (* conservative_implicit_conditions *)
-    rule stage1_writebackMemHit (writebackFromMemHit.ctrl.nextReadyInstance() matches tagged Valid .iid
-                                &&& wbHitCtrl.producerCanStart());
+    rule stage1a_writebackMemHit (writebackFromMemHit.ctrl.nextReadyInstance() matches tagged Valid .iid
+                                  &&& wbHitCtrl.producerCanStart());
+        match {.cpu_iid, .local_state} <- stage1aMemHitCtrl.nextReadyInstance();
     
         // Process writes from MEM Hit
-        let bus_hit <- writebackFromMemHit.receive(iid);
+        let m_msg <- writebackFromMemHit.receive(cpu_iid);
         wbHitCtrl.producerStart();
         wbHitCtrl.producerDone();
 
-        if (bus_hit matches tagged Valid .msg)
-        begin
-        
-            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
-            begin
-            
-                if (msg.destRegs[x] matches tagged Valid .pr)
-                begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
-                    prfScoreboard.wbHit[x].ready(pr);
-                end
-
-            end
-        
-        end
-        
+        markPRegsReady(cpu_iid, local_state,
+                       m_msg, prfScoreboard.wbHit, "HIT", False);
     endrule
 
     (* conservative_implicit_conditions *)
-    rule stage1_writebackMemMiss (writebackFromMemMiss.ctrl.nextReadyInstance() matches tagged Valid .iid
-                                &&& wbMissCtrl.producerCanStart());
+    rule stage1a_writebackMemMiss (writebackFromMemMiss.ctrl.nextReadyInstance() matches tagged Valid .iid
+                                   &&& wbMissCtrl.producerCanStart());
+        match {.cpu_iid, .local_state} <- stage1aMemMissCtrl.nextReadyInstance();
     
         // Process writes from MEM Miss
-        let bus_miss <- writebackFromMemMiss.receive(iid);
+        let m_msg <- writebackFromMemMiss.receive(cpu_iid);
         wbMissCtrl.producerStart();
         wbMissCtrl.producerDone();
 
-        if (bus_miss matches tagged Valid .msg)
-        begin
-        
-            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
-            begin
-            
-                if (msg.destRegs[x] matches tagged Valid .pr)
-                begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
-                    prfScoreboard.wbMiss[x].ready(pr);
-                end
-
-            end
-        
-        end
-        
+        markPRegsReady(cpu_iid, local_state,
+                       m_msg, prfScoreboard.wbMiss, "MISS", False);
     endrule
 
     (* conservative_implicit_conditions *)
-    rule stage1_writebackStore (writebackFromStore.ctrl.nextReadyInstance() matches tagged Valid .iid 
+    rule stage1a_writebackStore (writebackFromStore.ctrl.nextReadyInstance() matches tagged Valid .iid 
                                 &&& wbStoreCtrl.producerCanStart());
+        match {.cpu_iid, .local_state} <- stage1aStoreCtrl.nextReadyInstance();
     
         // Process writes from STORE
-        let bus_store <- writebackFromStore.receive(iid);
+        let m_msg <- writebackFromStore.receive(cpu_iid);
         wbStoreCtrl.producerStart();
         wbStoreCtrl.producerDone();
 
-        if (bus_store matches tagged Valid .msg)
-        begin
-        
-            for (Integer x = 0; x < valueof(ISA_MAX_DSTS); x = x + 1)
-            begin
-            
-                if (msg.destRegs[x] matches tagged Valid .pr)
-                begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- STORE", pr));
-                    prfScoreboard.wbStore[x].ready(pr);
-                end
-
-            end
-        
-        end
-        
+        markPRegsReady(cpu_iid, local_state,
+                       m_msg, prfScoreboard.wbStore, "STORE", False);
     endrule
     
         
@@ -428,19 +458,15 @@ module [HASIM_MODULE] mkDecode ();
     // * mispredictFromExe
     // * faultFromCom
     // * bundleFromInstQ
+    // * writebackFromCom
+    // * writebackFromWB
     
     // Ports written:
     // * None
     
     (* conservative_implicit_conditions *)
     rule stage2_dependencies (nGetDepInFlight.isZero() || nRewindInFlight.isZero());
-
-        // Begin model cycle.
-        let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
-        
-        // Extract local state from the cpu instance.
-        let local_state <- statePool.extractState(cpu_iid);
+        match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
         
         let m_mispred <- mispredictFromExe.receive(cpu_iid);
         let m_fault   <- faultFromCom.receive(cpu_iid);
@@ -450,7 +476,7 @@ module [HASIM_MODULE] mkDecode ();
         let commit <- writebackFromCom.receive(cpu_iid);
         if (commit matches tagged Valid .commit_tok)
         begin
-            debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
+            debugLog.record(cpu_iid, fshow(commit_tok) + $format(": Commit"));
             local_state.numInstrsInFlight = local_state.numInstrsInFlight - 1;
         end
 
@@ -458,7 +484,7 @@ module [HASIM_MODULE] mkDecode ();
         let wb <- writebackFromWB.receive(cpu_iid);
         if (wb matches tagged Valid .wb_tok)
         begin
-            debugLog.record_next_cycle(cpu_iid, fshow(wb_tok) + $format(": WriteBuf"));
+            debugLog.record(cpu_iid, fshow(wb_tok) + $format(": WriteBuf"));
             local_state.numInstrsInFlight = local_state.numInstrsInFlight - 1;
         end
 
@@ -466,7 +492,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
             
             // A fault occurred.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: FAULT: ") + fshow(tok));
+            debugLog.record(cpu_iid, fshow("2: FAULT: ") + fshow(tok));
             
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             nRewindInFlight.up();
@@ -485,7 +511,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
 
             // A mispredict occurred.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: MISPREDICT"));
+            debugLog.record(cpu_iid, fshow("2: MISPREDICT"));
 
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             nRewindInFlight.up();
@@ -504,7 +530,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
         
             // We have an instruction to issue, tell the next stage to just proceed.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: Deps ready."));
+            debugLog.record(cpu_iid, fshow("2: Deps ready."));
 
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
@@ -525,7 +551,7 @@ module [HASIM_MODULE] mkDecode ();
             begin
 
                 // We need to retrieve dependencies from the functional partition.
-                debugLog.record_next_cycle(cpu_iid, fshow("2: Request Deps."));
+                debugLog.record(cpu_iid, fshow("2: Request Deps."));
                 getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
                 nGetDepInFlight.up();
                 
@@ -541,7 +567,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 // The instruction is from an old epoch, and we haven't gotten
                 // a token yet. Tell the following stages to drop it.
-                debugLog.record_next_cycle(cpu_iid, fshow("2: SILENT DROP"));
+                debugLog.record(cpu_iid, fshow("2: SILENT DROP"));
 
                 stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_bubble, local_state));
             
@@ -554,7 +580,7 @@ module [HASIM_MODULE] mkDecode ();
             // There's a bubble. Just propogate it.
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
-            debugLog.record_next_cycle(cpu_iid, fshow("2: BUBBLE"));
+            debugLog.record(cpu_iid, fshow("2: BUBBLE"));
             stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_bubble, local_state));
 
         end
@@ -651,6 +677,13 @@ module [HASIM_MODULE] mkDecode ();
         // Extract the next active instance.
         match {.cpu_iid, {.stage4state, .local_state}} <- stage4Ctrl.nextReadyInstance();
 
+        let model_cycle = modelCycle;
+        if (cpu_iid == 0)
+        begin
+            model_cycle = model_cycle + 1;
+            modelCycle <= model_cycle;
+        end
+
         // Registers ready flags are consumed here by readyToGo()
         wbExeCtrl.consumerStart();
         wbHitCtrl.consumerStart();
@@ -701,6 +734,17 @@ module [HASIM_MODULE] mkDecode ();
                     // Yep... we're ready to send it. 
                     let bundle = makeBundle(tok, fetchbundle, deps.dstMap);
                     debugLog.record(cpu_iid, fshow(tok) + fshow(": SEND INST: ") + fshow(fetchbundle.inst) + fshow(" ") + fshow(bundle));
+
+                    Bit#(64) dbg_dst_reg0 = -1;
+                    if (deps.dstMap[0] matches tagged Valid {.ar, .pr})
+                    begin
+                        dbg_dst_reg0 = zeroExtend(pr);
+                    end
+                    stdio.printf(msgSendInst, list(model_cycle, resize(bundle.pc),
+                                                   zeroExtendNP(tok.index.context_id),
+                                                   zeroExtendNP(tok.index.token_id),
+                                                   dbg_dst_reg0));
+
                     eventDec.recordEvent(cpu_iid, tagged Valid zeroExtend(pack(tok.index)));
 
                     // If it's a store, reserve a slot in the store buffer.
@@ -779,7 +823,7 @@ module [HASIM_MODULE] mkDecode ();
 
     // Specify a rule urgency so that if the Scoreboard has less
     // parallelism so there are no compiler warnings.
-    (* conservative_implicit_conditions, descending_urgency = "stage1_writebackMemMiss, stage1_writebackMemHit, stage1_writebackExe, stage5_completeIssue" *)
+    (* conservative_implicit_conditions, descending_urgency = "stage1a_writebackMemMiss, stage1a_writebackMemHit, stage1a_writebackExe, stage5_completeIssue" *)
     rule stage5_completeIssue (True);
         // Extract the next active instance.
         match {.cpu_iid, .cmd} <- stage5Ctrl.nextReadyInstance();

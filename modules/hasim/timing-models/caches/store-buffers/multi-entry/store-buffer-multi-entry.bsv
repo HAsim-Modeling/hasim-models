@@ -288,7 +288,10 @@ module [HASIM_MODULE] mkStoreBuffer ();
                     rspToDMem.send(cpu_iid, tagged Invalid);
 
                     // In some architectures, store may update a register (e.g. Alpha stq_c)
+                    // The branch epoch is irrelevant at this late stage.
+                    let epoch = initEpoch(?, req.bundle.faultEpoch);
                     writebackToDec.send(cpu_iid, tagged Valid genBusMessage(req.bundle.token,
+                                                                            epoch,
                                                                             req.bundle.dests));
 
                     // Get the store respone in the next stage.

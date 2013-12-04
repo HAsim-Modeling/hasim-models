@@ -360,6 +360,7 @@ module [HASIM_MODULE] mkExecute ();
 
             // Tell decode the instruction was dropped, so its dests are "ready."
             writebackToDec.send(cpu_iid, tagged Valid genBusMessage(dmem_bundle.token,
+                                                                    epoch,
                                                                     dmem_bundle.dests));
 
             // Propogate the bubble.

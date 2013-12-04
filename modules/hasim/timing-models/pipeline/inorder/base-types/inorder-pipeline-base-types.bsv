@@ -61,6 +61,7 @@ typedef struct {
 typedef struct
 {
     TOKEN token;
+    TOKEN_EPOCH epoch;
 
     // Registers written (and now available)
     Vector#(ISA_MAX_DSTS,Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs;
@@ -73,10 +74,11 @@ BUS_MESSAGE
 //     Simplest generator for BUS_MESSAGE.  Just fill in the structure.
 //
 function BUS_MESSAGE genBusMessage(TOKEN tok,
+                                   TOKEN_EPOCH epoch,
                                    Vector#(ISA_MAX_DSTS,
                                            Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs);
 
-    return BUS_MESSAGE { token: tok, destRegs: destRegs };
+    return BUS_MESSAGE { token: tok, epoch: epoch, destRegs: destRegs };
 endfunction
 
 
@@ -85,6 +87,7 @@ endfunction
 //     Fill in a BUS_MESSAGE, but apply writeMask to the set of destRegs.
 //
 function BUS_MESSAGE genBusMessageMasked(TOKEN tok,
+                                         TOKEN_EPOCH epoch,
                                          Vector#(ISA_MAX_DSTS,
                                             Maybe#(FUNCP_PHYSICAL_REG_INDEX)) destRegs,
                                          ISA_INST_DSTS_MASK writeMask);
@@ -92,7 +95,9 @@ function BUS_MESSAGE genBusMessageMasked(TOKEN tok,
     function Maybe#(FUNCP_PHYSICAL_REG_INDEX) destRegIfEnabled(Maybe#(FUNCP_PHYSICAL_REG_INDEX) dst, Bool mask) =
         (mask ? dst : tagged Invalid);
 
-    return genBusMessage(tok, zipWith(destRegIfEnabled, destRegs, writeMask));
+    return genBusMessage(tok,
+                         epoch,
+                         zipWith(destRegIfEnabled, destRegs, writeMask));
 endfunction
 
 //
@@ -100,7 +105,10 @@ endfunction
 //     Generate a BUS_MESSAGE for the EXE phase, given a bundle.
 //
 function BUS_MESSAGE genBusMessageEXE(BUNDLE bundle);
-    return genBusMessageMasked(bundle.token, bundle.dests, bundle.writtenAtEXE);
+    return genBusMessageMasked(bundle.token,
+                               initEpoch(bundle.branchEpoch, bundle.faultEpoch),
+                               bundle.dests,
+                               bundle.writtenAtEXE);
 endfunction
 
 
