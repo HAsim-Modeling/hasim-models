@@ -6860,3 +6860,23 @@ Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
 
 - Add STDIO debugging to decode.  There are certainly generalizations to the
   debug code that should be added.
+
+----------
+mcadler     Date: Thu Dec  5 17:43:15 EST 2013  CSN: CSN-hasim-models-223
+                  Thu Dec  5 22:43:15 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          222 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          222 
+
+- Delay calling the functional model to globally commit stores until after
+  the L1 cache timing model informs the write buffer that the write has
+  reached the cache.  This is a little late, but far closer to reality than
+  the old method in which stores became globally visible along with sending
+  stores to the L1 dcache.
+
+- Add a real credit scheme between the store buffer and the write buffer.
+  The old code was too fragile.

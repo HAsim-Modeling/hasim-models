@@ -26,20 +26,21 @@ import FIFOF::*;
 
 // ****** Project imports ******
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/hasim_isa.bsh"
-`include "asim/provides/funcp_simulated_memory.bsh"
-`include "asim/provides/funcp_interface.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/hasim_isa.bsh"
+`include "awb/provides/funcp_simulated_memory.bsh"
+`include "awb/provides/funcp_interface.bsh"
 
 // ****** Timing Model Imports ******
 
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/l1_cache_base_types.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/pipeline_base_types.bsh"
-`include "asim/provides/funcp_memstate_base_types.bsh"
+`include "awb/provides/hasim_modellib.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/l1_cache_base_types.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/pipeline_base_types.bsh"
+`include "awb/provides/write_buffer.bsh"
+`include "awb/provides/funcp_memstate_base_types.bsh"
 
 
 
@@ -66,6 +67,7 @@ typedef struct
     SB_INDEX oldestCommitted;
     SB_INDEX numToCommit;
     SB_INDEX nextFreeSlot;
+    WB_INDEX wbCredits;
 }
 STORE_BUFF_STATE deriving (Eq, Bits);
 
@@ -77,7 +79,8 @@ STORE_BUFF_STATE initStoreBuffState =
         physAddress: replicate(Invalid),
         oldestCommitted: 0,
         numToCommit: 0,
-        nextFreeSlot: 0
+        nextFreeSlot: 0,
+        wbCredits: 0
     };
 
 module [HASIM_MODULE] mkStoreBuffer ();
@@ -94,7 +97,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, TOKEN)             allocFromDec    <- mkPortRecv_Multiplexed("Dec_to_SB_alloc", 1);
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, SB_INPUT)          reqFromDMem     <- mkPortRecv_Multiplexed("DMem_to_SB_req", 0);
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, SB_DEALLOC_INPUT)  deallocFromCom  <- mkPortRecv_Multiplexed("Com_to_SB_dealloc", 1);
-    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID)            creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, WB_INDEX)          creditFromWriteQ  <- mkPortRecv_Multiplexed("WB_to_SB_credit", 1);
 
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, SB_OUTPUT)      rspToDMem     <- mkPortSend_Multiplexed("SB_to_DMem_rsp");
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID)          creditToDecode <- mkPortSend_Multiplexed("SB_to_Dec_credit");
@@ -366,7 +369,12 @@ module [HASIM_MODULE] mkStoreBuffer ();
 
         // See if the Write Buffer has room.
         let m_credit <- creditFromWriteQ.receive(cpu_iid);
-        let write_buff_has_credit = isValid(m_credit);
+        if (m_credit matches tagged Valid .c)
+        begin
+            local_state.wbCredits = local_state.wbCredits + 1;
+            debugLog.record(cpu_iid, $format("%0d new WB credits, now %0d", c, local_state.wbCredits));
+        end
+        let write_buff_has_credit = (local_state.wbCredits != 0);
 
         // We need to dealloc if we have pending commmits.
         if (local_state.numToCommit != 0)
@@ -387,7 +395,8 @@ module [HASIM_MODULE] mkStoreBuffer ();
                 tagged Valid .tok:
                 begin
                     // The oldest token has been committed. Let's see if we can send it to the write buffer.
-                    if (local_state.physAddress[local_state.oldestCommitted] matches tagged Valid .phys_addr &&& write_buff_has_credit)
+                    if (local_state.physAddress[local_state.oldestCommitted] matches tagged Valid .phys_addr &&&
+                        write_buff_has_credit)
                     begin
 
                         // It's got room. Let's send the oldest store.
@@ -401,6 +410,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
                         local_state.tokID[local_state.oldestCommitted] = tagged Invalid;
                         local_state.oldestCommitted = local_state.oldestCommitted + 1;
                         local_state.numToCommit = local_state.numToCommit - 1;
+                        local_state.wbCredits = local_state.wbCredits - 1;
 
                     end
                     else

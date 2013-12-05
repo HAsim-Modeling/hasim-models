@@ -25,20 +25,21 @@ import FIFO::*;
 
 // ****** Project imports ******
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/hasim_isa.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/funcp_simulated_memory.bsh"
-`include "asim/provides/funcp_interface.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/common_services.bsh"
+`include "awb/provides/hasim_isa.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/funcp_simulated_memory.bsh"
+`include "awb/provides/funcp_interface.bsh"
 
 
 // ****** Timing Model imports ******
 
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/pipeline_base_types.bsh"
-`include "asim/provides/l1_cache_base_types.bsh"
+`include "awb/provides/hasim_modellib.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/pipeline_base_types.bsh"
+`include "awb/provides/l1_cache_base_types.bsh"
 
 
 
@@ -57,6 +58,7 @@ typedef struct
     WB_INDEX head;
     WB_INDEX tail;
     Bool stalled;
+    Bool didCreditInit;
 }
 WRITE_BUFF_STATE deriving (Eq, Bits);
 
@@ -66,7 +68,8 @@ WRITE_BUFF_STATE initWriteBuffState =
         buff: replicate(Invalid),
         head: 0,
         tail: 0,
-        stalled: False
+        stalled: False,
+        didCreditInit: False
     };
 
 module [HASIM_MODULE] mkWriteBuffer ();
@@ -86,7 +89,8 @@ module [HASIM_MODULE] mkWriteBuffer ();
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, WB_ENTRY)      enqFromSB  <- mkPortRecv_Multiplexed("SB_to_WB_enq", 1);
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, WB_SEARCH_INPUT) loadReqFromDMem <- mkPortRecv_Multiplexed("DMem_to_WB_search", 0);
 
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID)          creditToSB <- mkPortSend_Multiplexed("WB_to_SB_credit");
+    // 
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, WB_INDEX) creditToSB <- mkPortSend_Multiplexed("WB_to_SB_credit");
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_INPUT) storeReqToDCache <- mkPortSend_Multiplexed("CPU_to_DCache_store");
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, WB_SEARCH_OUTPUT)   rspToDMem     <- mkPortSend_Multiplexed("WB_to_DMem_rsp");
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_IMMEDIATE) immediateRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_store_immediate");
@@ -117,7 +121,12 @@ module [HASIM_MODULE] mkWriteBuffer ();
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("Write Buffer", inports, depports, outports);
 
     STAGE_CONTROLLER#(MAX_NUM_CPUS, WRITE_BUFF_STATE) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(WRITE_BUFF_STATE, Bool)) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, WRITE_BUFF_STATE) stage3Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(WRITE_BUFF_STATE, Bool)) stage4Ctrl <- mkBufferedStageController();
+
+    // ****** Assertion ******
+    let checkBufNotFull <- mkAssertionStrPvtChecker("write-buffer-blocking.bsv: request received but buffer is full!",
+                                                    ASSERT_ERROR);
 
     // ****** Rules ******
 
@@ -139,15 +148,12 @@ module [HASIM_MODULE] mkWriteBuffer ();
         case (m_req) matches
             tagged Invalid:
             begin
-
                 // Propogate the bubble.
                 debugLog.record_next_cycle(cpu_iid, fshow("NO SEARCH"));
                 rspToDMem.send(cpu_iid, Invalid);
-
             end
             tagged Valid .bundle:
             begin
-
                 // Luckily, since we're a simulation, we don't actually 
                 // need to retrieve the value, which makes the hardware a LOT simpler
                 // as we don't need to get the "youngest store older than this load"
@@ -169,28 +175,22 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
                 if (hit)
                 begin
-
                     // We've got that address in the store buffer.
                     debugLog.record_next_cycle(cpu_iid, fshow("LOAD HIT ") + fshow(bundle.token));
 
                     rspToDMem.send(cpu_iid, tagged Valid initWBHit(bundle));
-
                 end
                 else
                 begin
-
                     // We don't have it.
                     debugLog.record_next_cycle(cpu_iid, fshow("LOAD MISS ") + fshow(bundle.token));
                     rspToDMem.send(cpu_iid, tagged Valid initWBMiss(bundle));
-
                 end
-
             end
         endcase
         
         // Continue to the next stage.
         stage2Ctrl.ready(cpu_iid, local_state);
-
     endrule
 
     (* conservative_implicit_conditions *)
@@ -205,78 +205,43 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
         if (m_enq matches tagged Valid {.st_tok, .addr})
         begin
-        
             // Allocate a new slot.
-            // assert !full(cpu_iid)
             debugLog.record(cpu_iid, fshow("ALLOC ") + fshow(st_tok));
             local_state.buff[local_state.tail] = tagged Valid tuple2(st_tok, addr);
 
             local_state.tail = local_state.tail + 1;
-            
-            // Tell the functional partition to commit the store.
-            commitStores.makeReq(initFuncpReqCommitStores(st_tok));
-            stall_for_store_rsp = True;
-        
-        end
-        
-        // Calculate the credit for the SB.
-        if ((local_state.tail + 1) != local_state.head)
-        begin
-
-            // Tell the SB we still have room.
-            debugLog.record(cpu_iid, fshow("SEND CREDIT"));
-            creditToSB.send(cpu_iid, tagged Valid (?));
-
-        end
-        else
-        begin
-
-            // Tell the SB we're full.
-            debugLog.record(cpu_iid, fshow("NO CREDIT"));
-            creditToSB.send(cpu_iid, tagged Invalid);
-        
+            checkBufNotFull(local_state.tail != local_state.head);
+            if (local_state.tail == local_state.head)
+            begin
+                debugLog.record(cpu_iid, $format("ALLOC: Request received but buffer is full!"));
+            end
         end
 
         // If we were empty we're done. (The new allocation doesn't count.) 
         // Otherwise the next stage will try to deallocate the oldest write.
         if (empty(local_state) || local_state.stalled)
         begin
-
             // No request to the DCache.
             storeReqToDCache.send(cpu_iid, tagged Invalid);
-
         end
         else
         begin
-
             // Request a store of the oldest write.
             match {.st_tok, .phys_addr} = validValue(local_state.buff[local_state.head]);
             storeReqToDCache.send(cpu_iid, tagged Valid initDCacheStore(phys_addr));
-
         end
 
         // Continue to the next stage.
-        stage3Ctrl.ready(cpu_iid, tuple2(local_state, stall_for_store_rsp));
-
+        stage3Ctrl.ready(cpu_iid, local_state);
     endrule
 
 
     rule stage3_storeRsp (True);
-    
         // Get our context from the previous stage.
-        match {.cpu_iid, {.local_state, .get_rsp}} <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
 
-        if (get_rsp)
-        begin
-            let rsp = commitStores.getResp();
-            commitStores.deq();
-
-            writebackToDec.send(cpu_iid, tagged Valid rsp.storeToken);
-        end
-        else
-        begin
-            writebackToDec.send(cpu_iid, tagged Invalid);
-        end
+        let st_tok = tpl_1(validValue(local_state.buff[local_state.head]));
+        Bool did_commitStores = False;
 
         // Get the responses from the DCache.
         let m_imm_rsp <- immediateRspFromDCache.receive(cpu_iid);
@@ -284,55 +249,85 @@ module [HASIM_MODULE] mkWriteBuffer ();
         
         if (local_state.stalled &&& m_del_rsp matches tagged Valid .rsp)
         begin
-        
-            debugLog.record(cpu_iid, fshow("STORE FILL"));
+            debugLog.record(cpu_iid, fshow("STORE FILL ") + fshow(st_tok));
             // We're no longer stalled. We'll retry the store next cycle.
             local_state.stalled = False;
-        
         end
         else if (m_imm_rsp matches tagged Valid .rsp)
         begin
-        
             case (rsp) matches
-
                 tagged DCACHE_ok:
                 begin
-                    
-                    debugLog.record(cpu_iid, fshow("STORE OK"));
+                    debugLog.record(cpu_iid, fshow("STORE OK ") + fshow(st_tok));
                     // Dequeue the buffer.
                     local_state.buff[local_state.head] = tagged Invalid;
                     local_state.head = local_state.head + 1;
-                    
+
+                    // Tell the functional partition to commit the store.
+                    commitStores.makeReq(initFuncpReqCommitStores(st_tok));
+                    did_commitStores = True;
                 end
 
                 tagged DCACHE_delay .miss_id:
                 begin
-                    
                     debugLog.record(cpu_iid, fshow("STORE DELAY"));
                     // Stall on a response
                     local_state.stalled = True;
-                    
                 end
 
                 tagged DCACHE_retryStore:
                 begin
-                
                     debugLog.record(cpu_iid, fshow("STORE RETRY"));
                     // No change. Try again next cycle.
                     noAction;
-                
                 end
-
             endcase
-        
         end
 
-
-        // End of model cycle. (Path 1)
-        localCtrl.endModelCycle(cpu_iid, 1);
-        statePool.insertState(cpu_iid, local_state);
-
+        // Continue to the next stage.
+        stage4Ctrl.ready(cpu_iid, tuple2(local_state, did_commitStores));
     endrule
 
-endmodule
 
+    rule stage4_funcpRsp (True);
+        // Get our context from the previous stage.
+        match {.cpu_iid, {.local_state, .did_commitStores}} <- stage4Ctrl.nextReadyInstance();
+
+        // Was the functional model told to commit a store that is now in the
+        // cache?
+        if (did_commitStores)
+        begin
+            let rsp = commitStores.getResp();
+            commitStores.deq();
+
+            writebackToDec.send(cpu_iid, tagged Valid rsp.storeToken);
+
+            // Tell the SB we still have room.
+            creditToSB.send(cpu_iid, tagged Valid 1);
+            debugLog.record(cpu_iid, $format("1 credit to SB"));
+        end
+        else
+        begin
+            writebackToDec.send(cpu_iid, tagged Invalid);
+
+            // First pass must send full buffer credits to the store buffer
+            if (! local_state.didCreditInit)
+            begin
+                WB_INDEX c = fromInteger(valueOf(TSub#(`WB_NUM_ENTRIES, 1)));
+                creditToSB.send(cpu_iid, tagged Valid c);
+                debugLog.record(cpu_iid, $format("%0d credits to SB", c));
+
+                local_state.didCreditInit = True;
+            end
+            else
+            begin
+                creditToSB.send(cpu_iid, tagged Invalid);
+                debugLog.record(cpu_iid, $format("No new credit to SB"));
+            end
+        end
+
+        // End of model cycle. (Path 1)
+        statePool.insertState(cpu_iid, local_state);
+        localCtrl.endModelCycle(cpu_iid, 1);
+    endrule
+endmodule
