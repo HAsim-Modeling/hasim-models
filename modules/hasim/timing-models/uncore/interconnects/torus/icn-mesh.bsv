@@ -23,6 +23,7 @@ import FIFOF::*;
 import FShow::*;
 import GetPut::*;
 import Connectable::*;
+import DefaultValue::*;
 
 
 // ******* Project Imports *******
@@ -66,6 +67,27 @@ typedef 2 NUM_VC_FIFO_PACKETS;
 typedef TMul#(MAX_FLITS_PER_PACKET, NUM_VC_FIFO_PACKETS) NUM_VC_FIFO_ENTRIES;
 
 //
+// Each virtual channel has a FIFO buffer.  This data structure manages the
+// FIFO and caches the first entry.  To limit the use of wide memories and
+// large inter-rule messages, the rest of the buffered data is stored
+// in a memory.
+//
+typedef TLog#(NUM_VC_FIFO_ENTRIES) VC_FIFO_ENTRY_IDX_SZ;
+typedef Bit#(VC_FIFO_ENTRY_IDX_SZ) VC_FIFO_ENTRY_IDX;
+typedef struct
+{
+    FUNC_FIFO_IDX#(NUM_VC_FIFO_ENTRIES) fifo;
+    MESH_FLIT first;
+}
+VC_FIFO_STATE
+    deriving (Eq, Bits);
+
+instance DefaultValue#(VC_FIFO_STATE);
+    defaultValue = VC_FIFO_STATE { fifo: funcFIFO_IDX_Init, first: ? };
+endinstance
+
+
+//
 // The order of port numbering is critical!  North, east, south and west must be
 // the first 4 entries in order to fit in the stationRoutingTable.
 //
@@ -75,7 +97,7 @@ PORT_IDX portSouth  = 2;
 PORT_IDX portWest   = 3;
 PORT_IDX portLocal  = 4;
 
-Integer numPorts = 5;
+Integer numPorts = valueOf(NUM_PORTS);
 
 function String portShow(PORT_IDX p);
 
@@ -90,8 +112,33 @@ function String portShow(PORT_IDX p);
 
 endfunction
 
+//
+// Vectors of lanes and channels.
+//
 typedef Vector#(NUM_LANES, Vector#(VCS_PER_LANE, t_DATA)) LANE_STATE#(parameter type t_DATA);
 typedef Vector#(NUM_PORTS, LANE_STATE#(t_DATA)) VC_STATE#(parameter type t_DATA);
+
+// Helper function to initialize a vector of VCs.
+function VC_STATE#(t_DATA) initVCState(t_DATA v) = replicate(replicate(replicate(v)));
+
+// Flattened representation of a VC_STATE.
+typedef Vector#(TMul#(NUM_PORTS, TMul#(NUM_LANES, VCS_PER_LANE)),
+                t_DATA) VC_STATE_FLAT#(parameter type t_DATA);
+
+function VC_STATE_FLAT#(t_DATA) flattenVCState(VC_STATE#(t_DATA) v) =
+    concat(concat(v));
+
+
+// Lane, virtual channel and some Data.  This is often used associated with
+// a port.
+typedef struct
+{
+    LANE_IDX lane;
+    VC_IDX vc;
+    t_DATA val;
+}
+LANE_VC_DATA#(type t_DATA);
+
 
 typedef enum
 {
@@ -118,7 +165,7 @@ WINNER_INFO
 module [HASIM_MODULE] mkInterconnect
     // interface:
     ()
-    provisos (Alias#(FUNC_FIFO#(MESH_FLIT, NUM_VC_FIFO_ENTRIES), t_VC_FIFO),
+    provisos (Alias#(VC_FIFO_STATE, t_VC_FIFO),
               Alias#(Tuple5#(PORT_IDX, LANE_IDX, VC_IDX, PORT_IDX, VC_IDX), t_OUT_VC_REQ),
               Alias#(Vector#(NUM_STATIONS, Bit#(2)), t_ROUTING_TABLE));
 
@@ -219,21 +266,26 @@ module [HASIM_MODULE] mkInterconnect
     // This module simulates by reading/writing it's multiplexed ports once for every CPU,
     // and reading/writing the (non-multiplexed) memory controller port once.
 
-    // The actual virtual channels. Stored as logical FIFOs in a single Distributed RAM FIFO.
+    // Virtual channel buffer management.  Meta-data for each channel FIFO
+    // is stored here.
     MULTIPLEXED_STATE_POOL#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) virtualChannelsPool <-
-        mkMultiplexedStatePool(replicate(replicate(replicate(funcFIFO_Init))));
+        mkMultiplexedStatePool(initVCState(defaultValue));
+
+    // Values stored in virtual channel buffers.  The meta-data to manage
+    // these entries as FIFOs is stored in virtualChannelsPool.
+    VC_BUFFER_STORAGE#(NUM_STATIONS) vcBufferEntries <- mkVCBufferStorage(debugLog);
 
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(PORT_IDX))) routesPool <-
-        mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
+        mkMultiplexedReg(initVCState(tagged Invalid));
 
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(VC_IDX))) outputVCsPool <-
-        mkMultiplexedReg(replicate(replicate(replicate(tagged Invalid))));
+        mkMultiplexedReg(initVCState(tagged Invalid));
 
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Bool)) usedVCsPool <-
-        mkMultiplexedReg(replicate(replicate(replicate(False))));
+        mkMultiplexedReg(initVCState(False));
 
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(VC_CREDIT_CNT)) outputCreditsPool <-
-        mkMultiplexedReg(replicate(replicate(replicate(fromInteger(valueOf(0))))));
+        mkMultiplexedReg(initVCState(fromInteger(valueOf(0))));
 
     MULTIPLEXED_REG#(NUM_STATIONS, Bool) creditInitializedPool <-
         mkMultiplexedReg(False);
@@ -288,12 +340,19 @@ module [HASIM_MODULE] mkInterconnect
                                             VC_STATE#(t_VC_FIFO)))
         stage3aCtrl <- mkStageController();
 
-    STAGE_CONTROLLER#(NUM_STATIONS, Tuple5#(VC_STATE#(VC_CREDIT_CNT),
+    STAGE_CONTROLLER#(NUM_STATIONS, Tuple4#(VC_STATE#(VC_CREDIT_CNT),
                                             Vector#(NUM_PORTS, Maybe#(WINNER_INFO)),
                                             VC_STATE#(t_VC_FIFO),
-                                            Vector#(NUM_PORTS, Bool),
                                             Vector#(NUM_PORTS, Maybe#(MESH_MSG))))
         stage3bCtrl <- mkStageController();
+
+    STAGE_CONTROLLER#(NUM_STATIONS, Tuple6#(VC_STATE#(VC_CREDIT_CNT),
+                                            VC_STATE#(t_VC_FIFO),
+                                            VC_STATE#(Maybe#(PORT_IDX)), // routes
+                                            VC_STATE#(Maybe#(VC_IDX)),   // outputVCs
+                                            VC_STATE#(Bool),             // usedVCs
+                                            Bool))                       // new first entry?
+        stage3cCtrl <- mkBufferedStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple5#(VC_STATE#(VC_CREDIT_CNT),
                                             VC_STATE#(t_VC_FIFO),
@@ -332,7 +391,7 @@ module [HASIM_MODULE] mkInterconnect
 
 
     // ******** Router Functions *********
-    
+
     // The station routing table holds, for each station, the direction of
     // the next hop to all other stations.  The table stores one of north,
     // east, south and west.
@@ -484,7 +543,7 @@ module [HASIM_MODULE] mkInterconnect
         //   existed when the outbound route was built.
         //
         function isReadyVC(Integer in_p, Integer ln, Integer vc);
-            if (funcFIFO_notEmpty(virtualChannels[in_p][ln][vc]) &&&
+            if (funcFIFO_IDX_notEmpty(virtualChannels[in_p][ln][vc].fifo) &&&
                 routes[in_p][ln][vc] matches tagged Valid .out_p &&&
                 outputVCs[in_p][ln][vc] matches tagged Valid .out_vc)
             begin
@@ -533,7 +592,7 @@ module [HASIM_MODULE] mkInterconnect
                 let out_p = validValue(routes[in_p][ln][in_vc]);
                 let out_vc = validValue(outputVCs[in_p][ln][in_vc]);
 
-                let msg = funcFIFO_UGfirst(virtualChannels[in_p][ln][in_vc]);
+                let msg = virtualChannels[in_p][ln][in_vc].first;
 
                 debugLog.record(iid, $format("2: VCA: PICK in port %s ln %0d vc %0d, out port %s: ",
                                              portShow(fromInteger(in_p)), ln, in_vc, portShow(out_p)) +
@@ -606,8 +665,11 @@ module [HASIM_MODULE] mkInterconnect
         // Find unique winners.  (At most one consumer of a given output port.)
         //
 
-        Vector#(NUM_PORTS, Bool) in_port_used = replicate(False);
         Vector#(NUM_PORTS, LOCAL_ARBITER_OPAQUE#(NUM_PORTS)) arbiters_out = ?;
+
+        // By the end of the next loop, vc_arb_winners will have only the
+        // vc_winners that also won port arbitration.
+        Vector#(NUM_PORTS, Maybe#(WINNER_INFO)) vc_arb_winners = replicate(tagged Invalid);
 
         for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
         begin
@@ -616,9 +678,8 @@ module [HASIM_MODULE] mkInterconnect
 
             if (grant_idx matches tagged Valid .in_p)
             begin
+                vc_arb_winners[in_p] = vc_winners[in_p];
                 let info = validValue(vc_winners[in_p]);
-
-                in_port_used[in_p] = True;
 
                 // Built a structure of outbound messages, indexed by the
                 // output port.
@@ -634,16 +695,15 @@ module [HASIM_MODULE] mkInterconnect
         // Record the updated internal arbiter state.
         arbiters <= arbiters_out;
 
-        stage3bCtrl.ready(iid, tuple5(output_credits, vc_winners, virtualChannels, in_port_used, msg_to));
+        stage3bCtrl.ready(iid, tuple4(output_credits, vc_arb_winners, virtualChannels, msg_to));
 
     endrule
 
 
-    (* conservative_implicit_conditions *)
     rule stage3b_crossbarSend (True);
         
         // Get the info from the previous stage.
-        match {.iid, {.output_credits, .vc_winners, .virtualChannels, .in_port_used, .msg_to}} <- stage3bCtrl.nextReadyInstance();
+        match {.iid, {.output_credits, .vc_arb_winners, .virtualChannels, .msg_to}} <- stage3bCtrl.nextReadyInstance();
 
         // Read our local state from the pools.
         Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes    = routesPool.getReg(iid);
@@ -658,6 +718,13 @@ module [HASIM_MODULE] mkInterconnect
         VC_STATE#(Bool)             new_used_vcs = usedVCs;
         VC_STATE#(Maybe#(VC_IDX)) new_output_vcs = outputVCs;
 
+        // Record incoming VC buffer consumption.  DEQ may lead to needing
+        // to read from the buffer to find the next entry.
+        Vector#(NUM_PORTS, Maybe#(Tuple3#(LANE_IDX,
+                                          VC_IDX,
+                                          VC_FIFO_ENTRY_IDX))) in_vc_new_first =
+            replicate(tagged Invalid);
+
         //
         // Act on the routing crossbar decisions.  There are two loops here
         // for simpler hardware: one indexed by the input port and one by the
@@ -669,12 +736,24 @@ module [HASIM_MODULE] mkInterconnect
             // New sender credit tracking
             VC_CREDIT_MSG sender_credits = replicate(replicate(0));
 
-            if (in_port_used[in_p])
+            if (vc_arb_winners[in_p] matches tagged Valid .info)
             begin
-                let info = validValue(vc_winners[in_p]);
+                // Prepare to DEQ incoming flit
+                new_vcs[in_p][info.lane][info.inputVC].fifo =
+                    funcFIFO_IDX_UGdeq(virtualChannels[in_p][info.lane][info.inputVC].fifo);
 
-                // Deq incoming flit
-                new_vcs[in_p][info.lane][info.inputVC] = funcFIFO_UGdeq(virtualChannels[in_p][info.lane][info.inputVC]);
+                // Any more entries in the FIFO?
+                if (funcFIFO_IDX_notEmpty(new_vcs[in_p][info.lane][info.inputVC].fifo))
+                begin
+                    let first_idx = funcFIFO_IDX_first(new_vcs[in_p][info.lane][info.inputVC].fifo);
+                    in_vc_new_first[in_p] =
+                        tagged Valid tuple3(info.lane, info.inputVC, first_idx);
+                    debugLog.record(iid, $format("3b: new first idx %0d, in port %s ln %0d vc %0d", first_idx, portShow(fromInteger(in_p)), info.lane, info.inputVC));
+                end
+                else
+                begin
+                    debugLog.record(iid, $format("3b: FIFO now empty, in port %s ln %0d vc %0d", portShow(fromInteger(in_p)), info.lane, info.inputVC));
+                end
 
                 // End of packet?
                 if (info.message matches tagged FLIT_BODY .body_info &&& body_info.isTail)
@@ -687,7 +766,7 @@ module [HASIM_MODULE] mkInterconnect
                     // Give sender credit for another packet
                     sender_credits[info.lane][info.inputVC] = 1;
 
-                    debugLog.record(iid, $format("3: SA: Send credit (tail) on in port %s ln %0d vc %0d", portShow(fromInteger(in_p)), info.lane, info.inputVC));
+                    debugLog.record(iid, $format("3b: Send credit (tail) on in port %s ln %0d vc %0d", portShow(fromInteger(in_p)), info.lane, info.inputVC));
                 end
             end
 
@@ -719,8 +798,46 @@ module [HASIM_MODULE] mkInterconnect
             enqTo[out_p].send(iid, msg_to[out_p]);
         end
 
-        stage4Ctrl.ready(iid, tuple5(output_credits, new_vcs, new_routes, new_output_vcs, new_used_vcs));
+        // Any updated first entries due to DEQ of current oldest buffer slot?
+        Bool new_first = any(isValid, in_vc_new_first);
+        if (new_first)
+        begin
+            vcBufferEntries.readReq(iid, in_vc_new_first);
+        end
 
+        stage3cCtrl.ready(iid, tuple6(output_credits, new_vcs, new_routes, new_output_vcs, new_used_vcs, new_first));
+    endrule
+
+
+    //
+    // stage3c_updFirst --
+    //   Receive new channel buffer FIFO head updates from the channel buffer.
+    //   These were requested in the previous pipeline stage as a side effect
+    //   of DEQ requests.
+    //
+    rule stage3c_updFirst (True);
+        // Get the info from the previous stage.
+        match {.iid, {.output_credits, .virtual_channels, .routes, .output_vcs, .used_vcs, .new_first}} <- stage3cCtrl.nextReadyInstance();
+        debugLog.record(iid, $format("3c: Begin."));
+
+        VC_STATE#(t_VC_FIFO) new_virtual_channels = virtual_channels;
+        // Are there any new first entries to cache?
+        if (new_first)
+        begin
+            // Receive update from the channel buffer manager.
+            let m_upd_first <- vcBufferEntries.readRsp(iid);
+
+            for (Integer p = 0 ; p < numPorts; p = p + 1)
+            begin
+                if (m_upd_first[p] matches tagged Valid {.ln, .vc, .flit})
+                begin
+                    new_virtual_channels[p][ln][vc].first = flit;
+                    debugLog.record(iid, $format("3c: ") + fshow(flit) + $format(" now first, in port %s ln %0d vc %0d", portShow(fromInteger(p)), ln, vc));
+                end
+            end
+        end
+
+        stage4Ctrl.ready(iid, tuple5(output_credits, new_virtual_channels, routes, output_vcs, used_vcs));
     endrule
 
 
@@ -740,8 +857,8 @@ module [HASIM_MODULE] mkInterconnect
             match {.vc_fifo, .cur_route} = req;
 
             // Is this a new head flit with no assigned output port?
-            if (funcFIFO_UGfirst(vc_fifo) matches tagged FLIT_HEAD .msg &&&
-                funcFIFO_notEmpty(vc_fifo) &&&
+            if (vc_fifo.first matches tagged FLIT_HEAD .msg &&&
+                funcFIFO_IDX_notEmpty(vc_fifo.fifo) &&&
                 ! isValid(cur_route))
             begin
                 // Yes: Compute a new route
@@ -770,7 +887,7 @@ module [HASIM_MODULE] mkInterconnect
                     begin
                         debugLog.record(iid, $format("4: RC: ROUTE in port %s ln %0d vc %0d, out port %s: ",
                                                      portShow(fromInteger(in_p)), ln, vc, portShow(out_p)) +
-                                             fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][vc])));
+                                             fshow(virtual_channels[in_p][ln][vc].first));
                     end
                 end
             end
@@ -810,9 +927,9 @@ module [HASIM_MODULE] mkInterconnect
                                                     Maybe#(VC_IDX)) req);
             match {.in_vc, .vc_fifo, .out_p, .cur_out_vc} = req;
 
-            if (funcFIFO_notEmpty(vc_fifo) &&&
+            if (funcFIFO_IDX_notEmpty(vc_fifo.fifo) &&&
                 //  - The oldest entry in the FIFO is a flit head
-                funcFIFO_UGfirst(vc_fifo) matches tagged FLIT_HEAD .info &&&
+                vc_fifo.first matches tagged FLIT_HEAD .info &&&
                 //  - The incoming channel has an output port assigned
                 out_p matches tagged Valid .rt &&&
                 //  - The incoming channel has no output channel assigned
@@ -854,22 +971,22 @@ module [HASIM_MODULE] mkInterconnect
                     begin
                         debugLog.record(iid, $format("4: RC: REQ OUT VC in port %s ln %0d vc %0d, out port %s vc %0d: ",
                                                      portShow(fromInteger(in_p)), ln, vc, portShow(tpl_4(req)), tpl_5(req)) +
-                                             fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][vc])));
+                                             fshow(virtual_channels[in_p][ln][vc].first));
                     end
-                    else if (funcFIFO_notEmpty(virtual_channels[in_p][ln][vc]) &&&
-                             funcFIFO_UGfirst(virtual_channels[in_p][ln][vc]) matches tagged FLIT_HEAD .info)
+                    else if (funcFIFO_IDX_notEmpty(virtual_channels[in_p][ln][vc].fifo) &&&
+                             virtual_channels[in_p][ln][vc].first matches tagged FLIT_HEAD .info)
                     begin
                         if (routes[in_p][ln][vc] matches tagged Valid .rt)
                         begin
                             debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d, out port %s: ",
                                                          portShow(fromInteger(in_p)), ln, vc, portShow(rt)) +
-                                                 fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][vc])));
+                                                 fshow(virtual_channels[in_p][ln][vc].first));
                         end
                         else
                         begin
                             debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d: ",
                                                          portShow(fromInteger(in_p)), ln, vc) +
-                                                 fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][vc])));
+                                                 fshow(virtual_channels[in_p][ln][vc].first));
                         end
                     end
                 end
@@ -954,7 +1071,7 @@ module [HASIM_MODULE] mkInterconnect
             debugLog.record(iid, $format("5: RC: ARB 0x%x grant %0d", pack(linear_vc_req_vec), idx));
             debugLog.record(iid, $format("5: RC: GRANT OUT VC in port %s ln %0d vc %0d, out port %s vc %0d, credit %0d: ",
                                          portShow(in_p), ln, in_vc, portShow(out_p), out_vc, upd_credits[out_p][ln][out_vc]) +
-                                 fshow(funcFIFO_UGfirst(virtual_channels[in_p][ln][in_vc])));
+                                 fshow(virtual_channels[in_p][ln][in_vc].first));
 
             // Update credits
             upd_credits[out_p][ln][out_vc] = upd_credits[out_p][ln][out_vc] - 1;
@@ -973,7 +1090,7 @@ module [HASIM_MODULE] mkInterconnect
             Bit#(1) flit_isHead = 0;
             Bit#(1) flit_isTail = 0;
             Bit#(1) flit_isStore = 0;
-            let flit = funcFIFO_UGfirst(virtual_channels[in_p][ln][in_vc]);
+            let flit = virtual_channels[in_p][ln][in_vc].first;
             if (flit matches tagged FLIT_HEAD .f)
             begin
                 flit_isHead = 1;
@@ -1021,9 +1138,11 @@ module [HASIM_MODULE] mkInterconnect
         VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
         Bool allDstsNotFull = True;
 
+        Vector#(NUM_PORTS, Maybe#(Tuple2#(VC_FIFO_ENTRY_IDX, MESH_MSG))) writes =
+            replicate(tagged Invalid);
+    
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
-            
             // Deal with input enqueues from each direction.
             let m_enq <- enqFrom[p].receive(iid);
             if (m_enq matches tagged Valid {.ln, .vc, .flit})
@@ -1047,11 +1166,30 @@ module [HASIM_MODULE] mkInterconnect
                     debugLog.record(iid, $format("6: BW: ENQ in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(new_flit));
                 end
 
+                let new_enq = tuple3(ln, vc, new_flit);
+
                 // Compute this for checkBufNotFull() assertion below
                 allDstsNotFull = allDstsNotFull &&
-                                 funcFIFO_notFull(virtualChannels[p][ln][vc]);
+                                 funcFIFO_IDX_notFull(virtualChannels[p][ln][vc].fifo);
 
-                new_vcs[p][ln][vc] = funcFIFO_UGenq(virtualChannels[p][ln][vc], new_flit);
+                match {.fifo_state, .fifo_idx} =
+                    funcFIFO_IDX_UGenq(virtualChannels[p][ln][vc].fifo);
+                new_vcs[p][ln][vc].fifo = fifo_state;
+
+                // New flit goes either to the "first" cache if the buffer is
+                // currently empty or to the channel FIFO memory.
+                if (! funcFIFO_IDX_notEmpty(virtualChannels[p][ln][vc].fifo))
+                begin
+                    // Bypass (FIFO empty)
+                    new_vcs[p][ln][vc].first = new_flit;
+                    debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" is head"));
+                end
+                else
+                begin
+                    // Write new flit to buffer memory
+                    writes[p] = tagged Valid tuple2(fifo_idx, new_enq);
+                    debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" to idx %0d", fifo_idx));
+                end
             end
         end
 
@@ -1059,8 +1197,150 @@ module [HASIM_MODULE] mkInterconnect
 
         virtualChannelsPool.insertState(iid, new_vcs);
 
+        // Any flits to write to the FIFO buffer pool?
+        Bool new_writes = any(isValid, writes);
+        if (new_writes)
+        begin
+            // Note that this code doesn't bother with writeAck since the
+            // vcBufferEntries implementation in use doesn't need it.
+            // A true writeAck implementation would require another
+            // pipeline stage here to consume it.
+            vcBufferEntries.write(iid, writes);
+        end
+
         // End of model cycle
         localCtrl.endModelCycle(iid, 0);
     endrule
+endmodule
 
+
+//
+// VC_BUFFER_STORAGE --
+//   manage access to virtual channel buffers.  The methods allow for either
+//   an implementation that updates all ports in parallel or one that serializes
+//   them.
+//
+interface VC_BUFFER_STORAGE#(type n_STATIONS);
+    // Write one or more VC updates to the buffer.  Write ack confirms that all
+    // writes are complete.
+    method Action write(INSTANCE_ID#(n_STATIONS) iid,
+                        Vector#(NUM_PORTS,
+                                Maybe#(Tuple2#(VC_FIFO_ENTRY_IDX,
+                                               MESH_MSG))) vals);
+    method Action writeAck(INSTANCE_ID#(n_STATIONS) iid);
+
+    method Action readReq(INSTANCE_ID#(n_STATIONS) iid,
+                          Vector#(NUM_PORTS,
+                                  Maybe#(Tuple3#(LANE_IDX,
+                                                 VC_IDX,
+                                                 VC_FIFO_ENTRY_IDX))) reqs);
+    method ActionValue#(Vector#(NUM_PORTS,
+                                Maybe#(MESH_MSG))) readRsp(INSTANCE_ID#(n_STATIONS) iid);
+endinterface
+
+module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATIONS) debugLog)
+    // Interface:
+    (VC_BUFFER_STORAGE#(n_STATIONS))
+    provisos (Bits#(PORT_IDX, t_PORT_IDX_SZ),
+              Bits#(LANE_IDX, t_LANE_IDX_SZ),
+              Bits#(VC_IDX, t_VC_IDX_SZ),
+
+              // Unified address space for all channel buffer entries
+              Alias#(t_GLOB_VC_ENTRY_IDX, Bit#(TAdd#(t_LANE_IDX_SZ,
+                                                     TAdd#(t_VC_IDX_SZ,
+                                                           VC_FIFO_ENTRY_IDX_SZ)))));
+
+    Vector#(NUM_PORTS,
+            MEMORY_IFC_MULTIPLEXED#(n_STATIONS,
+                                    t_GLOB_VC_ENTRY_IDX,
+                                    MESH_FLIT)) vcBufferEntries <-
+        replicateM(mkMemory_Multiplexed(mkBRAM));
+
+    
+    //
+    // vcGlobIdx --
+    //   Generic function for mapping a per-channel indexed space into a global
+    //   indexed space.  This is used by VC channel buffers to store all
+    //   buffer entires for all channels in a single, linear, memory.
+    //
+    function Bit#(t_IDX_SZ) vcGlobIdx(LANE_IDX lane, VC_IDX vc, t_PVT_IDX idx)
+        provisos (Bits#(t_PVT_IDX, t_PVT_IDX_SZ),
+                  Add#(t_LANE_IDX_SZ, TAdd#(t_VC_IDX_SZ, t_PVT_IDX_SZ),
+                       t_IDX_SZ));
+
+        return { pack(lane), pack(vc), pack(idx) };
+    endfunction
+
+    FIFO#(Vector#(NUM_PORTS, Maybe#(Tuple2#(LANE_IDX, VC_IDX)))) readRspMetaQ <-
+        mkFIFO();
+
+
+    method Action write(INSTANCE_ID#(n_STATIONS) iid,
+                        Vector#(NUM_PORTS,
+                                Maybe#(Tuple2#(VC_FIFO_ENTRY_IDX,
+                                               MESH_MSG))) vals);
+
+        // Each port has its own BRAM, so all writes can complete in parallel.
+        for (Integer p = 0; p < numPorts; p = p + 1)
+        begin
+            if (vals[p] matches tagged Valid {.idx, {.ln, .vc, .flit}})
+            begin
+                vcBufferEntries[p].write(iid, vcGlobIdx(ln, vc, idx), flit);
+                debugLog.record(iid, $format("BUF: ") + fshow(flit) + $format(" to port %s ln %0d vc %0d idx %0d", portShow(fromInteger(p)), ln, vc, idx));
+            end
+        end
+    endmethod
+
+    // No need for writeAck in this implementation since writes complete in
+    // the cycle they are requested.
+    method Action writeAck(INSTANCE_ID#(n_STATIONS) iid);
+        noAction;
+    endmethod
+
+    method Action readReq(INSTANCE_ID#(n_STATIONS) iid,
+                          Vector#(NUM_PORTS,
+                                  Maybe#(Tuple3#(LANE_IDX,
+                                                 VC_IDX,
+                                                 VC_FIFO_ENTRY_IDX))) reqs);
+        for (Integer p = 0; p < numPorts; p = p + 1)
+        begin
+            if (reqs[p] matches tagged Valid {.ln, .vc, .idx})
+            begin
+                let glob_idx = vcGlobIdx(ln, vc, idx);
+                vcBufferEntries[p].readReq(iid, glob_idx);
+            end
+        end
+
+        // Read request meta will tell the response method which ports were read
+        // and pass lane/channel indices.
+        function Maybe#(Tuple2#(LANE_IDX, VC_IDX)) reqMeta(Maybe#(Tuple3#(LANE_IDX,
+                                                                          VC_IDX,
+                                                                          VC_FIFO_ENTRY_IDX)) req);
+            if (req matches tagged Valid {.ln, .vc, .idx})
+                return tagged Valid tuple2(ln, vc);
+            else
+                return tagged Invalid;
+        endfunction
+
+        readRspMetaQ.enq(map(reqMeta, reqs));
+    endmethod
+
+    method ActionValue#(Vector#(NUM_PORTS,
+                                Maybe#(MESH_MSG))) readRsp(INSTANCE_ID#(n_STATIONS) iid);
+        let meta = readRspMetaQ.first();
+        readRspMetaQ.deq();
+
+        Vector#(NUM_PORTS, Maybe#(MESH_MSG)) rsp = replicate(tagged Invalid);
+
+        for (Integer p = 0; p < numPorts; p = p + 1)
+        begin
+            if (meta[p] matches tagged Valid {.ln, .vc})
+            begin
+                let flit <- vcBufferEntries[p].readRsp(iid);
+                rsp[p] = tagged Valid tuple3(ln, vc, flit);
+            end
+        end
+
+        return rsp;
+    endmethod
 endmodule

@@ -6880,3 +6880,16 @@ Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
 
 - Add a real credit scheme between the store buffer and the write buffer.
   The old code was too fragile.
+
+----------
+mcadler     Date: Tue Dec 10 11:09:23 EST 2013  CSN: CSN-hasim-models-224
+                  Tue Dec 10 16:09:23 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          223 
+
+Restructure the virtual channel buffer management code to reduce
+the width of BRAM accesses and reduce the size of pipeline inter-stage FIFOs.
+VC buffer storage is now in per-port BRAM instead of all being stored in-line
+in a very wide BRAM.  No change in simulator performance.
