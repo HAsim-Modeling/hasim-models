@@ -67,23 +67,23 @@ typedef 2 NUM_VC_FIFO_PACKETS;
 typedef TMul#(MAX_FLITS_PER_PACKET, NUM_VC_FIFO_PACKETS) NUM_VC_FIFO_ENTRIES;
 
 //
-// Each virtual channel has a FIFO buffer.  This data structure manages the
-// FIFO and caches the first entry.  To limit the use of wide memories and
-// large inter-rule messages, the rest of the buffered data is stored
-// in a memory.
+// Each virtual channel has a FIFO buffer.  This data structure caches the
+// minimal state to make routing decisions.  The actual FIFO state is stored
+// in a separate buffer and accessed only when needed.
 //
 typedef TLog#(NUM_VC_FIFO_ENTRIES) VC_FIFO_ENTRY_IDX_SZ;
 typedef Bit#(VC_FIFO_ENTRY_IDX_SZ) VC_FIFO_ENTRY_IDX;
 typedef struct
 {
-    FUNC_FIFO_IDX#(NUM_VC_FIFO_ENTRIES) fifo;
-    MESH_FLIT first;
+    Bool notEmpty;
+    Maybe#(PORT_IDX) routeReq;
 }
 VC_FIFO_STATE
     deriving (Eq, Bits);
 
 instance DefaultValue#(VC_FIFO_STATE);
-    defaultValue = VC_FIFO_STATE { fifo: funcFIFO_IDX_Init, first: ? };
+    defaultValue = VC_FIFO_STATE { notEmpty: False,
+                                   routeReq: tagged Invalid };
 endinstance
 
 
@@ -153,7 +153,6 @@ typedef struct
     VC_IDX   inputVC;
     PORT_IDX outputPort;
     VC_IDX   outputVC;
-    OCN_FLIT message;
 }
 WINNER_INFO 
     deriving (Eq, Bits);
@@ -175,10 +174,6 @@ module [HASIM_MODULE] mkInterconnect
     ReadOnly#(STATION_IID) meshWidth <- mkTopologyParamReg(`TOPOLOGY_NET_MESH_WIDTH);
     ReadOnly#(STATION_IID) meshHeight <- mkTopologyParamReg(`TOPOLOGY_NET_MESH_HEIGHT);
 
-
-    // Assertion objects
-    let checkBufNotFull <- mkAssertionStrPvtChecker("icn-mesh.bsv: flit received but buffer is full!",
-                                                    ASSERT_ERROR);
 
     // ******** Ports *******
 
@@ -271,9 +266,8 @@ module [HASIM_MODULE] mkInterconnect
     MULTIPLEXED_STATE_POOL#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) virtualChannelsPool <-
         mkMultiplexedStatePool(initVCState(defaultValue));
 
-    // Values stored in virtual channel buffers.  The meta-data to manage
-    // these entries as FIFOs is stored in virtualChannelsPool.
-    VC_BUFFER_STORAGE#(NUM_STATIONS) vcBufferEntries <- mkVCBufferStorage(debugLog);
+    // Values stored in virtual channel buffers.
+    VC_FIFOS#(NUM_STATIONS) vcBufferEntries <- mkVCBufferStorage(debugLog);
 
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(PORT_IDX))) routesPool <-
         mkMultiplexedReg(initVCState(tagged Invalid));
@@ -343,16 +337,16 @@ module [HASIM_MODULE] mkInterconnect
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple4#(VC_STATE#(VC_CREDIT_CNT),
                                             Vector#(NUM_PORTS, Maybe#(WINNER_INFO)),
                                             VC_STATE#(t_VC_FIFO),
-                                            Vector#(NUM_PORTS, Maybe#(MESH_MSG))))
-        stage3bCtrl <- mkStageController();
+                                            Vector#(NUM_PORTS, Maybe#(Tuple2#(PORT_IDX, VC_IDX)))))
+        stage3bCtrl <- mkBufferedStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple6#(VC_STATE#(VC_CREDIT_CNT),
                                             VC_STATE#(t_VC_FIFO),
+                                            Vector#(NUM_PORTS, Maybe#(MESH_MSG)),
                                             VC_STATE#(Maybe#(PORT_IDX)), // routes
                                             VC_STATE#(Maybe#(VC_IDX)),   // outputVCs
-                                            VC_STATE#(Bool),             // usedVCs
-                                            Bool))                       // new first entry?
-        stage3cCtrl <- mkBufferedStageController();
+                                            VC_STATE#(Bool)))            // usedVCs
+        stage3cCtrl <- mkStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple5#(VC_STATE#(VC_CREDIT_CNT),
                                             VC_STATE#(t_VC_FIFO),
@@ -369,6 +363,8 @@ module [HASIM_MODULE] mkInterconnect
         stage5Ctrl <- mkStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage6Ctrl <- mkStageController();
+
+    STAGE_CONTROLLER#(NUM_STATIONS, Bool) stage7Ctrl <- mkBufferedStageController();
 
     Reg#(ROUTER_STATE) state <- mkReg(tagged INITIALIZING);
 
@@ -543,7 +539,7 @@ module [HASIM_MODULE] mkInterconnect
         //   existed when the outbound route was built.
         //
         function isReadyVC(Integer in_p, Integer ln, Integer vc);
-            if (funcFIFO_IDX_notEmpty(virtualChannels[in_p][ln][vc].fifo) &&&
+            if (virtualChannels[in_p][ln][vc].notEmpty &&&
                 routes[in_p][ln][vc] matches tagged Valid .out_p &&&
                 outputVCs[in_p][ln][vc] matches tagged Valid .out_vc)
             begin
@@ -592,19 +588,15 @@ module [HASIM_MODULE] mkInterconnect
                 let out_p = validValue(routes[in_p][ln][in_vc]);
                 let out_vc = validValue(outputVCs[in_p][ln][in_vc]);
 
-                let msg = virtualChannels[in_p][ln][in_vc].first;
-
                 debugLog.record(iid, $format("2: VCA: PICK in port %s ln %0d vc %0d, out port %s: ",
-                                             portShow(fromInteger(in_p)), ln, in_vc, portShow(out_p)) +
-                                     fshow(msg));
+                                             portShow(fromInteger(in_p)), ln, in_vc, portShow(out_p)));
 
                 vc_winners[in_p] = tagged Valid WINNER_INFO 
                                    {
                                      lane: fromInteger(ln),
                                      inputVC: fromInteger(in_vc),
                                      outputPort: out_p, 
-                                     outputVC: out_vc,
-                                     message: msg
+                                     outputVC: out_vc
                                    };
             end
         end
@@ -627,9 +619,6 @@ module [HASIM_MODULE] mkInterconnect
         
         // Get the info from the previous stage.
         match {.iid, {.output_credits, .vc_winners, .virtualChannels}} <- stage3aCtrl.nextReadyInstance();
-        
-        // This is the vector of output messages that the virtual channels contend for.
-        Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msg_to = replicate(tagged Invalid);
         
         // Arbiters for the current instance
         Reg#(Vector#(NUM_PORTS, LOCAL_ARBITER_OPAQUE#(NUM_PORTS))) arbiters = stage3ArbiterStates.getReg(iid);
@@ -670,6 +659,10 @@ module [HASIM_MODULE] mkInterconnect
         // By the end of the next loop, vc_arb_winners will have only the
         // vc_winners that also won port arbitration.
         Vector#(NUM_PORTS, Maybe#(WINNER_INFO)) vc_arb_winners = replicate(tagged Invalid);
+        Vector#(NUM_PORTS, Maybe#(Tuple2#(LANE_IDX, VC_IDX))) in_fwds =
+            replicate(tagged Invalid);
+        Vector#(NUM_PORTS, Maybe#(Tuple2#(PORT_IDX, VC_IDX))) out_fwds =
+            replicate(tagged Invalid);
 
         for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
         begin
@@ -681,29 +674,32 @@ module [HASIM_MODULE] mkInterconnect
                 vc_arb_winners[in_p] = vc_winners[in_p];
                 let info = validValue(vc_winners[in_p]);
 
-                // Built a structure of outbound messages, indexed by the
-                // output port.
+                // Prepare to forward incoming flit.  Generate a vector of
+                // requests to the virtual channel buffer manager.
+                in_fwds[in_p] = tagged Valid tuple2(info.lane, info.inputVC);
+                out_fwds[out_p] = tagged Valid tuple2(pack(in_p), info.outputVC);
+
                 debugLog.record(iid, $format("3: SA: ARB %s req 0x%x grant %0d", portShow(fromInteger(out_p)), pack(out_port_requests[out_p]), in_p));
                 debugLog.record(iid, $format("3: SA: FWD in port %s ln %0d vc %0d to out port %s ln %0d vc %0d: ",
                                              portShow(pack(in_p)), info.lane, info.inputVC,
-                                             portShow(fromInteger(out_p)), info.lane, info.outputVC) +
-                                     fshow(info.message));
-                msg_to[out_p] = tagged Valid tuple3(info.lane, info.outputVC, info.message);
+                                             portShow(fromInteger(out_p)), info.lane, info.outputVC));
             end
         end
 
         // Record the updated internal arbiter state.
         arbiters <= arbiters_out;
 
-        stage3bCtrl.ready(iid, tuple4(output_credits, vc_arb_winners, virtualChannels, msg_to));
+        // Request update of virtual channel buffers.
+        vcBufferEntries.deqAndReadReq(iid, in_fwds);
 
+        stage3bCtrl.ready(iid, tuple4(output_credits, vc_arb_winners, virtualChannels, out_fwds));
     endrule
 
 
-    rule stage3b_crossbarSend (True);
+    rule stage3b_crossbarSend0 (True);
         
         // Get the info from the previous stage.
-        match {.iid, {.output_credits, .vc_arb_winners, .virtualChannels, .msg_to}} <- stage3bCtrl.nextReadyInstance();
+        match {.iid, {.output_credits, .vc_arb_winners, .virtualChannels, .out_fwds}} <- stage3bCtrl.nextReadyInstance();
 
         // Read our local state from the pools.
         Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes    = routesPool.getReg(iid);
@@ -711,66 +707,78 @@ module [HASIM_MODULE] mkInterconnect
         Reg#(VC_STATE#(Bool))             usedVCs   = usedVCsPool.getReg(iid);
         Reg#(Bool) creditInitialized = creditInitializedPool.getReg(iid);
 
-
         // Vectors to update our registers with.
-        VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
         VC_STATE#(Maybe#(PORT_IDX))   new_routes = routes;
         VC_STATE#(Bool)             new_used_vcs = usedVCs;
         VC_STATE#(Maybe#(VC_IDX)) new_output_vcs = outputVCs;
 
-        // Record incoming VC buffer consumption.  DEQ may lead to needing
-        // to read from the buffer to find the next entry.
-        Vector#(NUM_PORTS, Maybe#(Tuple3#(LANE_IDX,
-                                          VC_IDX,
-                                          VC_FIFO_ENTRY_IDX))) in_vc_new_first =
-            replicate(tagged Invalid);
+        // This is the vector of output messages that will be sent this cycle.
+        Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msg_to = replicate(tagged Invalid);
+
+        // Container for updated VC state
+        VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
+
+        // Receive update from the channel buffer manager.
+        let m_deq_rsp <- vcBufferEntries.deqAndReadRsp(iid);
 
         //
-        // Act on the routing crossbar decisions.  There are two loops here
-        // for simpler hardware: one indexed by the input port and one by the
-        // output port.
+        // Update input port state following forwarding of first entry in
+        // one or more channel buffers.
         //
-
-        for (Integer in_p = 0; in_p < numPorts; in_p = in_p + 1)
+        for (Integer in_p = 0 ; in_p < numPorts; in_p = in_p + 1)
         begin
             // New sender credit tracking
             VC_CREDIT_MSG sender_credits = replicate(replicate(0));
 
-            if (vc_arb_winners[in_p] matches tagged Valid .info)
+            // Was a forward and deq requested from in_p?
+            if (m_deq_rsp[in_p] matches tagged Valid {{.ln, .vc, .first_flit}, .m_next})
             begin
-                // Prepare to DEQ incoming flit
-                new_vcs[in_p][info.lane][info.inputVC].fifo =
-                    funcFIFO_IDX_UGdeq(virtualChannels[in_p][info.lane][info.inputVC].fifo);
+                debugLog.record(iid, $format("3b: DEQ in port %s ln %0d vc %0d, ", portShow(fromInteger(in_p)), ln, vc) + fshow(first_flit));
 
-                // Any more entries in the FIFO?
-                if (funcFIFO_IDX_notEmpty(new_vcs[in_p][info.lane][info.inputVC].fifo))
+                // End of packet?
+                if (first_flit matches tagged FLIT_BODY .body_info &&&
+                    body_info.isTail)
                 begin
-                    let first_idx = funcFIFO_IDX_first(new_vcs[in_p][info.lane][info.inputVC].fifo);
-                    in_vc_new_first[in_p] =
-                        tagged Valid tuple3(info.lane, info.inputVC, first_idx);
-                    debugLog.record(iid, $format("3b: new first idx %0d, in port %s ln %0d vc %0d", first_idx, portShow(fromInteger(in_p)), info.lane, info.inputVC));
+                    // Yes: tear down the route
+                    new_routes[in_p][ln][vc] = tagged Invalid;
+                    // Release virtual channel
+                    new_output_vcs[in_p][ln][vc] = tagged Invalid;
+
+                    // Give sender credit for another packet
+                    sender_credits[ln][vc] = 1;
+
+                    debugLog.record(iid, $format("3b: Send credit (tail) on in port %s ln %0d vc %0d", portShow(fromInteger(in_p)), ln, vc));
+                end
+
+                // Does the channel buffer have any more flits?
+                new_vcs[in_p][ln][vc].notEmpty = isValid(m_next);
+
+                if (m_next matches tagged Valid .next_flit)
+                begin
+                    // If the next flit is a header then update the routing
+                    // request.
+                    if (next_flit matches tagged FLIT_HEAD .msg)
+                    begin
+                        let rt = route(iid, msg.dst);
+                        new_vcs[in_p][ln][vc].routeReq = tagged Valid rt;
+                        debugLog.record(iid, $format("3b: ") + fshow(next_flit) + $format(" now first, in port %s ln %0d vc %0d, req out port %s", portShow(fromInteger(in_p)), ln, vc, portShow(rt)));
+                    end
+                    else
+                    begin
+                        new_vcs[in_p][ln][vc].routeReq = tagged Invalid;
+                        debugLog.record(iid, $format("3b: ") + fshow(next_flit) + $format(" now first, in port %s ln %0d vc %0d", portShow(fromInteger(in_p)), ln, vc));
+                    end
                 end
                 else
                 begin
-                    debugLog.record(iid, $format("3b: FIFO now empty, in port %s ln %0d vc %0d", portShow(fromInteger(in_p)), info.lane, info.inputVC));
-                end
-
-                // End of packet?
-                if (info.message matches tagged FLIT_BODY .body_info &&& body_info.isTail)
-                begin
-                    // Yes: tear down the route
-                    new_routes[in_p][info.lane][info.inputVC] = tagged Invalid;
-                    // Release virtual channel
-                    new_output_vcs[in_p][info.lane][info.inputVC] = tagged Invalid;
-
-                    // Give sender credit for another packet
-                    sender_credits[info.lane][info.inputVC] = 1;
-
-                    debugLog.record(iid, $format("3b: Send credit (tail) on in port %s ln %0d vc %0d", portShow(fromInteger(in_p)), info.lane, info.inputVC));
+                    new_vcs[in_p][ln][vc].routeReq = tagged Invalid;
+                    debugLog.record(iid, $format("3b: in port %s ln %0d vc %0d now empty", portShow(fromInteger(in_p)), ln, vc));
                 end
             end
 
-            // First pass only must send initial credits everywhere.
+            //
+            // Finish sender credit computation.  The first pass only must send
+            // initial credits everywhere.
             if (! creditInitialized)
             begin
                 sender_credits = replicate(replicate(fromInteger(valueOf(NUM_VC_FIFO_PACKETS))));
@@ -781,16 +789,47 @@ module [HASIM_MODULE] mkInterconnect
 
         creditInitializedPool.getReg(iid) <= True;
 
-        for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
+        //
+        // Generate the output flits that are forwarded from input ports.
+        //
+        for (Integer out_p = 0 ; out_p < numPorts; out_p = out_p + 1)
         begin
-            // End of packet?
-            if (msg_to[out_p] matches tagged Valid {.lane, .output_vc, .message} &&&
-                message matches tagged FLIT_BODY .body_info &&& body_info.isTail)
+            if (out_fwds[out_p] matches tagged Valid {.in_p, .out_vc})
             begin
-                // Release outbound virtual channel
-                new_used_vcs[out_p][lane][output_vc] = False;
+                // The out_fwds vector claims to be forwarding a value from
+                // input port in_p.  If no forwarding of in_p is present
+                // in m_deq_rsp there is a bug in the code above.
+                if (! isValid(m_deq_rsp[in_p]))
+                begin
+                    $display("icn-mesh.bsv: m_deq_rsp[in_p] is not valid!");
+                    $finish(1);
+                end
+
+                match {{.in_ln, .in_vc, .flit}, .m_next} = validValue(m_deq_rsp[in_p]);
+                msg_to[out_p] = tagged Valid tuple3(in_ln,
+                                                    out_vc,
+                                                    flit);
+
+                if (flit matches tagged FLIT_BODY .body_info &&& body_info.isTail)
+                begin
+                    // Release outbound virtual channel
+                    new_used_vcs[out_p][in_ln][out_vc] = False;
+                end
             end
         end
+
+        stage3cCtrl.ready(iid, tuple6(output_credits, new_vcs, msg_to, new_routes, new_output_vcs, new_used_vcs));
+    endrule
+
+
+    //
+    // stage3c_crossbarSend1 --
+    //   Act on the routing crossbar decisions.
+    //
+    rule stage3c_crossbarSend1 (True);
+        // Get the info from the previous stage.
+        match {.iid, {.output_credits, .virtual_channels, .msg_to, .routes, .output_vcs, .used_vcs}} <- stage3cCtrl.nextReadyInstance();
+        debugLog.record(iid, $format("3c: Begin."));
 
         for (Integer out_p = 0; out_p < numPorts; out_p = out_p + 1)
         begin
@@ -798,46 +837,7 @@ module [HASIM_MODULE] mkInterconnect
             enqTo[out_p].send(iid, msg_to[out_p]);
         end
 
-        // Any updated first entries due to DEQ of current oldest buffer slot?
-        Bool new_first = any(isValid, in_vc_new_first);
-        if (new_first)
-        begin
-            vcBufferEntries.readReq(iid, in_vc_new_first);
-        end
-
-        stage3cCtrl.ready(iid, tuple6(output_credits, new_vcs, new_routes, new_output_vcs, new_used_vcs, new_first));
-    endrule
-
-
-    //
-    // stage3c_updFirst --
-    //   Receive new channel buffer FIFO head updates from the channel buffer.
-    //   These were requested in the previous pipeline stage as a side effect
-    //   of DEQ requests.
-    //
-    rule stage3c_updFirst (True);
-        // Get the info from the previous stage.
-        match {.iid, {.output_credits, .virtual_channels, .routes, .output_vcs, .used_vcs, .new_first}} <- stage3cCtrl.nextReadyInstance();
-        debugLog.record(iid, $format("3c: Begin."));
-
-        VC_STATE#(t_VC_FIFO) new_virtual_channels = virtual_channels;
-        // Are there any new first entries to cache?
-        if (new_first)
-        begin
-            // Receive update from the channel buffer manager.
-            let m_upd_first <- vcBufferEntries.readRsp(iid);
-
-            for (Integer p = 0 ; p < numPorts; p = p + 1)
-            begin
-                if (m_upd_first[p] matches tagged Valid {.ln, .vc, .flit})
-                begin
-                    new_virtual_channels[p][ln][vc].first = flit;
-                    debugLog.record(iid, $format("3c: ") + fshow(flit) + $format(" now first, in port %s ln %0d vc %0d", portShow(fromInteger(p)), ln, vc));
-                end
-            end
-        end
-
-        stage4Ctrl.ready(iid, tuple5(output_credits, new_virtual_channels, routes, output_vcs, used_vcs));
+        stage4Ctrl.ready(iid, tuple5(output_credits, virtual_channels, routes, output_vcs, used_vcs));
     endrule
 
 
@@ -856,13 +856,12 @@ module [HASIM_MODULE] mkInterconnect
         function Maybe#(PORT_IDX) reqRoute(Tuple2#(t_VC_FIFO, Maybe#(PORT_IDX)) req);
             match {.vc_fifo, .cur_route} = req;
 
-            // Is this a new head flit with no assigned output port?
-            if (vc_fifo.first matches tagged FLIT_HEAD .msg &&&
-                funcFIFO_IDX_notEmpty(vc_fifo.fifo) &&&
-                ! isValid(cur_route))
+            // Is this a new head flit with no assigned output port?  Head
+            // flits store their requested route in the VC metadata.
+            if (isValid(vc_fifo.routeReq) && ! isValid(cur_route))
             begin
-                // Yes: Compute a new route
-                return tagged Valid route(iid, msg.dst);
+                // Yes: Request the new route
+                return vc_fifo.routeReq;
             end
             else
             begin
@@ -886,8 +885,7 @@ module [HASIM_MODULE] mkInterconnect
                         new_routes[in_p][ln][vc] matches tagged Valid .out_p)
                     begin
                         debugLog.record(iid, $format("4: RC: ROUTE in port %s ln %0d vc %0d, out port %s: ",
-                                                     portShow(fromInteger(in_p)), ln, vc, portShow(out_p)) +
-                                             fshow(virtual_channels[in_p][ln][vc].first));
+                                                     portShow(fromInteger(in_p)), ln, vc, portShow(out_p)));
                     end
                 end
             end
@@ -927,9 +925,8 @@ module [HASIM_MODULE] mkInterconnect
                                                     Maybe#(VC_IDX)) req);
             match {.in_vc, .vc_fifo, .out_p, .cur_out_vc} = req;
 
-            if (funcFIFO_IDX_notEmpty(vc_fifo.fifo) &&&
-                //  - The oldest entry in the FIFO is a flit head
-                vc_fifo.first matches tagged FLIT_HEAD .info &&&
+            if (//  - The first entry in the channel is requesting a route
+                isValid(vc_fifo.routeReq) &&&
                 //  - The incoming channel has an output port assigned
                 out_p matches tagged Valid .rt &&&
                 //  - The incoming channel has no output channel assigned
@@ -970,23 +967,19 @@ module [HASIM_MODULE] mkInterconnect
                     if (new_out_vc_req[in_p][ln][vc] matches tagged Valid .req)
                     begin
                         debugLog.record(iid, $format("4: RC: REQ OUT VC in port %s ln %0d vc %0d, out port %s vc %0d: ",
-                                                     portShow(fromInteger(in_p)), ln, vc, portShow(tpl_4(req)), tpl_5(req)) +
-                                             fshow(virtual_channels[in_p][ln][vc].first));
+                                                     portShow(fromInteger(in_p)), ln, vc, portShow(tpl_4(req)), tpl_5(req)));
                     end
-                    else if (funcFIFO_IDX_notEmpty(virtual_channels[in_p][ln][vc].fifo) &&&
-                             virtual_channels[in_p][ln][vc].first matches tagged FLIT_HEAD .info)
+                    else if (virtual_channels[in_p][ln][vc].notEmpty)
                     begin
                         if (routes[in_p][ln][vc] matches tagged Valid .rt)
                         begin
                             debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d, out port %s: ",
-                                                         portShow(fromInteger(in_p)), ln, vc, portShow(rt)) +
-                                                 fshow(virtual_channels[in_p][ln][vc].first));
+                                                         portShow(fromInteger(in_p)), ln, vc, portShow(rt)));
                         end
                         else
                         begin
                             debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d: ",
-                                                         portShow(fromInteger(in_p)), ln, vc) +
-                                                 fshow(virtual_channels[in_p][ln][vc].first));
+                                                         portShow(fromInteger(in_p)), ln, vc));
                         end
                     end
                 end
@@ -1070,11 +1063,18 @@ module [HASIM_MODULE] mkInterconnect
 
             debugLog.record(iid, $format("5: RC: ARB 0x%x grant %0d", pack(linear_vc_req_vec), idx));
             debugLog.record(iid, $format("5: RC: GRANT OUT VC in port %s ln %0d vc %0d, out port %s vc %0d, credit %0d: ",
-                                         portShow(in_p), ln, in_vc, portShow(out_p), out_vc, upd_credits[out_p][ln][out_vc]) +
-                                 fshow(virtual_channels[in_p][ln][in_vc].first));
+                                         portShow(in_p), ln, in_vc, portShow(out_p), out_vc, upd_credits[out_p][ln][out_vc]));
 
             // Update credits
             upd_credits[out_p][ln][out_vc] = upd_credits[out_p][ln][out_vc] - 1;
+
+`ifdef MESH_EVENTS_BROKEN
+            //
+            // Need to rethink events for two reasons:
+            //  - Limited to 128 node simulations
+            //  - Depends on first entry in an incoming channel FIFO being
+            //    available here.  That used to be true but isn't now.
+            //
 
             // Pack the event data into more readable chunks.
             Bit#(3) evt_in_p = zeroExtend(in_p);
@@ -1111,6 +1111,10 @@ module [HASIM_MODULE] mkInterconnect
             Bit#(24) evt_req_vec = zeroExtend(pack(linear_vc_req_vec));
             let evt_arb = { evt_idx, evt_req_vec };
             eventGrantArb.recordEvent(iid, tagged Valid zeroExtend(evt_arb));
+`else
+            eventGrant.recordEvent(iid, tagged Invalid);
+            eventGrantArb.recordEvent(iid, tagged Invalid);
+`endif
         end
         else
         begin
@@ -1130,16 +1134,14 @@ module [HASIM_MODULE] mkInterconnect
     endrule
 
 
-    (* conservative_implicit_conditions, descending_urgency="stage6_enqs, stage5_arbOutChannel, stage4_route, stage3b_crossbarSend, stage3a_crossbarArb, stage2_multiplexVCs, stage1_updateCreditsIn" *)
+    (* conservative_implicit_conditions, descending_urgency="stage6_enqs, stage5_arbOutChannel, stage4_route, stage3b_crossbarSend0, stage3a_crossbarArb, stage2_multiplexVCs, stage1_updateCreditsIn" *)
     rule stage6_enqs (True);
         // Get the current IID from the previous stage.    
         match {.iid, .virtualChannels} <- stage6Ctrl.nextReadyInstance();
        
         VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
-        Bool allDstsNotFull = True;
 
-        Vector#(NUM_PORTS, Maybe#(Tuple2#(VC_FIFO_ENTRY_IDX, MESH_MSG))) writes =
-            replicate(tagged Invalid);
+        Vector#(NUM_PORTS, Maybe#(MESH_MSG)) enqs = replicate(tagged Invalid);
     
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
@@ -1167,45 +1169,56 @@ module [HASIM_MODULE] mkInterconnect
                 end
 
                 let new_enq = tuple3(ln, vc, new_flit);
+                enqs[p] = tagged Valid new_enq;
 
-                // Compute this for checkBufNotFull() assertion below
-                allDstsNotFull = allDstsNotFull &&
-                                 funcFIFO_IDX_notFull(virtualChannels[p][ln][vc].fifo);
+                new_vcs[p][ln][vc].notEmpty = True;
 
-                match {.fifo_state, .fifo_idx} =
-                    funcFIFO_IDX_UGenq(virtualChannels[p][ln][vc].fifo);
-                new_vcs[p][ln][vc].fifo = fifo_state;
-
-                // New flit goes either to the "first" cache if the buffer is
-                // currently empty or to the channel FIFO memory.
-                if (! funcFIFO_IDX_notEmpty(virtualChannels[p][ln][vc].fifo))
+                if (! virtualChannels[p][ln][vc].notEmpty)
                 begin
-                    // Bypass (FIFO empty)
-                    new_vcs[p][ln][vc].first = new_flit;
-                    debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" is head"));
+                    // FIFO was empty.  Update the virtual channel state now
+                    // that it has an entry.
+                    if (new_flit matches tagged FLIT_HEAD .msg)
+                    begin
+                        let rt = route(iid, msg.dst);
+                        new_vcs[p][ln][vc].routeReq = tagged Valid rt;
+                        debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" is first, req out port %s", portShow(rt)));
+                    end
+                    else
+                    begin
+                        new_vcs[p][ln][vc].routeReq = tagged Invalid;
+                        debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" is first"));
+                    end
                 end
                 else
                 begin
-                    // Write new flit to buffer memory
-                    writes[p] = tagged Valid tuple2(fifo_idx, new_enq);
-                    debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" to idx %0d", fifo_idx));
+                    // FIFO was not empty.  New flit is written only to channel FIFO.
+                    debugLog.record(iid, $format("6: BW: ") + fshow(new_flit));
                 end
             end
         end
 
-        checkBufNotFull(allDstsNotFull);
-
         virtualChannelsPool.insertState(iid, new_vcs);
 
         // Any flits to write to the FIFO buffer pool?
-        Bool new_writes = any(isValid, writes);
-        if (new_writes)
+        Bool did_new_enqs = any(isValid, enqs);
+        if (did_new_enqs)
         begin
-            // Note that this code doesn't bother with writeAck since the
-            // vcBufferEntries implementation in use doesn't need it.
-            // A true writeAck implementation would require another
-            // pipeline stage here to consume it.
-            vcBufferEntries.write(iid, writes);
+            vcBufferEntries.enq(iid, enqs);
+        end
+
+        stage7Ctrl.ready(iid, did_new_enqs);
+    endrule
+
+
+    rule stage7_enqAck (True);
+        // Get the current IID from the previous stage.    
+        match {.iid, .did_new_enqs} <- stage7Ctrl.nextReadyInstance();
+       
+        debugLog.record(iid, $format("7: Begin."));
+
+        if (did_new_enqs)
+        begin
+            vcBufferEntries.enqAck(iid);
         end
 
         // End of model cycle
@@ -1215,129 +1228,271 @@ endmodule
 
 
 //
-// VC_BUFFER_STORAGE --
-//   manage access to virtual channel buffers.  The methods allow for either
+// VC_FIFOS --
+//   Manage access to virtual channel buffers.  The methods allow for either
 //   an implementation that updates all ports in parallel or one that serializes
 //   them.
 //
-interface VC_BUFFER_STORAGE#(type n_STATIONS);
-    // Write one or more VC updates to the buffer.  Write ack confirms that all
-    // writes are complete.
-    method Action write(INSTANCE_ID#(n_STATIONS) iid,
-                        Vector#(NUM_PORTS,
-                                Maybe#(Tuple2#(VC_FIFO_ENTRY_IDX,
-                                               MESH_MSG))) vals);
-    method Action writeAck(INSTANCE_ID#(n_STATIONS) iid);
+interface VC_FIFOS#(type n_STATIONS);
+    // Enqueue a new flit to one or more ports.  The enq() operation may
+    // require multiple FPGA cycles.  enqAck() below confirms that the
+    // request has been completed and written to memory.
+    method Action enq(INSTANCE_ID#(n_STATIONS) iid,
+                      Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msgs);
 
-    method Action readReq(INSTANCE_ID#(n_STATIONS) iid,
-                          Vector#(NUM_PORTS,
-                                  Maybe#(Tuple3#(LANE_IDX,
-                                                 VC_IDX,
-                                                 VC_FIFO_ENTRY_IDX))) reqs);
+    // Confirm that enq() is complete.
+    method Action enqAck(INSTANCE_ID#(n_STATIONS) iid);
+
+
+    // Read the first entry, dequeue it, and return both the first entry and
+    // the next entry (the new first entry after dequeue).  Like enq(), the
+    // method accepts one request per network port.
+    method Action deqAndReadReq(INSTANCE_ID#(n_STATIONS) iid,
+                                Vector#(NUM_PORTS,
+                                        Maybe#(Tuple2#(LANE_IDX, VC_IDX))) deqPort);
+
+    // For each port return the first entry that has just been dequeued and,
+    // if present, the next entry (the new first entry).  The first MESH_MSG
+    // in the tuple is the oldest entry.
     method ActionValue#(Vector#(NUM_PORTS,
-                                Maybe#(MESH_MSG))) readRsp(INSTANCE_ID#(n_STATIONS) iid);
+                                Maybe#(Tuple2#(MESH_MSG,
+                                               Maybe#(MESH_FLIT))))) deqAndReadRsp(INSTANCE_ID#(n_STATIONS) iid);
 endinterface
 
 module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATIONS) debugLog)
     // Interface:
-    (VC_BUFFER_STORAGE#(n_STATIONS))
+    (VC_FIFOS#(n_STATIONS))
     provisos (Bits#(PORT_IDX, t_PORT_IDX_SZ),
               Bits#(LANE_IDX, t_LANE_IDX_SZ),
               Bits#(VC_IDX, t_VC_IDX_SZ),
 
-              // Unified address space for all channel buffer entries
-              Alias#(t_GLOB_VC_ENTRY_IDX, Bit#(TAdd#(t_LANE_IDX_SZ,
-                                                     TAdd#(t_VC_IDX_SZ,
-                                                           VC_FIFO_ENTRY_IDX_SZ)))));
+              // Unified address space for all channel buffers within a port
+              Alias#(t_GLOB_VC_IDX, Tuple2#(LANE_IDX, VC_IDX)));
+
+    let checkBufNotFull <- mkAssertionStrPvtChecker("icn-mesh.bsv: flit received but buffer is full!",
+                                                    ASSERT_ERROR);
+
+    // Metadata storage for all virtual channel FIFOs
+    Vector#(NUM_PORTS,
+            MEMORY_MULTI_READ_IFC_MULTIPLEXED#(n_STATIONS,
+                                               2,
+                                               t_GLOB_VC_IDX,
+                                               FUNC_FIFO_IDX#(NUM_VC_FIFO_ENTRIES)))
+        vcFIFOs = newVector();
+
+    for (Integer p = 0; p < numPorts; p = p + 1)
+    begin
+        let buf_mem <- mkBRAMBufferedPseudoMultiRead(False);
+        let init_buf_mem = mkMultiMemInitialized(buf_mem, funcFIFO_IDX_Init);
+        vcFIFOs[p] <- mkMemoryMultiRead_Multiplexed(init_buf_mem);
+    end
 
     Vector#(NUM_PORTS,
-            MEMORY_IFC_MULTIPLEXED#(n_STATIONS,
-                                    t_GLOB_VC_ENTRY_IDX,
-                                    MESH_FLIT)) vcBufferEntries <-
-        replicateM(mkMemory_Multiplexed(mkBRAM));
+            MEMORY_MULTI_READ_IFC_MULTIPLEXED#(n_STATIONS,
+                                               2,
+                                               Tuple2#(t_GLOB_VC_IDX,
+                                                       Bit#(TLog#(NUM_VC_FIFO_ENTRIES))),
+                                               MESH_FLIT))
+        vcFlits <- replicateM(mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False)));
 
-    
+    // Flits to be written to virtual channel FIFOs
+    Vector#(NUM_PORTS, FIFO#(Tuple2#(INSTANCE_ID#(n_STATIONS),
+                                     MESH_MSG))) enqReqQ <- replicateM(mkFIFO());
+
+    // Ports that were updated by an enq() request.
+    FIFO#(Vector#(NUM_PORTS, Bool)) enqAckMetaQ <- mkSizedFIFO(4);
+    Vector#(NUM_PORTS, FIFO#(Bool)) enqAckQ <- replicateM(mkFIFO());
+
+
+    // Dequeue requests
+    Vector#(NUM_PORTS, FIFO#(Tuple2#(INSTANCE_ID#(n_STATIONS),
+                                     Tuple2#(LANE_IDX, VC_IDX)))) deqReqQ <-
+        replicateM(mkFIFO());
+
+    // Ports that were updated by a deq() request.
+    FIFO#(Vector#(NUM_PORTS, Bool)) deqRspMetaQ <- mkSizedFIFO(4);
+    Vector#(NUM_PORTS, FIFO#(Tuple3#(LANE_IDX, VC_IDX, Bool))) readRspQ <-
+        replicateM(mkFIFO());
+
+
     //
-    // vcGlobIdx --
-    //   Generic function for mapping a per-channel indexed space into a global
-    //   indexed space.  This is used by VC channel buffers to store all
-    //   buffer entires for all channels in a single, linear, memory.
+    // Assert there were no enqueues to full buffers.
     //
-    function Bit#(t_IDX_SZ) vcGlobIdx(LANE_IDX lane, VC_IDX vc, t_PVT_IDX idx)
-        provisos (Bits#(t_PVT_IDX, t_PVT_IDX_SZ),
-                  Add#(t_LANE_IDX_SZ, TAdd#(t_VC_IDX_SZ, t_PVT_IDX_SZ),
-                       t_IDX_SZ));
+    PulseWire errorFullFIFO <- mkPulseWireOR();
 
-        return { pack(lane), pack(vc), pack(idx) };
-    endfunction
-
-    FIFO#(Vector#(NUM_PORTS, Maybe#(Tuple2#(LANE_IDX, VC_IDX)))) readRspMetaQ <-
-        mkFIFO();
+    rule assertNotFull (True);
+        checkBufNotFull(! errorFullFIFO);
+    endrule
 
 
-    method Action write(INSTANCE_ID#(n_STATIONS) iid,
-                        Vector#(NUM_PORTS,
-                                Maybe#(Tuple2#(VC_FIFO_ENTRY_IDX,
-                                               MESH_MSG))) vals);
+    for (Integer p = 0; p < numPorts; p = p + 1)
+    begin
+        //
+        // doEnq --
+        //   For each port, consume the current state of a virtual channel FIFO
+        //   read by the enq() method and write the new flit to the FIFO.
+        //
+        let r_enq =
+        (rules
+            rule doEnq (True);
+                // Flit to enqueue
+                match {.iid, {.ln, .vc, .flit}} = enqReqQ[p].first();
+                enqReqQ[p].deq();
 
-        // Each port has its own BRAM, so all writes can complete in parallel.
+                // FIFO in which to store it
+                let fifo <- vcFIFOs[p].readPorts[0].readRsp(iid);
+
+                // Is the FIFO already full?  That's an error!
+                if (! funcFIFO_IDX_notFull(fifo))
+                begin
+                    errorFullFIFO.send();
+                    debugLog.record(iid, $format("FIFO: ERROR enq to full in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(flit));
+                end
+
+                // Write the new flit to the FIFO
+                match {.upd_fifo, .idx} = funcFIFO_IDX_enq(fifo);
+                let slot = tuple2(ln, vc);
+                vcFIFOs[p].write(iid, slot, upd_fifo);
+                vcFlits[p].write(iid, tuple2(slot, idx), flit);
+                debugLog.record(iid, $format("FIFO: enq to in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(flit));
+
+                // Tell the client the write is done
+                enqAckQ[p].enq(?);
+            endrule
+        endrules);
+
+        //
+        // doDeq --
+        //   For each port, consume the current state of a virtual channel FIFO
+        //   read by the deqAndReadReq() and deq the FIFO.
+        //
+        let r_deq =
+        (rules
+            rule doDeq (True);
+                // Virtual channel to dequeue
+                match {.iid, {.ln, .vc}} = deqReqQ[p].first();
+                deqReqQ[p].deq();
+
+                // FIFO current state
+                let fifo <- vcFIFOs[p].readPorts[1].readRsp(iid);
+
+                let slot = tuple2(ln, vc);
+                vcFlits[p].readPorts[0].readReq(iid,
+                                                tuple2(slot,
+                                                       funcFIFO_IDX_UGfirst(fifo)));
+
+                let upd_fifo = funcFIFO_IDX_deq(fifo);
+
+                Bool not_empty = funcFIFO_IDX_notEmpty(upd_fifo);
+                if (not_empty)
+                begin
+                    vcFlits[p].readPorts[1].readReq(iid,
+                                                    tuple2(slot,
+                                                           funcFIFO_IDX_UGfirst(upd_fifo)));
+                end
+
+                // Write the updated state
+                vcFIFOs[p].write(iid, tuple2(ln, vc), upd_fifo);
+
+                readRspQ[p].enq(tuple3(ln, vc, not_empty));
+            endrule
+        endrules);
+
+        addRules(rJoinDescendingUrgency(r_enq, r_deq));
+    end
+
+
+    method Action enq(INSTANCE_ID#(n_STATIONS) iid,
+                      Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msgs);
+        //
+        // Read the current FIFO states
+        //
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
-            if (vals[p] matches tagged Valid {.idx, {.ln, .vc, .flit}})
+            if (msgs[p] matches tagged Valid {.ln, .vc, .flit})
             begin
-                vcBufferEntries[p].write(iid, vcGlobIdx(ln, vc, idx), flit);
-                debugLog.record(iid, $format("BUF: ") + fshow(flit) + $format(" to port %s ln %0d vc %0d idx %0d", portShow(fromInteger(p)), ln, vc, idx));
+                vcFIFOs[p].readPorts[0].readReq(iid, tuple2(ln, vc));
+                enqReqQ[p].enq(tuple2(iid, validValue(msgs[p])));
+            end
+        end
+
+        // This FIFO will tell the enqAck() method which ports were updated.
+        enqAckMetaQ.enq(map(isValid, msgs));
+    endmethod
+
+
+    method Action enqAck(INSTANCE_ID#(n_STATIONS) iid);
+        let active_ports = enqAckMetaQ.first();
+        enqAckMetaQ.deq();
+
+        // Consume the "done" message from all updated ports.
+        for (Integer p = 0; p < numPorts; p = p + 1)
+        begin
+            if (active_ports[p])
+            begin
+                enqAckQ[p].deq();
             end
         end
     endmethod
 
-    // No need for writeAck in this implementation since writes complete in
-    // the cycle they are requested.
-    method Action writeAck(INSTANCE_ID#(n_STATIONS) iid);
-        noAction;
-    endmethod
 
-    method Action readReq(INSTANCE_ID#(n_STATIONS) iid,
-                          Vector#(NUM_PORTS,
-                                  Maybe#(Tuple3#(LANE_IDX,
-                                                 VC_IDX,
-                                                 VC_FIFO_ENTRY_IDX))) reqs);
+    method Action deqAndReadReq(INSTANCE_ID#(n_STATIONS) iid,
+                                Vector#(NUM_PORTS,
+                                        Maybe#(Tuple2#(LANE_IDX, VC_IDX))) deqPort);
+        //
+        // Read the current FIFO states
+        //
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
-            if (reqs[p] matches tagged Valid {.ln, .vc, .idx})
+            if (deqPort[p] matches tagged Valid {.ln, .vc})
             begin
-                let glob_idx = vcGlobIdx(ln, vc, idx);
-                vcBufferEntries[p].readReq(iid, glob_idx);
+                vcFIFOs[p].readPorts[1].readReq(iid, tuple2(ln, vc));
+                deqReqQ[p].enq(tuple2(iid, validValue(deqPort[p])));
             end
         end
 
-        // Read request meta will tell the response method which ports were read
-        // and pass lane/channel indices.
-        function Maybe#(Tuple2#(LANE_IDX, VC_IDX)) reqMeta(Maybe#(Tuple3#(LANE_IDX,
-                                                                          VC_IDX,
-                                                                          VC_FIFO_ENTRY_IDX)) req);
-            if (req matches tagged Valid {.ln, .vc, .idx})
-                return tagged Valid tuple2(ln, vc);
-            else
-                return tagged Invalid;
-        endfunction
-
-        readRspMetaQ.enq(map(reqMeta, reqs));
+        // This FIFO will tell the deqAndReadRsp() method which ports were read.
+        deqRspMetaQ.enq(map(isValid, deqPort));
     endmethod
+
 
     method ActionValue#(Vector#(NUM_PORTS,
-                                Maybe#(MESH_MSG))) readRsp(INSTANCE_ID#(n_STATIONS) iid);
-        let meta = readRspMetaQ.first();
-        readRspMetaQ.deq();
+                                Maybe#(Tuple2#(MESH_MSG,
+                                               Maybe#(MESH_FLIT))))) deqAndReadRsp(INSTANCE_ID#(n_STATIONS) iid);
+        let active_ports = deqRspMetaQ.first();
+        deqRspMetaQ.deq();
 
-        Vector#(NUM_PORTS, Maybe#(MESH_MSG)) rsp = replicate(tagged Invalid);
+        Vector#(NUM_PORTS, Maybe#(Tuple2#(MESH_MSG, Maybe#(MESH_FLIT)))) rsp = newVector();
 
+        // Consolidate individual port responses into a single response.
         for (Integer p = 0; p < numPorts; p = p + 1)
         begin
-            if (meta[p] matches tagged Valid {.ln, .vc})
+            if (active_ports[p])
             begin
-                let flit <- vcBufferEntries[p].readRsp(iid);
-                rsp[p] = tagged Valid tuple3(ln, vc, flit);
+                match {.ln, .vc, .not_empty} = readRspQ[p].first();
+                readRspQ[p].deq();
+
+                // Consume the first flit, requested by doDeq.
+                let first <- vcFlits[p].readPorts[0].readRsp(iid);
+
+                // If the FIFO isn't now empty, also consume the next flit.
+                Maybe#(MESH_FLIT) m_next = tagged Invalid;
+                if (not_empty)
+                begin
+                    let next_flit <- vcFlits[p].readPorts[1].readRsp(iid);
+                    m_next = tagged Valid next_flit;
+                    debugLog.record(iid, $format("FIFO: deq from in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(first) + $format(", next ") + fshow(validValue(m_next)));
+                end
+                else
+                begin
+                    debugLog.record(iid, $format("FIFO: deq from in port %s ln %0d vc %0d: ", portShow(fromInteger(p)), ln, vc) + fshow(first));
+                end
+
+                rsp[p] = tagged Valid tuple2(tuple3(ln, vc, first), m_next);
+            end
+            else
+            begin
+                rsp[p] = tagged Invalid;
             end
         end
 

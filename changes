@@ -6893,3 +6893,22 @@ Restructure the virtual channel buffer management code to reduce
 the width of BRAM accesses and reduce the size of pipeline inter-stage FIFOs.
 VC buffer storage is now in per-port BRAM instead of all being stored in-line
 in a very wide BRAM.  No change in simulator performance.
+
+----------
+mcadler     Date: Tue Dec 17 09:57:54 EST 2013  CSN: CSN-hasim-models-225
+                  Tue Dec 17 14:57:54 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          224 
+
+Another restructuring of the channel buffers:  only the notEmpty bit and a
+routing request are now stored in the channel routing state vector, making
+the vector much smaller.  Channel FIFO management is now separated from
+channel FIFO data, allowing the data to be stored in narrower BRAM.  In
+theory the channel FIFO data could now be stored in a scratchpad, though
+performance may suffer since a FIFO will likely almost always miss in the
+L1 cache.  Perhaps worth an experiment.
+
+Only BRAM address space now grows as buffers grow or the number of lanes
+increases.  BRAM data width is no longer affected significantly.
