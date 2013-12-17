@@ -67,6 +67,17 @@ typedef 2 NUM_VC_FIFO_PACKETS;
 typedef TMul#(MAX_FLITS_PER_PACKET, NUM_VC_FIFO_PACKETS) NUM_VC_FIFO_ENTRIES;
 
 //
+// Routing request.  For now the request is trivial: just an outbound port.
+// The reqeust is stored as a struct to make it easy to change later.
+//
+typedef struct
+{
+    PORT_IDX outPort;
+}
+MESH_ROUTE_REQ
+    deriving (Eq, Bits);
+
+//
 // Each virtual channel has a FIFO buffer.  This data structure caches the
 // minimal state to make routing decisions.  The actual FIFO state is stored
 // in a separate buffer and accessed only when needed.
@@ -76,7 +87,7 @@ typedef Bit#(VC_FIFO_ENTRY_IDX_SZ) VC_FIFO_ENTRY_IDX;
 typedef struct
 {
     Bool notEmpty;
-    Maybe#(PORT_IDX) routeReq;
+    Maybe#(MESH_ROUTE_REQ) routeReq;
 }
 VC_FIFO_STATE
     deriving (Eq, Bits);
@@ -111,6 +122,13 @@ function String portShow(PORT_IDX p);
     endcase;
 
 endfunction
+
+instance FShow#(MESH_ROUTE_REQ);
+    function Fmt fshow(MESH_ROUTE_REQ req);
+        return $format("out port %s", portShow(req.outPort));
+    endfunction
+endinstance
+
 
 //
 // Vectors of lanes and channels.
@@ -269,7 +287,7 @@ module [HASIM_MODULE] mkInterconnect
     // Values stored in virtual channel buffers.
     VC_FIFOS#(NUM_STATIONS) vcBufferEntries <- mkVCBufferStorage(debugLog);
 
-    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(PORT_IDX))) routesPool <-
+    MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(MESH_ROUTE_REQ))) routesPool <-
         mkMultiplexedReg(initVCState(tagged Invalid));
 
     MULTIPLEXED_REG#(NUM_STATIONS, VC_STATE#(Maybe#(VC_IDX))) outputVCsPool <-
@@ -343,14 +361,14 @@ module [HASIM_MODULE] mkInterconnect
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple6#(VC_STATE#(VC_CREDIT_CNT),
                                             VC_STATE#(t_VC_FIFO),
                                             Vector#(NUM_PORTS, Maybe#(MESH_MSG)),
-                                            VC_STATE#(Maybe#(PORT_IDX)), // routes
+                                            VC_STATE#(Maybe#(MESH_ROUTE_REQ)), // routes
                                             VC_STATE#(Maybe#(VC_IDX)),   // outputVCs
                                             VC_STATE#(Bool)))            // usedVCs
         stage3cCtrl <- mkStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple5#(VC_STATE#(VC_CREDIT_CNT),
                                             VC_STATE#(t_VC_FIFO),
-                                            VC_STATE#(Maybe#(PORT_IDX)), // routes
+                                            VC_STATE#(Maybe#(MESH_ROUTE_REQ)), // routes
                                             VC_STATE#(Maybe#(VC_IDX)),   // outputVCs
                                             VC_STATE#(Bool)))            // usedVCs
         stage4Ctrl <- mkStageController();
@@ -400,19 +418,20 @@ module [HASIM_MODULE] mkInterconnect
     end
     
     // Pick a link for a packet currently in src heading for dst.
-    function PORT_IDX route(STATION_ID src, STATION_ID dst);
-        
+    function MESH_ROUTE_REQ route(STATION_ID src, STATION_ID dst);
         Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(src);
+        MESH_ROUTE_REQ r;
 
         if (src == dst)
         begin
-            return portLocal;
+            r.outPort = portLocal;
         end
         else
         begin
-            return zeroExtend(r_table[dst]);
+            r.outPort = zeroExtend(r_table[dst]);
         end
 
+        return r;
     endfunction
 
 
@@ -511,8 +530,8 @@ module [HASIM_MODULE] mkInterconnect
         
         // Read our local state from the pools.
         VC_STATE#(t_VC_FIFO) virtualChannels <- virtualChannelsPool.extractState(iid);
-        Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes    = routesPool.getReg(iid);
-        Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs = outputVCsPool.getReg(iid);
+        Reg#(VC_STATE#(Maybe#(MESH_ROUTE_REQ))) routes = routesPool.getReg(iid);
+        Reg#(VC_STATE#(Maybe#(VC_IDX))) outputVCs = outputVCsPool.getReg(iid);
 
         // Arbiter states for the current instance
         Reg#(Vector#(NUM_PORTS, LOCAL_ARBITER_OPAQUE#(TMul#(NUM_LANES, VCS_PER_LANE)))) arbiters = stage2ArbiterStates.getReg(iid);
@@ -585,17 +604,17 @@ module [HASIM_MODULE] mkInterconnect
                 match {.ln, .in_vc} = concat(identityMap)[idx];
 
                 // Look up the output port and channel.  The lane is the same.
-                let out_p = validValue(routes[in_p][ln][in_vc]);
+                let rt = validValue(routes[in_p][ln][in_vc]);
                 let out_vc = validValue(outputVCs[in_p][ln][in_vc]);
 
-                debugLog.record(iid, $format("2: VCA: PICK in port %s ln %0d vc %0d, out port %s: ",
-                                             portShow(fromInteger(in_p)), ln, in_vc, portShow(out_p)));
+                debugLog.record(iid, $format("2: VCA: PICK in port %s ln %0d vc %0d, ",
+                                             portShow(fromInteger(in_p)), ln, in_vc) + fshow(rt));
 
                 vc_winners[in_p] = tagged Valid WINNER_INFO 
                                    {
                                      lane: fromInteger(ln),
                                      inputVC: fromInteger(in_vc),
-                                     outputPort: out_p, 
+                                     outputPort: rt.outPort,
                                      outputVC: out_vc
                                    };
             end
@@ -702,14 +721,14 @@ module [HASIM_MODULE] mkInterconnect
         match {.iid, {.output_credits, .vc_arb_winners, .virtualChannels, .out_fwds}} <- stage3bCtrl.nextReadyInstance();
 
         // Read our local state from the pools.
-        Reg#(VC_STATE#(Maybe#(PORT_IDX))) routes    = routesPool.getReg(iid);
-        Reg#(VC_STATE#(Maybe#(VC_IDX)))   outputVCs = outputVCsPool.getReg(iid);
-        Reg#(VC_STATE#(Bool))             usedVCs   = usedVCsPool.getReg(iid);
+        Reg#(VC_STATE#(Maybe#(MESH_ROUTE_REQ))) routes = routesPool.getReg(iid);
+        Reg#(VC_STATE#(Maybe#(VC_IDX))) outputVCs = outputVCsPool.getReg(iid);
+        Reg#(VC_STATE#(Bool))           usedVCs   = usedVCsPool.getReg(iid);
         Reg#(Bool) creditInitialized = creditInitializedPool.getReg(iid);
 
         // Vectors to update our registers with.
-        VC_STATE#(Maybe#(PORT_IDX))   new_routes = routes;
-        VC_STATE#(Bool)             new_used_vcs = usedVCs;
+        VC_STATE#(Maybe#(MESH_ROUTE_REQ)) new_routes = routes;
+        VC_STATE#(Bool)           new_used_vcs = usedVCs;
         VC_STATE#(Maybe#(VC_IDX)) new_output_vcs = outputVCs;
 
         // This is the vector of output messages that will be sent this cycle.
@@ -761,7 +780,7 @@ module [HASIM_MODULE] mkInterconnect
                     begin
                         let rt = route(iid, msg.dst);
                         new_vcs[in_p][ln][vc].routeReq = tagged Valid rt;
-                        debugLog.record(iid, $format("3b: ") + fshow(next_flit) + $format(" now first, in port %s ln %0d vc %0d, req out port %s", portShow(fromInteger(in_p)), ln, vc, portShow(rt)));
+                        debugLog.record(iid, $format("3b: ") + fshow(next_flit) + $format(" now first, in port %s ln %0d vc %0d, req ", portShow(fromInteger(in_p)), ln, vc) + fshow(rt));
                     end
                     else
                     begin
@@ -851,9 +870,9 @@ module [HASIM_MODULE] mkInterconnect
         // Request routes for head flits that are not yet assigned output ports.
         //
 
-        VC_STATE#(Maybe#(PORT_IDX)) new_routes = newVector();
+        VC_STATE#(Maybe#(MESH_ROUTE_REQ)) new_routes = newVector();
 
-        function Maybe#(PORT_IDX) reqRoute(Tuple2#(t_VC_FIFO, Maybe#(PORT_IDX)) req);
+        function Maybe#(MESH_ROUTE_REQ) reqRoute(Tuple2#(t_VC_FIFO, Maybe#(MESH_ROUTE_REQ)) req);
             match {.vc_fifo, .cur_route} = req;
 
             // Is this a new head flit with no assigned output port?  Head
@@ -884,8 +903,8 @@ module [HASIM_MODULE] mkInterconnect
                     if (! isValid(routes[in_p][ln][vc]) &&&
                         new_routes[in_p][ln][vc] matches tagged Valid .out_p)
                     begin
-                        debugLog.record(iid, $format("4: RC: ROUTE in port %s ln %0d vc %0d, out port %s: ",
-                                                     portShow(fromInteger(in_p)), ln, vc, portShow(out_p)));
+                        debugLog.record(iid, $format("4: RC: ROUTE in port %s ln %0d vc %0d, ",
+                                                     portShow(fromInteger(in_p)), ln, vc) + fshow(out_p));
                     end
                 end
             end
@@ -921,24 +940,25 @@ module [HASIM_MODULE] mkInterconnect
                                             Integer ln,
                                             Tuple4#(Integer,
                                                     t_VC_FIFO,
-                                                    Maybe#(PORT_IDX),
+                                                    Maybe#(MESH_ROUTE_REQ),
                                                     Maybe#(VC_IDX)) req);
-            match {.in_vc, .vc_fifo, .out_p, .cur_out_vc} = req;
+            match {.in_vc, .vc_fifo, .out_route, .cur_out_vc} = req;
 
             if (//  - The first entry in the channel is requesting a route
                 isValid(vc_fifo.routeReq) &&&
                 //  - The incoming channel has an output port assigned
-                out_p matches tagged Valid .rt &&&
+                out_route matches tagged Valid .rt &&&
                 //  - The incoming channel has no output channel assigned
                 ! isValid(cur_out_vc) &&&
                 //  - An output channel is available
-                findIndex(outputVCAvail, zip(used_vcs[rt][ln], output_credits[rt][ln])) matches tagged Valid .out_vc)
+                findIndex(outputVCAvail, zip(used_vcs[rt.outPort][ln],
+                                             output_credits[rt.outPort][ln])) matches tagged Valid .out_vc)
             begin
                 // Yes: Request an output channel.
                 return tagged Valid tuple5(fromInteger(in_p),
                                            fromInteger(ln),
                                            fromInteger(in_vc),
-                                           rt,
+                                           rt.outPort,
                                            zeroExtend(unpack(pack(out_vc))));
             end
             else
@@ -973,12 +993,12 @@ module [HASIM_MODULE] mkInterconnect
                     begin
                         if (routes[in_p][ln][vc] matches tagged Valid .rt)
                         begin
-                            debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d, out port %s: ",
-                                                         portShow(fromInteger(in_p)), ln, vc, portShow(rt)));
+                            debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d, ",
+                                                         portShow(fromInteger(in_p)), ln, vc) + fshow(rt));
                         end
                         else
                         begin
-                            debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d: ",
+                            debugLog.record(iid, $format("4: RC: Blocked in port %s ln %0d vc %0d",
                                                          portShow(fromInteger(in_p)), ln, vc));
                         end
                     end
@@ -1181,7 +1201,7 @@ module [HASIM_MODULE] mkInterconnect
                     begin
                         let rt = route(iid, msg.dst);
                         new_vcs[p][ln][vc].routeReq = tagged Valid rt;
-                        debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" is first, req out port %s", portShow(rt)));
+                        debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" is first, req ") + fshow(rt));
                     end
                     else
                     begin

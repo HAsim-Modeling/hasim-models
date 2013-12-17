@@ -6912,3 +6912,14 @@ L1 cache.  Perhaps worth an experiment.
 
 Only BRAM address space now grows as buffers grow or the number of lanes
 increases.  BRAM data width is no longer affected significantly.
+
+----------
+mcadler     Date: Tue Dec 17 13:20:09 EST 2013  CSN: CSN-hasim-models-226
+                  Tue Dec 17 18:20:09 UTC 2013
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          225 
+
+Store routing request in a struct so it can easily be extended beyond a
+single port and so an FShow instance can be added.
