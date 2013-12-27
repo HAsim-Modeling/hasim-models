@@ -34,8 +34,6 @@ import FIFO::*;
 `include "asim/provides/hasim_branch_pred_alg.bsh"
 `include "asim/provides/hasim_branch_target_buffer.bsh"
 
-`include "asim/dict/VDEV_SCRATCH.bsh"
-
 module [HASIM_MODULE] mkBranchPredictor ();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_bp.out");

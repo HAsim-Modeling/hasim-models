@@ -105,6 +105,10 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     topology->SetParam(TOPOLOGY_NET_MESH_HEIGHT, num_rows);
     topology->SetParam(TOPOLOGY_NET_MAX_NODE_IID, num_cols * num_rows - 1);
 
+    VERIFY(num_cols * num_rows <=
+             MAX_NUM_CPUS + MAX_NUM_MEM_CTRLS + NUM_EXTRA_OCN_STATIONS,
+           "Not enough network positions for chosen topology!");
+
     //
     // Stream out map of network nodes to CPUs and memory controllers.
     // Numbers indicate the type of node (0 CPU, 1 memory controller,

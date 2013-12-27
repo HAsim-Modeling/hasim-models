@@ -6923,3 +6923,54 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 Store routing request in a struct so it can easily be extended beyond a
 single port and so an FShow instance can be added.
+
+----------
+mcadler     Date: Thu Dec 26 22:37:34 EST 2013  CSN: CSN-hasim-models-227
+                  Fri Dec 27 03:37:34 UTC 2013
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          226 
+ chip-base-types.bsv       Locally Modified          226 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multi-entry
+ btb-multi-entry.awb       Locally Modified          226 
+ btb-multi-entry.bsv       Locally Modified          226 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          226 
+ branch-predictor.awb      Locally Modified          226 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          226 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-common.awb            Locally Modified          226 
+ icn-common.dic            Locally Added               0 
+ icn-packet-payload.bsv    Locally Modified          226 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.dic              Locally Modified          226 
+ icn-mesh.cpp              Locally Modified          226 
+ icn-mesh.bsv              Locally Modified          226 
+
+- Add NUM_EXTRA_OCN_STATIONS to allow topologies with routers nodes with no
+  local connection.
+
+- Changes for making larger models fit on FPGAs:
+
+  - The BTB was ridiculously large: full 64-bit set/tag plus full 64-bit targets!
+    It is a waste of FPGA resources and would be a waste of target machine
+    resources.  As a predictor, it does not have to be fully accurate.
+    Now it has a smaller tag (6 bits + 7 bit set index by default) and uses
+    an offset instead of an absolute target (11 bits by default).  Target
+    machine performance suffers a bit, but not much.  Note that
+    6 + 11 + 1 (maybe bit) is 18 -- a magic number for filling Xilinx BRAM.
+
+  - The packet payload heap may now be either in a block RAM or in a
+    scratchpad.  It picks, automatically, based on size.
+
+  - The mesh routing table is now in BRAM instead of LUTs.
+
+  - The mesh network buffers may now be stored, optionally, in a
+    scratchpad instead of BRAM.  The choice is automatic.

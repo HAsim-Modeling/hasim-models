@@ -9,3 +9,5 @@ def TOPOLOGY.NET_LLC_ADDR_MAP         "Address to last level cache instance map"
 
 def EVENTS.MESH.GRANT_VC     "MESH: GRANT VC";
 def EVENTS.MESH.GRANT_VC_ARB "MESH: GRANT VC ARB";
+
+def VDEV.SCRATCH.HASIM_MESH_FIFO_DATA "FIFO buffers for HAsim mesh model";

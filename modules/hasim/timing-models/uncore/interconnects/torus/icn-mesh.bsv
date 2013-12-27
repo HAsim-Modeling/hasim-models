@@ -32,6 +32,7 @@ import DefaultValue::*;
 `include "awb/provides/soft_connections.bsh"
 `include "awb/provides/fpga_components.bsh"
 `include "awb/provides/common_services.bsh"
+`include "awb/provides/mem_services.bsh"
 
 
 // ******* Timing Model Imports *******
@@ -50,6 +51,7 @@ import DefaultValue::*;
 `include "awb/dict/EVENTS_MESH.bsh"
 `include "awb/dict/TOPOLOGY.bsh"
 `include "awb/dict/PARAMS_HASIM_INTERCONNECT.bsh"
+`include "awb/dict/VDEV_SCRATCH.bsh"
 
 
 typedef STATION_IID MESH_COORD; // Since coordinates can vary dynamically, we need to be able to hold the worst case in each direction, which is a ring network.
@@ -352,10 +354,11 @@ module [HASIM_MODULE] mkInterconnect
                                             VC_STATE#(t_VC_FIFO)))
         stage3aCtrl <- mkStageController();
 
-    STAGE_CONTROLLER#(NUM_STATIONS, Tuple4#(VC_STATE#(VC_CREDIT_CNT),
+    STAGE_CONTROLLER#(NUM_STATIONS, Tuple5#(VC_STATE#(VC_CREDIT_CNT),
                                             Vector#(NUM_PORTS, Maybe#(WINNER_INFO)),
                                             VC_STATE#(t_VC_FIFO),
-                                            Vector#(NUM_PORTS, Maybe#(Tuple2#(PORT_IDX, VC_IDX)))))
+                                            Vector#(NUM_PORTS, Maybe#(Tuple2#(PORT_IDX, VC_IDX))),
+                                            Bool))
         stage3bCtrl <- mkBufferedStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, Tuple6#(VC_STATE#(VC_CREDIT_CNT),
@@ -380,7 +383,7 @@ module [HASIM_MODULE] mkInterconnect
                                             VC_STATE#(Maybe#(t_OUT_VC_REQ))))
         stage5Ctrl <- mkStageController();
 
-    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage6Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(NUM_STATIONS, VC_STATE#(t_VC_FIFO)) stage6Ctrl <- mkBufferedStageController();
 
     STAGE_CONTROLLER#(NUM_STATIONS, Bool) stage7Ctrl <- mkBufferedStageController();
 
@@ -409,8 +412,8 @@ module [HASIM_MODULE] mkInterconnect
     // The station routing table holds, for each station, the direction of
     // the next hop to all other stations.  The table stores one of north,
     // east, south and west.
-    MULTIPLEXED_REG#(NUM_STATIONS, t_ROUTING_TABLE)
-        stationRoutingTable <- mkMultiplexedRegU();
+    MEMORY_MULTI_READ_IFC#(2, STATION_ID, t_ROUTING_TABLE)
+        stationRoutingTable <- mkBRAMPseudoMultiRead();
 
     if ((portNorth > 3) || (portEast > 3) || (portSouth > 3) || (portWest > 3))
     begin
@@ -418,8 +421,8 @@ module [HASIM_MODULE] mkInterconnect
     end
     
     // Pick a link for a packet currently in src heading for dst.
-    function MESH_ROUTE_REQ route(STATION_ID src, STATION_ID dst);
-        Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(src);
+    function MESH_ROUTE_REQ route(STATION_ID src, STATION_ID dst,
+                                  t_ROUTING_TABLE tbl);
         MESH_ROUTE_REQ r;
 
         if (src == dst)
@@ -428,7 +431,7 @@ module [HASIM_MODULE] mkInterconnect
         end
         else
         begin
-            r.outPort = zeroExtend(r_table[dst]);
+            r.outPort = zeroExtend(tbl[dst]);
         end
 
         return r;
@@ -462,9 +465,7 @@ module [HASIM_MODULE] mkInterconnect
         begin
             $display("ICN_MESH: %0d  0x%h", initRTStationID, t);
 
-            Reg#(t_ROUTING_TABLE) r_table = stationRoutingTable.getReg(initRTStationID);
-            r_table <= t;
-
+            stationRoutingTable.write(initRTStationID, t);
             initRTStationID <= initRTStationID + 1;
         end
         else
@@ -480,6 +481,8 @@ module [HASIM_MODULE] mkInterconnect
         let iid <- localCtrl.startModelCycle();
         debugLog.nextModelCycle(iid);
         
+        debugLog.record(iid, $format("1: Begin."));
+
         // Get our state from the pools.
         Reg#(VC_STATE#(VC_CREDIT_CNT)) outputCredits = outputCreditsPool.getReg(iid);
         
@@ -711,14 +714,21 @@ module [HASIM_MODULE] mkInterconnect
         // Request update of virtual channel buffers.
         vcBufferEntries.deqAndReadReq(iid, in_fwds);
 
-        stage3bCtrl.ready(iid, tuple4(output_credits, vc_arb_winners, virtualChannels, out_fwds));
+        // Load the routing table if it will be needed in the next stage.
+        Bool did_deq = any(isValid, in_fwds);
+        if (did_deq)
+        begin
+            stationRoutingTable.readPorts[0].readReq(iid);
+        end
+
+        stage3bCtrl.ready(iid, tuple5(output_credits, vc_arb_winners, virtualChannels, out_fwds, did_deq));
     endrule
 
 
     rule stage3b_crossbarSend0 (True);
         
         // Get the info from the previous stage.
-        match {.iid, {.output_credits, .vc_arb_winners, .virtualChannels, .out_fwds}} <- stage3bCtrl.nextReadyInstance();
+        match {.iid, {.output_credits, .vc_arb_winners, .virtualChannels, .out_fwds, .did_deq}} <- stage3bCtrl.nextReadyInstance();
 
         // Read our local state from the pools.
         Reg#(VC_STATE#(Maybe#(MESH_ROUTE_REQ))) routes = routesPool.getReg(iid);
@@ -739,6 +749,11 @@ module [HASIM_MODULE] mkInterconnect
 
         // Receive update from the channel buffer manager.
         let m_deq_rsp <- vcBufferEntries.deqAndReadRsp(iid);
+        t_ROUTING_TABLE rt_tbl = ?;
+        if (did_deq)
+        begin
+            rt_tbl <- stationRoutingTable.readPorts[0].readRsp();
+        end
 
         //
         // Update input port state following forwarding of first entry in
@@ -778,7 +793,7 @@ module [HASIM_MODULE] mkInterconnect
                     // request.
                     if (next_flit matches tagged FLIT_HEAD .msg)
                     begin
-                        let rt = route(iid, msg.dst);
+                        let rt = route(iid, msg.dst, rt_tbl);
                         new_vcs[in_p][ln][vc].routeReq = tagged Valid rt;
                         debugLog.record(iid, $format("3b: ") + fshow(next_flit) + $format(" now first, in port %s ln %0d vc %0d, req ", portShow(fromInteger(in_p)), ln, vc) + fshow(rt));
                     end
@@ -1150,15 +1165,27 @@ module [HASIM_MODULE] mkInterconnect
         usedVCsPool.getReg(iid) <= new_used_vcs;
         outputCreditsPool.getReg(iid) <= upd_credits;
 
+        //
+        // Load the routing table for the next stage.  Ideally, this would be
+        // loaded only when needed since it shares a read port with stage 3.
+        // That would require a lot of logic and stage 3 only requests a read
+        // when needed, so it probably isn't worth the effort or hardware.
+        // stage6Ctrl is buffered, which should hide many sins.
+        //
+        stationRoutingTable.readPorts[1].readReq(iid);
+
         stage6Ctrl.ready(iid, virtual_channels);
     endrule
 
 
-    (* conservative_implicit_conditions, descending_urgency="stage6_enqs, stage5_arbOutChannel, stage4_route, stage3b_crossbarSend0, stage3a_crossbarArb, stage2_multiplexVCs, stage1_updateCreditsIn" *)
+    (* conservative_implicit_conditions *)
+    (* descending_urgency="stage6_enqs, stage5_arbOutChannel, stage4_route, stage3b_crossbarSend0, stage3a_crossbarArb, stage2_multiplexVCs, stage1_updateCreditsIn" *)
     rule stage6_enqs (True);
         // Get the current IID from the previous stage.    
         match {.iid, .virtualChannels} <- stage6Ctrl.nextReadyInstance();
        
+        let rt_tbl <- stationRoutingTable.readPorts[1].readRsp();
+
         VC_STATE#(t_VC_FIFO) new_vcs = virtualChannels;
 
         Vector#(NUM_PORTS, Maybe#(MESH_MSG)) enqs = replicate(tagged Invalid);
@@ -1199,7 +1226,7 @@ module [HASIM_MODULE] mkInterconnect
                     // that it has an entry.
                     if (new_flit matches tagged FLIT_HEAD .msg)
                     begin
-                        let rt = route(iid, msg.dst);
+                        let rt = route(iid, msg.dst, rt_tbl);
                         new_vcs[p][ln][vc].routeReq = tagged Valid rt;
                         debugLog.record(iid, $format("6: BW: ") + fshow(new_flit) + $format(" is first, req ") + fshow(rt));
                     end
@@ -1307,13 +1334,24 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
         vcFIFOs[p] <- mkMemoryMultiRead_Multiplexed(init_buf_mem);
     end
 
+    // Flit storage for virtual channel buffers, indexed by channel and vcFIFOs.
+    // There is an entry here for every vcFIFOs index for every virtual channel.
     Vector#(NUM_PORTS,
             MEMORY_MULTI_READ_IFC_MULTIPLEXED#(n_STATIONS,
                                                2,
                                                Tuple2#(t_GLOB_VC_IDX,
                                                        Bit#(TLog#(NUM_VC_FIFO_ENTRIES))),
-                                               MESH_FLIT))
+                                               MESH_FLIT)) vcFlits;
+    if (valueOf(NUM_PORTS) < 128)
+    begin
+        // Smaller configurations use BRAM for virtual channel FIFO storage.
         vcFlits <- replicateM(mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False)));
+    end
+    else
+    begin
+        // Larger configurations use a scratchpad for virtual channel FIFO storage.
+        vcFlits <- mkScratchpadVCBuffers();
+    end
 
     // Flits to be written to virtual channel FIFOs
     Vector#(NUM_PORTS, FIFO#(Tuple2#(INSTANCE_ID#(n_STATIONS),
@@ -1345,6 +1383,7 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
     endrule
 
 
+    Rules enq_deq_rules = emptyRules();
     for (Integer p = 0; p < numPorts; p = p + 1)
     begin
         //
@@ -1370,7 +1409,7 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
                 end
 
                 // Write the new flit to the FIFO
-                match {.upd_fifo, .idx} = funcFIFO_IDX_enq(fifo);
+                match {.upd_fifo, .idx} = funcFIFO_IDX_UGenq(fifo);
                 let slot = tuple2(ln, vc);
                 vcFIFOs[p].write(iid, slot, upd_fifo);
                 vcFlits[p].write(iid, tuple2(slot, idx), flit);
@@ -1401,7 +1440,7 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
                                                 tuple2(slot,
                                                        funcFIFO_IDX_UGfirst(fifo)));
 
-                let upd_fifo = funcFIFO_IDX_deq(fifo);
+                let upd_fifo = funcFIFO_IDX_UGdeq(fifo);
 
                 Bool not_empty = funcFIFO_IDX_notEmpty(upd_fifo);
                 if (not_empty)
@@ -1409,6 +1448,13 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
                     vcFlits[p].readPorts[1].readReq(iid,
                                                     tuple2(slot,
                                                            funcFIFO_IDX_UGfirst(upd_fifo)));
+                end
+                else
+                begin
+                    // The FIFO is empty.  Reset it to the initial state.  This
+                    // slightly improves hit rates when virtual channel buffers
+                    // are stored in scratchpads instead of BRAM.
+                    upd_fifo = funcFIFO_IDX_Init();
                 end
 
                 // Write the updated state
@@ -1418,9 +1464,10 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
             endrule
         endrules);
 
-        addRules(rJoinDescendingUrgency(r_enq, r_deq));
+        enq_deq_rules = rJoinDescendingUrgency(enq_deq_rules,
+                                               rJoinDescendingUrgency(r_enq, r_deq));
     end
-
+    addRules(enq_deq_rules);
 
     method Action enq(INSTANCE_ID#(n_STATIONS) iid,
                       Vector#(NUM_PORTS, Maybe#(MESH_MSG)) msgs);
@@ -1519,3 +1566,82 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
         return rsp;
     endmethod
 endmodule
+
+
+//
+// mkScratchpadVCBuffers --
+//   Virtual channel flit buffers, stored in a single scratchpad.  As required
+//   by mkVCBufferStorage, this code maintains the illusion that each router
+//   port gets its own scratchpad.  In reality, all the ports are mapped to
+//   a single scratchpad.
+//
+module [HASIM_MODULE] mkScratchpadVCBuffers
+    // Interface:
+    (Vector#(NUM_PORTS,
+             MEMORY_MULTI_READ_IFC_MULTIPLEXED#(n_STATIONS,
+                                                n_MEM_READ_PORTS,
+                                                t_ADDR,
+                                                t_DATA)))
+    provisos (Bits#(t_ADDR, t_ADDR_SZ),
+              Bits#(t_DATA, t_DATA_SZ));
+
+    // Scratchpad holding the flits.  Note that the Tuple2#() address is the
+    // combination of the router port and the address within the port.
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(n_STATIONS,
+                                       TMul#(NUM_PORTS, n_MEM_READ_PORTS),
+                                       Tuple2#(PORT_IDX, t_ADDR),
+                                       t_DATA) data <-
+        mkMemoryMultiRead_Multiplexed(mkMultiReadScratchpad(`VDEV_SCRATCH_HASIM_MESH_FIFO_DATA,
+                                                            defaultValue));
+
+    Vector#(NUM_PORTS, MEMORY_MULTI_READ_IFC_MULTIPLEXED#(n_STATIONS,
+                                                          n_MEM_READ_PORTS,
+                                                          t_ADDR,
+                                                          t_DATA)) v = newVector();
+
+    for (Integer p = 0; p < valueOf(NUM_PORTS); p = p + 1)
+    begin
+        PORT_IDX p_idx = fromInteger(p);
+
+        v[p] =
+            interface MEMORY_MULTI_READ_IFC_MULTIPLEXED
+                Vector#(n_MEM_READ_PORTS,
+                        MEMORY_READER_IFC_MULTIPLEXED#(n_STATIONS,
+                                                       t_ADDR,
+                                                       t_DATA)) local_ports = newVector();
+
+                for (Integer rp = 0; rp < valueOf(n_MEM_READ_PORTS); rp = rp + 1)
+                begin
+                    // The caller has two memory port spaces.  In some
+                    // implementations this outer level would map to separate
+                    // memories.  Here, all ports share the same scratchpad.
+                    // Map the outer port dimension to chunks of linearized ports.
+                    Integer base_p = (p * valueOf(n_MEM_READ_PORTS));
+
+                    local_ports[rp] =
+                        interface MEMORY_READER_IFC_MULTIPLEXED
+                            method Action readReq(INSTANCE_ID#(n_STATIONS) iid, t_ADDR addr);
+                                data.readPorts[base_p + rp].readReq(iid, tuple2(p_idx, addr));
+                            endmethod
+
+                            method ActionValue#(t_DATA) readRsp(INSTANCE_ID#(n_STATIONS) iid);
+                                let val <- data.readPorts[base_p + rp].readRsp(iid);
+                                return val;
+                            endmethod
+                        endinterface;
+                end
+
+                interface readPorts = local_ports;
+
+                method Action write(INSTANCE_ID#(n_STATIONS) iid,
+                                    t_ADDR addr,
+                                    t_DATA val);
+                    // All writer ports conflict
+                    data.write(iid, tuple2(p_idx, addr), val);
+                endmethod
+            endinterface;
+    end
+
+    return v;
+endmodule
+

@@ -43,13 +43,21 @@ import Vector::*;
 //
 // mkBranchTargetPredAlg --
 //     Branch target buffer algorithm.  Manage an n-way table of predictions.
-//     The t_ADDR_OFFSET_SZ low bits of an address are ignored (assumed zero).
+//     Since the BTB is just a predictor it is not necessary to store full tags
+//     or to support all offsets.  The table can be significantly smaller and
+//     still cover most cases using a small tag (causing some incorrect aliases)
+//     and an instruction offset instead of a target address.
 //
 module mkBranchTargetPredAlg
     // interface:
     (BRANCH_TARGET_BUFFER_ALG)
-    provisos (NumAlias#(t_SET_IDX_SZ, `BTB_SET_IDX_SIZE),
-              NumAlias#(n_WAYS, `BTB_NUM_WAYS),
+    provisos (NumAlias#(n_WAYS, `BTB_NUM_WAYS),
+              NumAlias#(t_SET_IDX_SZ, `BTB_SET_IDX_BITS),
+              NumAlias#(t_TAG_SZ, `BTB_TAG_BITS),
+              NumAlias#(t_OFFSET_SZ, `BTB_OFFSET_BITS),
+
+              Alias#(t_TAG, Bit#(t_TAG_SZ)),
+              Alias#(t_OFFSET, Bit#(t_OFFSET_SZ)),
 
               Alias#(t_SET_IDX, Bit#(t_SET_IDX_SZ)),
               Bits#(ISA_ADDRESS, t_ISA_ADDRESS_SZ),
@@ -58,19 +66,14 @@ module mkBranchTargetPredAlg
               Alias#(t_ADDR_IDX, FUNCP_PC_IDX_PART),
               Bits#(t_ADDR_IDX, t_ADDR_IDX_SZ),
 
-              // Figure out the size of the tag (the rest of an address beyond
-              // the offset and the table index.)
-              Add#(t_ADDR_TAG_SZ, t_SET_IDX_SZ, t_ADDR_IDX_SZ),
-              Alias#(t_ADDR_TAG, Bit#(t_ADDR_TAG_SZ)),
-       
               // Pseudo-LRU for ways within a set
               Alias#(t_PLRU, Vector#(n_WAYS, Bool)),
 
               // Type of one way:  maybe indicates whether a prediction exists.
-              // The t_ADDR_TAG indicates whether the entry corresponds to a given
-              // address index.  The t_ADDR_IDX is the target address (with leading
-              // 0's removed.)
-              Alias#(t_PRED_WAY, Maybe#(Tuple2#(t_ADDR_TAG, t_ADDR_IDX))),
+              // The t_TAG indicates whether the entry corresponds to a given
+              // address index.  The t_OFFSET is the offset from entry's address
+              // to the target address in t_ADDR_IDX space.
+              Alias#(t_PRED_WAY, Maybe#(Tuple2#(t_TAG, t_OFFSET))),
 
               // Full set
               Alias#(t_PRED, Vector#(n_WAYS, t_PRED_WAY)));
@@ -93,16 +96,16 @@ module mkBranchTargetPredAlg
     MULTIPLEXED_REG#(MAX_NUM_CPUS, Bool) lock <- mkMultiplexedReg(False);
 
     FIFO#(Tuple2#(CPU_INSTANCE_ID, t_ADDR_IDX)) newReqQ <- mkFIFO();
-    FIFO#(Tuple3#(CPU_INSTANCE_ID, t_SET_IDX, t_ADDR_TAG)) reqQ <- mkFIFO();
+    FIFO#(Tuple4#(CPU_INSTANCE_ID, t_ADDR_IDX, t_SET_IDX, t_TAG)) reqQ <- mkFIFO();
     FIFO#(Maybe#(t_ADDR_IDX)) rspQ <- mkSizedFIFO(valueof(NEXT_ADDR_PRED_MIN_RSP_BUFFER_SLOTS));
 
     FIFO#(Tuple3#(CPU_INSTANCE_ID,
                   t_ADDR_IDX,
-                  Maybe#(t_ADDR_IDX))) newUpdQ <- mkFIFO();
+                  Maybe#(t_OFFSET))) newUpdQ <- mkFIFO();
     FIFO#(Tuple4#(CPU_INSTANCE_ID,
                   t_SET_IDX,
-                  t_ADDR_TAG,
-                  Maybe#(t_ADDR_IDX))) upd0Q <- mkFIFO();
+                  t_TAG,
+                  Maybe#(t_OFFSET))) upd0Q <- mkFIFO();
     FIFO#(Tuple3#(CPU_INSTANCE_ID,
                   t_SET_IDX,
                   t_PRED)) upd1Q <- mkFIFO();
@@ -111,7 +114,7 @@ module mkBranchTargetPredAlg
 
     //
     // cpuIsLockedForUpdate --
-    //     A CPU is locked if an if the table has been read but not
+    //     A CPU is locked iff the table has been read but not
     //     yet updated.
     //
     function Bool cpuIsLockedForUpdate(CPU_INSTANCE_ID iid);
@@ -135,8 +138,8 @@ module mkBranchTargetPredAlg
     //
     // Split address into set index and tag.
     //
-    function Tuple2#(t_SET_IDX, t_ADDR_TAG) setAndTag(t_ADDR_IDX addr);
-        Tuple2#(t_ADDR_TAG, t_SET_IDX) st = unpack(hashBits(addr));
+    function Tuple2#(t_SET_IDX, t_TAG) setAndTag(t_ADDR_IDX addr);
+        Tuple2#(t_TAG, t_SET_IDX) st = unpack(resize(hashBits(addr)));
         match {.tag, .set} = st;
         return tuple2(set, tag);
     endfunction
@@ -144,7 +147,7 @@ module mkBranchTargetPredAlg
     //
     // Match way within a set?
     //
-    function Bool matchWay(t_ADDR_TAG tag, t_PRED_WAY way);
+    function Bool matchWay(t_TAG tag, t_PRED_WAY way);
         if (way matches tagged Valid .w &&& tpl_1(w) == tag)
             return True;
         else
@@ -189,7 +192,7 @@ module mkBranchTargetPredAlg
 
         btbPool.readPorts[`PORT_PRED].readReq(iid, set);
         plruPool.readPorts[`PORT_PRED].readReq(iid, set);
-        reqQ.enq(tuple3(iid, set, tag));
+        reqQ.enq(tuple4(iid, addr, set, tag));
     endrule
 
     //
@@ -197,7 +200,7 @@ module mkBranchTargetPredAlg
     //     Seek matching entry in the BTB and generate a response.
     //
     rule predRsp (True);
-        match {.iid, .set, .tag} = reqQ.first();
+        match {.iid, .addr, .set, .tag} = reqQ.first();
         reqQ.deq();
 
         let btb_entry <- btbPool.readPorts[`PORT_PRED].readRsp(iid);
@@ -207,12 +210,15 @@ module mkBranchTargetPredAlg
         begin
             // Found a hit in the BTB
             let way = validValue(btb_entry[w_idx]);
-            match {.w_tag, .w_target} = way;
+            match {.w_tag, .w_offset} = way;
+
+            // Compute target from address and offset
+            let w_target = addr + signExtend(w_offset);
 
             let plru_upd = updatePLRU(plru, w_idx);
             plruPool.write(iid, set, plru_upd);
 
-            debugLog.record($format("<%0d>: Hit way=%0d, tgt=0x%h, old_lru=0x%h, new_lru=0x%h", iid, w_idx, pcAddAlignmentBits(w_target), pack(plru), pack(plru_upd)));
+            debugLog.record($format("<%0d>: Hit way=%0d, addr=0x%h, tgt=0x%h, old_lru=0x%h, new_lru=0x%h", iid, w_idx, pcAddAlignmentBits(addr), pcAddAlignmentBits(w_target), pack(plru), pack(plru_upd)));
             rspQ.enq(tagged Valid w_target);
         end
         else
@@ -228,7 +234,7 @@ module mkBranchTargetPredAlg
     //     Update prediction table.  Only one update per CPU is permitted.
     //
     rule startUpd (! cpuIsLockedForUpdate(tpl_1(newUpdQ.first())));
-        match {.iid, .addr, .actual} = newUpdQ.first();
+        match {.iid, .addr, .m_actual} = newUpdQ.first();
         newUpdQ.deq();
 
         lockCPU(iid);
@@ -236,15 +242,15 @@ module mkBranchTargetPredAlg
         // Read current table value
         match {.set, .tag} = setAndTag(addr);
 
-        if (actual matches tagged Valid .pc)
-            debugLog.record($format("<%0d>: Update pc=0x%h, set=0x%h, tag=0x%h, tgt=0x%h", iid, pcAddAlignmentBits(addr), set, tag, pcAddAlignmentBits(validValue(actual))));
+        if (m_actual matches tagged Valid .actual)
+            debugLog.record($format("<%0d>: Update pc=0x%h, set=0x%h, tag=0x%h, offset=0x%h", iid, pcAddAlignmentBits(addr), set, tag, actual));
         else
             debugLog.record($format("<%0d>: Inval pc=0x%h, set=0x%h, tag=0x%h", iid, pcAddAlignmentBits(addr), set, tag));
 
         btbPool.readPorts[`PORT_UPD].readReq(iid, set);
         plruPool.readPorts[`PORT_UPD].readReq(iid, set);
 
-        upd0Q.enq(tuple4(iid, set, tag, actual));
+        upd0Q.enq(tuple4(iid, set, tag, m_actual));
     endrule
 
     //
@@ -252,7 +258,7 @@ module mkBranchTargetPredAlg
     //     Pick a victim way in the BTB set and update it.
     //
     rule pickWay (True);
-        match {.iid, .set, .tag, .actual} = upd0Q.first();
+        match {.iid, .set, .tag, .m_actual} = upd0Q.first();
         upd0Q.deq();
 
         let btb_entry <- btbPool.readPorts[`PORT_UPD].readRsp(iid);
@@ -263,7 +269,7 @@ module mkBranchTargetPredAlg
         begin
             // Entry is already in the BTB.  Update the existing way.
             w_idx = w;
-            debugLog.record($format("<%0d>: Update way=%0d, was=0x%h", iid, w_idx, pcAddAlignmentBits(tpl_2(validValue(btb_entry[w_idx])))));
+            debugLog.record($format("<%0d>: Update way=%0d, was=0x%h", iid, w_idx, tpl_2(validValue(btb_entry[w_idx]))));
         end
         else
         begin
@@ -282,10 +288,10 @@ module mkBranchTargetPredAlg
 
         // Now that a way is picked, update the entry.  Was the instruction
         // actually a branch to some target?
-        if (actual matches tagged Valid .tgt)
+        if (m_actual matches tagged Valid .offset)
         begin
             // Yes.  Update target.
-            btb_entry[w_idx] = tagged Valid tuple2(tag, tgt);
+            btb_entry[w_idx] = tagged Valid tuple2(tag, offset);
         end
         else
         begin
@@ -325,12 +331,35 @@ module mkBranchTargetPredAlg
     method Action upd(CPU_INSTANCE_ID iid,
                       ISA_ADDRESS addr,
                       Bool wasCorrect,
-                      Maybe#(ISA_ADDRESS) actual);
-        let i_actual = isValid(actual) ?
-            tagged Valid pcAddrWithoutAlignmentBits(validValue(actual)) :
-            tagged Invalid;
+                      Maybe#(ISA_ADDRESS) m_actual);
 
-        newUpdQ.enq(tuple3(iid, pcAddrWithoutAlignmentBits(addr), i_actual));
+        // Convert the address to the indexed address space (without low
+        // alignment bits.)
+        let addr_idx = pcAddrWithoutAlignmentBits(addr);
+
+        // Compute the offset from address to the target.
+        Maybe#(t_OFFSET) m_offset = tagged Invalid;
+        if (m_actual matches tagged Valid .actual)
+        begin
+            let tgt_addr_idx = pcAddrWithoutAlignmentBits(actual);
+            let full_offset = tgt_addr_idx - addr_idx;
+            t_OFFSET tbl_offset = truncate(full_offset);
+
+            // Can the offset be represented in the BTB entry size?  If not
+            // then treat the request as an invalidate.
+            if ((addr_idx + signExtend(tbl_offset)) == tgt_addr_idx)
+            begin
+                // It fits
+                m_offset = tagged Valid tbl_offset;
+                debugLog.record($format("<%0d>: Update req addr=0x%h, tgt=0x%h, offset=0x%h", iid, addr, actual, tbl_offset));
+            end
+            else
+            begin
+                debugLog.record($format("<%0d>: Update req addr=0x%h, tgt=0x%h, offset too large (0x%h)", iid, addr, actual, full_offset));
+            end
+        end
+   
+        newUpdQ.enq(tuple3(iid, addr_idx, m_offset));
     endmethod
 
     method Action abort(CPU_INSTANCE_ID iid, ISA_ADDRESS addr);

@@ -31,6 +31,8 @@ typedef `MAX_NUM_MEM_CTRLS MAX_NUM_MEM_CTRLS;
 typedef INSTANCE_ID#(MAX_NUM_MEM_CTRLS) MEM_CTRL_INSTANCE_ID;
 typedef INSTANCE_ID_BITS#(MAX_NUM_MEM_CTRLS) MEM_CTRL_INSTANCE_ID_SZ;
 
+typedef `NUM_EXTRA_OCN_STATIONS NUM_EXTRA_OCN_STATIONS;
+
 typedef `NUM_LANES NUM_LANES;
 typedef INSTANCE_ID#(NUM_LANES) LANE_IDX;
 typedef INSTANCE_ID_BITS#(NUM_LANES) LANE_IDX_SZ;
@@ -53,9 +55,13 @@ typedef `MAX_FLITS_PER_PACKET MAX_FLITS_PER_PACKET;
 
 //
 // The number of stations is the number of CPUs plus the number of
-// memory controllers.
+// memory controllers plus the number of extra stations.  The extra
+// stations allow more flexible topologies, such as rectangles with
+// some memory controllers on the top and bottom rows, with other
+// top/bottom slots empty.
 //
-typedef TAdd#(MAX_NUM_CPUS, MAX_NUM_MEM_CTRLS) NUM_STATIONS;
+typedef TAdd#(MAX_NUM_CPUS,
+              TAdd#(MAX_NUM_MEM_CTRLS, NUM_EXTRA_OCN_STATIONS)) NUM_STATIONS;
 typedef INSTANCE_ID#(NUM_STATIONS) STATION_IID;
 typedef STATION_IID STATION_ID;
 

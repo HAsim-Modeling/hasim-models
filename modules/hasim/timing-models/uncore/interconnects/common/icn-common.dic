@@ -1,0 +1,1 @@
+def VDEV.SCRATCH.HASIM_ICN_PACKET_PAYLOAD  "Packet payload scratchpad for HAsim timing model OCN";

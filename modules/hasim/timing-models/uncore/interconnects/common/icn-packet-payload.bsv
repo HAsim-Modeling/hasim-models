@@ -26,6 +26,7 @@
 
 import Vector::*;
 import Arbiter::*;
+import DefaultValue::*;
 
 
 // ******* Project Imports *******
@@ -34,6 +35,7 @@ import Arbiter::*;
 `include "awb/provides/soft_connections.bsh"
 `include "awb/provides/fpga_components.bsh"
 `include "awb/provides/common_services.bsh"
+`include "awb/provides/mem_services.bsh"
 
 
 // ******* Timing Model Imports *******
@@ -43,6 +45,11 @@ import Arbiter::*;
 `include "awb/provides/chip_base_types.bsh"
 `include "awb/provides/memory_base_types.bsh"
 `include "awb/provides/hasim_chip_topology.bsh"
+
+
+// ****** Generated files ******
+
+`include "awb/dict/VDEV_SCRATCH.bsh"
 
 
 typedef Bit#(`OCN_PACKET_PAYLOAD_BITS) OCN_PACKET_PAYLOAD;
@@ -135,7 +142,8 @@ endmodule
 //
 module [HASIM_MODULE] mkNetworkPacketPayloadStorage#(NumTypeParam#(n_CLIENTS) p)
     // Interface:
-    ();
+    ()
+    provisos (Bits#(OCN_PACKET_HANDLE, t_OCN_PACKET_HANDLE_SZ));
 
     Vector#(n_CLIENTS, CONNECTION_SEND#(OCN_PACKET_HANDLE)) allocQ = newVector();
     Vector#(n_CLIENTS, CONNECTION_RECV#(OCN_PACKET_HANDLE)) freeQ = newVector();
@@ -144,11 +152,22 @@ module [HASIM_MODULE] mkNetworkPacketPayloadStorage#(NumTypeParam#(n_CLIENTS) p)
     Vector#(n_CLIENTS, CONNECTION_SEND#(OCN_PACKET_PAYLOAD)) readRspQ = newVector();
 
     Vector#(n_CLIENTS, CONNECTION_RECV#(Tuple2#(OCN_PACKET_HANDLE,
-                                               OCN_PACKET_PAYLOAD))) writeQ = newVector();
+                                                OCN_PACKET_PAYLOAD))) writeQ = newVector();
     Vector#(n_CLIENTS, CONNECTION_SEND#(Bool)) writeAckQ = newVector();
 
-    MEMORY_HEAP_MULTI_READ#(n_CLIENTS, OCN_PACKET_HANDLE, OCN_PACKET_PAYLOAD) mem <-
-        mkMultiReadMemoryHeapUnionBRAM();
+    MEMORY_HEAP_MULTI_READ#(n_CLIENTS, OCN_PACKET_HANDLE, OCN_PACKET_PAYLOAD) mem;
+    if (valueOf(t_OCN_PACKET_HANDLE_SZ) <= 14)
+    begin
+        // Smaller configurations use BRAM for storing messages.
+        mem <- mkMultiReadMemoryHeapUnionBRAM();
+    end
+    else
+    begin
+        // Larger configurations use a scratchpad.
+        mem <- mkMultiReadMemoryHeapUnionMem(
+                   mkMultiReadScratchpad(`VDEV_SCRATCH_HASIM_ICN_PACKET_PAYLOAD,
+                                         defaultValue));
+    end
 
     //
     // Allocate soft connections to all clients.

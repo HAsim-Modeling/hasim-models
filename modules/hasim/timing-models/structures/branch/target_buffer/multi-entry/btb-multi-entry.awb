@@ -6,5 +6,7 @@
 
 %public btb-multi-entry.bsv
 
-%param BTB_SET_IDX_SIZE 7 "Number of bits for branch target buffer set index."
-%param BTB_NUM_WAYS     4 "Number of ways per branch target buffer set."
+%param BTB_NUM_WAYS      4 "Number of ways per branch target buffer set."
+%param BTB_SET_IDX_BITS  7 "Number of bits for branch target buffer set index."
+%param BTB_TAG_BITS      6 "Tag bits in each way.  Since this is a predictor, the tag may cover a subset of the full address."
+%param BTB_OFFSET_BITS  11 "To save space, BTB entries are relative offsets."

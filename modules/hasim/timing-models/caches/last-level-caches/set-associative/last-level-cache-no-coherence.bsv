@@ -1123,7 +1123,7 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(Bool, Maybe#(LANE_IDX))) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(Bool,
                                             Maybe#(OCN_PACKET_HANDLE),
-                                            Maybe#(Tuple2#(LANE_IDX, OCN_FLIT)))) stage3Ctrl <- mkStageController();
+                                            Maybe#(Tuple2#(LANE_IDX, OCN_FLIT)))) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage4Ctrl <- mkBufferedStageController();
 
     //
