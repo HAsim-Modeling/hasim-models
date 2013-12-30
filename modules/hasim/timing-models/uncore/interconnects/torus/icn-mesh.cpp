@@ -80,6 +80,10 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     UINT32 num_cores = topology->GetParam(TOPOLOGY_NUM_CORES);
     UINT32 num_mem_ctrl = topology->GetParam(TOPOLOGY_NUM_MEM_CONTROLLERS);
 
+    UINT32 max_total_nodes = MAX_NUM_CPUS +
+                             MAX_NUM_MEM_CTRLS +
+                             NUM_EXTRA_OCN_STATIONS;
+
     //
     // The memory controllers will be added as extra rows at the top and
     // bottom of the mesh.  If only only one memory controller is requested
@@ -105,8 +109,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     topology->SetParam(TOPOLOGY_NET_MESH_HEIGHT, num_rows);
     topology->SetParam(TOPOLOGY_NET_MAX_NODE_IID, num_cols * num_rows - 1);
 
-    VERIFY(num_cols * num_rows <=
-             MAX_NUM_CPUS + MAX_NUM_MEM_CTRLS + NUM_EXTRA_OCN_STATIONS,
+    VERIFY(num_cols * num_rows <= max_total_nodes,
            "Not enough network positions for chosen topology!");
 
     //
@@ -316,10 +319,9 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
     //
     // There are MAX_NUM_CPUS + 1 stations in the table.
     //
-    int max_nodes = MAX_NUM_CPUS + MAX_NUM_MEM_CTRLS;
-    for (int s = 0; s < max_nodes; s++)
+    for (int s = 0; s < max_total_nodes; s++)
     {
-        UINT8 buf[MAX_NUM_CPUS + MAX_NUM_MEM_CTRLS];
+        UINT8 buf[max_total_nodes];
         int bufIdx = 0;
 
         UINT8 rt = 0;
@@ -335,7 +337,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
         bool allow_ew_flow = (s_row != 0) &&
                              ((s_row != (num_rows - 1)) || (num_mem_ctrl == 1));
 
-        for (int d = 0; d < max_nodes; d++)
+        for (int d = 0; d < max_total_nodes; d++)
         {
             UINT64 d_col = d % num_cols;
             UINT64 d_row = d / num_cols;
@@ -386,7 +388,7 @@ HASIM_INTERCONNECT_CLASS::MapTopology(HASIM_CHIP_TOPOLOGY topology)
         }
 
         topology->SendParam(TOPOLOGY_NET_ROUTING_TABLE, buf, bufIdx,
-                            s == max_nodes - 1);
+                            s == max_total_nodes - 1);
     }
 
     return true;

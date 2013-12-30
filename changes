@@ -6974,3 +6974,31 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
   - The mesh network buffers may now be stored, optionally, in a
     scratchpad instead of BRAM.  The choice is automatic.
+
+----------
+mcadler     Date: Mon Dec 30 14:31:52 EST 2013  CSN: CSN-hasim-models-228
+                  Mon Dec 30 19:31:52 UTC 2013
+
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          227 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          227 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-instruction-caches
+ l1-instruction-cache.bsv  Locally Modified          227 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          227 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          227 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Modified          227 
+
+- Change miss tracker token allocation from single method to a request/response
+  pair.  This allows free token tracking to be in BRAM instead of LUTRAM.
+
+- Fix a bug in routing table creation.

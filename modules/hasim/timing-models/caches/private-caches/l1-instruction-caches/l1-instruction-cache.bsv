@@ -114,7 +114,12 @@ module [HASIM_MODULE] mkL1ICache ();
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 ICache", inports, outports);
 
     STAGE_CONTROLLER#(MAX_NUM_CPUS, IC_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, IC_LOCAL_STATE) stage3Ctrl <- mkStageController();
+
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple4#(IC_LOCAL_STATE,
+                                            Maybe#(ICACHE_OUTPUT_IMMEDIATE),
+                                            Maybe#(ICACHE_INPUT),
+                                            Bool))
+       stage3Ctrl <- mkStageController();
 
     // ****** Stats ******
 
@@ -257,14 +262,15 @@ module [HASIM_MODULE] mkL1ICache ();
     
     // Ports Read:
     // * storeReqFromCPU
-    
-    // Ports Written:
-    // * loadRspImmToCPU
 
     rule stage2_loadRsp (True);
 
         // Get the local state from the previous stage.
         match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
+
+        Maybe#(ICACHE_OUTPUT_IMMEDIATE) load_rsp_imm = tagged Invalid;
+        Maybe#(ICACHE_INPUT) new_miss_tok_req = tagged Invalid;
+        Bool new_miss_used_memq = False;
 
         // Check if the memQ has room for any new requests.
         let memQ_not_full <- reqToMemQ.canEnq(cpu_iid);
@@ -272,34 +278,26 @@ module [HASIM_MODULE] mkL1ICache ();
         // See if we need to finish any load responses
         if (local_state.loadBypass)
         begin
-            
             // A bypass, which is as good as a hit, so give the data back. We won't need the memory queue.
-            loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheHit(validValue(local_state.loadReq)));
-            reqToMemQ.noEnq(cpu_iid);
+            load_rsp_imm = tagged Valid initICacheHit(validValue(local_state.loadReq));
             statHits.incr(cpu_iid);
             debugLog.record(cpu_iid, $format("2: LOAD HIT (BYPASSED)"));
-
         end
         else if (local_state.loadReq matches tagged Valid .req)
         begin
-
             // Get the lookup response.
             let m_entry <- iCacheAlg.loadLookupRsp(cpu_iid);
 
             // Does the cache contain this addresss?
             if (m_entry matches tagged Valid .entry)
             begin
-
                 // A hit, so give the data back. We won't need the memory queue.
-                loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheHit(req));
-                reqToMemQ.noEnq(cpu_iid);
+                load_rsp_imm = tagged Valid initICacheHit(req);
                 statHits.incr(cpu_iid);
                 debugLog.record(cpu_iid, $format("2: LOAD HIT"));
-
             end
             else
             begin
-
                 // A miss. But is there already an outstanding miss to this address?
                 // And do we have a free missID to track the fill with?
                 // And is the memQ not full?
@@ -309,71 +307,94 @@ module [HASIM_MODULE] mkL1ICache ();
                 
                 if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) && can_allocate)
                 begin
-                
                     // Allocate the next miss ID and give it back to the CPU.
-                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, line_addr);
-                    
-                    // No fill to memory necessary.
-                    reqToMemQ.noEnq(cpu_iid);
+                    new_miss_tok_req = tagged Valid req;
+                    outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
 
                     // Tell the CPU their load missed, but we're handling it.
-                    loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheMiss(req, miss_tok.index));
                     statMisses.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("2: LOAD MISS (ALREADY OUTSTANDING): %0d", miss_tok.index));
 
+                    debugLog.record(cpu_iid, $format("2: LOAD MISS (ALREADY OUTSTANDING)"));
                 end
                 else if (can_allocate && memQ_not_full)
                 begin
-
                     // Allocate the next miss ID and give it back to the CPU.
-                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, line_addr);
+                    new_miss_tok_req = tagged Valid req;
+                    outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
                     
-                    // Send the fill request to memory, using the opaque bits for the miss id.
-                    let mem_req = initMemLoad(line_addr);
-                    mem_req.opaque = toMemOpaque(miss_tok);
-                    reqToMemQ.doEnq(cpu_iid, mem_req);
-
-                    // Tell the CPU their load missed, but we're handling it.
-                    loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheMiss(req, miss_tok.index));
+                    // Send the fill request to memory
+                    new_miss_used_memq = True;
                     statMisses.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("2: LOAD MISS: %0d", miss_tok.index));
 
+                    debugLog.record(cpu_iid, $format("2: LOAD MISS"));
                 end
                 else
                 begin
-
                     // The CPU must retry.
-                    loadRspImmToCPU.send(cpu_iid, tagged Valid initICacheRetry(req));
+                    load_rsp_imm = tagged Valid initICacheRetry(req);
                     debugLog.record(cpu_iid, $format("2: LOAD MISS RETRY"));
-                    
-                    // No request to memory.
-                    reqToMemQ.noEnq(cpu_iid);
 
                     // Record the retry.
                     statRetries.incr(cpu_iid);
-
                 end
-                
             end // cache load miss
         end
         else
         begin
-
             // Propogate the bubble.
-            loadRspImmToCPU.send(cpu_iid, tagged Invalid);
-            reqToMemQ.noEnq(cpu_iid);
-
+            load_rsp_imm = tagged Invalid;
         end
         
-        stage3Ctrl.ready(cpu_iid, local_state);
-        
+        stage3Ctrl.ready(cpu_iid, tuple4(local_state,
+                                         load_rsp_imm,
+                                         new_miss_tok_req,
+                                         new_miss_used_memq));
     endrule
 
-    (* conservative_implicit_conditions *)
+
+    // Ports Written:
+    // * loadRspImmToCPU
+
     rule stage3_end (True);
-    
-        match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, {.local_state,
+                          .load_rsp_imm,
+                          .new_miss_tok_req,
+                          .new_miss_used_memq}} <- stage3Ctrl.nextReadyInstance();
         
+        if (new_miss_tok_req matches tagged Valid .req)
+        begin
+            let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
+
+            let line_addr = toLineAddress(req.physicalAddress);
+
+            if (! new_miss_used_memq)
+            begin
+                // No request to memory.
+                reqToMemQ.noEnq(cpu_iid);
+
+                load_rsp_imm = tagged Valid initICacheMiss(req, miss_tok.index);
+                debugLog.record(cpu_iid, $format("3: LOAD MISS (ALREADY OUTSTANDING): %0d", miss_tok.index));
+            end
+            else
+            begin
+                // Send the fill request to memory, using the opaque bits for the miss id.
+                let mem_req = initMemLoad(line_addr);
+                mem_req.opaque = toMemOpaque(miss_tok);
+                reqToMemQ.doEnq(cpu_iid, mem_req);
+
+                // Tell the CPU their load missed, but we're handling it.
+                load_rsp_imm = tagged Valid initICacheMiss(req, miss_tok.index);
+                debugLog.record(cpu_iid, $format("3: LOAD MISS: %0d", miss_tok.index));
+            end
+        end
+        else
+        begin
+            // No request to memory.
+            reqToMemQ.noEnq(cpu_iid);
+        end
+
+        loadRspImmToCPU.send(cpu_iid, load_rsp_imm);
+
         debugLog.record(cpu_iid, $format("3: DONE"));
                     
         // Take care of the cache update.

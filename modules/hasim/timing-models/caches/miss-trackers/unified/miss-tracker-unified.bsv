@@ -16,6 +16,7 @@
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 //
 
+import FIFO::*;
 import FIFOF::*;
 
 // ******* Project Includes *******
@@ -107,15 +108,13 @@ function CACHE_MISS_INDEX#(t_MISS_ID_SZ) missTokIndex(CACHE_MISS_TOKEN#(t_MISS_I
 
 endfunction
 
-
-// CACHE_MISS_TRACKER
-
-// A structure to handle the allocation and freeing of cache miss tokens.
-
-// Multiplexing is handled internally.
-
+//
+// CACHE_MISS_TRACKER --
+//
+//   A structure to handle the allocation and freeing of cache miss tokens.
+//   Multiplexing is handled internally.
+//
 interface CACHE_MISS_TRACKER#(parameter type t_NUM_INSTANCES, parameter type t_MISS_ID_SZ);
-
     method Bool canAllocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool canAllocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
@@ -124,15 +123,15 @@ interface CACHE_MISS_TRACKER#(parameter type t_NUM_INSTANCES, parameter type t_M
     method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Action allocateLoadReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoadRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Action allocateStoreReq(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStoreRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
     method Action free(INSTANCE_ID#(t_NUM_INSTANCES) iid, CACHE_MISS_TOKEN#(t_MISS_ID_SZ) miss_tok_to_free);
     
     method Maybe#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) fillToDeliver(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-
 endinterface
-
 
 //
 // mkCoalescingCacheMissTracker --
@@ -148,23 +147,21 @@ endinterface
 //   by the L1 and not required, making the code simpler and using less
 //   FPGA storage.
 //
-module [HASIM_MODULE] mkCoalescingCacheMissTracker 
-    // interface:
-        (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ));
+module [HASIM_MODULE] mkCoalescingCacheMissTracker
+    // Interface:
+    (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ));
 
     // ******* Model State *******
 
-    // A LUTRAM to store the free miss IDs. 
-    // Initially each entry is initialized to be equal to its index.
-    // A multi-read LUTRAM is used to force exactly one read port, even
-    // though multiple methods read the RAM.  The methods are mutually
-    // exclusive.
-    let freeListInitFunc = mapMultiplexedLUTRAMInitFunc(id);
-    MULTIPLEXED_LUTRAM_MULTI_READ#(t_NUM_INSTANCES,
-                                   1,
-                                   CACHE_MISS_INDEX#(t_MISS_ID_SZ),
-                                   CACHE_MISS_INDEX#(t_MISS_ID_SZ))
-        freelist <- mkMultiReadLUTRAM_Multiplexed(mkMultiReadLUTRAMWith(freeListInitFunc));
+    // Free miss IDs. 
+    function freeListInitFunc(t_IDX idx) = truncate(idx);
+    let freemem <- mkBRAMBufferedPseudoMultiRead(False);
+    let freemem_init = mkMultiMemInitializedWith(freemem, freeListInitFunc);
+    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
+                                       2,
+                                       CACHE_MISS_INDEX#(t_MISS_ID_SZ),
+                                       CACHE_MISS_INDEX#(t_MISS_ID_SZ))
+        freelist <- mkMemoryMultiRead_Multiplexed(freemem_init);
 
     // A LUTRAM to store which other miss IDs a fill should be returned to,
     // represented as a linked list.
@@ -190,6 +187,8 @@ module [HASIM_MODULE] mkCoalescingCacheMissTracker
     MULTIPLEXED_REG_MULTI_WRITE#(t_NUM_INSTANCES, 2, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtrPool <- mkMultiplexedRegPseudoMultiWrite(minBound);
     MULTIPLEXED_REG#(t_NUM_INSTANCES, CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtrPool <- mkMultiplexedReg(maxBound);
     
+    FIFO#(Bool) loadRespQ <- mkFIFO();
+
 
     // ******* Local Functions *******
     
@@ -275,30 +274,41 @@ module [HASIM_MODULE] mkCoalescingCacheMissTracker
     //
     // Pop the freelist and return the head, coloring the token as appropriate.
         
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+    method Action allocateLoadReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTail = runTailPool.getReg(iid);
         Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
         Reg#(Bool) lastServedAddrValid = lastServedAddrValidPool.getRegWithWritePort(iid, 0);
-        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 0);
 
-        let idx = freelist.getRAM(iid, 0).sub(headPtr);
+        freelist.readPorts[0].readReq(iid, headPtr);
 
         headPtr <= headPtr + 1;
 
-        if (lastServedAddrValid && lastServedAddr == addr)
+        loadRespQ.enq(lastServedAddrValid && lastServedAddr == addr);
+
+        lastServedAddr <= addr;
+        lastServedAddrValid <= True;
+    endmethod
+    
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoadRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+        let matched_last_addr = loadRespQ.first();
+        loadRespQ.deq();
+
+        let idx <- freelist.readPorts[0].readRsp(iid);
+
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) runTail = runTailPool.getReg(iid);
+        LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 0);
+
+        if (matched_last_addr)
         begin
             multipleFillListPool.write(iid, runTail, idx);
             multipleFillListValids.upd(runTail, True);
         end
 
         runTail <= idx;
-        lastServedAddr <= addr;
-        lastServedAddrValid <= True;
 
         return initMissTokLoad(idx);
     endmethod
-    
+
     method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
         Reg#(LINE_ADDRESS) lastServedAddr = lastServedAddrPool.getReg(iid);
         Reg#(Bool) lastServedAddrValid = lastServedAddrValidPool.getRegWithWritePort(iid, 1);
@@ -309,16 +319,19 @@ module [HASIM_MODULE] mkCoalescingCacheMissTracker
         end
     endmethod
 
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Action allocateStoreReq(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 1);
 
-        let idx = freelist.getRAM(iid, 0).sub(headPtr);
+        freelist.readPorts[1].readReq(iid, headPtr);
 
         headPtr <= headPtr + 1;
+    endmethod
+
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStoreRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+        let idx <- freelist.readPorts[1].readRsp(iid);
 
         return initMissTokStore(idx);
     endmethod
-
 
     // free
     //
@@ -330,7 +343,7 @@ module [HASIM_MODULE] mkCoalescingCacheMissTracker
         LUTRAM#(CACHE_MISS_INDEX#(t_MISS_ID_SZ), Bool) multipleFillListValids = multipleFillListValidsPool.getRAMWithWritePort(iid, 1);
 
         let miss_idx = missTokIndex(miss_tok);
-        freelist.getRAM(iid, 0).upd(tailPtr, miss_idx);
+        freelist.write(iid, tailPtr, miss_idx);
 
         tailPtr <= tailPtr + 1;
         
@@ -364,23 +377,18 @@ endmodule
 //   assume that coalescing has already happened in the L1 caches.  Adding
 //   logic to merge loads at each level wastes FPGA resources.
 //
-module [HASIM_MODULE] mkCacheMissTracker 
-    // interface:
-        (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ));
+module [HASIM_MODULE] mkCacheMissTracker
+    // Interface:
+    (CACHE_MISS_TRACKER#(t_NUM_INSTANCES, t_MISS_ID_SZ));
 
     // ******* Model State *******
 
-    // A LUTRAM to store the free miss IDs. 
-    // Initially each entry is initialized to be equal to its index.
-    // A multi-read LUTRAM is used to force exactly one read port, even
-    // though multiple methods read the RAM.  The methods are mutually
-    // exclusive.
-    let freeListInitFunc = mapMultiplexedLUTRAMInitFunc(id);
-    MULTIPLEXED_LUTRAM_MULTI_READ#(t_NUM_INSTANCES,
-                                   1,
-                                   CACHE_MISS_INDEX#(t_MISS_ID_SZ),
-                                   CACHE_MISS_INDEX#(t_MISS_ID_SZ))
-        freelist <- mkMultiReadLUTRAM_Multiplexed(mkMultiReadLUTRAMWith(freeListInitFunc));
+    // Free miss IDs. 
+    function freeListInitFunc(t_IDX idx) = truncate(idx);
+    MEMORY_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
+                            CACHE_MISS_INDEX#(t_MISS_ID_SZ),
+                            CACHE_MISS_INDEX#(t_MISS_ID_SZ))
+        freelist <- mkMemory_Multiplexed(mkBRAMInitializedWith(freeListInitFunc));
 
     // A register to store the current token that is the tail of a "run".
     MULTIPLEXED_REG#(t_NUM_INSTANCES,
@@ -396,7 +404,7 @@ module [HASIM_MODULE] mkCacheMissTracker
     MULTIPLEXED_REG#(t_NUM_INSTANCES,
                      CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtrPool <-
         mkMultiplexedReg(maxBound);
-    
+
 
     // ******* Local Functions *******
     
@@ -467,27 +475,33 @@ module [HASIM_MODULE] mkCacheMissTracker
     // does not coalesce consecutive loads to the same address.
     //
 
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid,
-                                                                      LINE_ADDRESS addr);
+    method Action allocateLoadReq(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                                  LINE_ADDRESS addr);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
             headPtrPool.getRegWithWritePort(iid, 0);
-        let idx = freelist.getRAM(iid, 0).sub(headPtr);
+        freelist.readReq(iid, headPtr);
         headPtr <= headPtr + 1;
-
-        return initMissTokLoad(idx);
     endmethod
     
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoadRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+        let idx <- freelist.readRsp(iid);
+        return initMissTokLoad(idx);
+    endmethod
+
     method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid,
                                  LINE_ADDRESS addr);
         noAction;
     endmethod
 
-    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method Action allocateStoreReq(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
             headPtrPool.getRegWithWritePort(iid, 1);
-        let idx = freelist.getRAM(iid, 0).sub(headPtr);
+        freelist.readReq(iid, headPtr);
         headPtr <= headPtr + 1;
+    endmethod
 
+    method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateStoreRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+        let idx <- freelist.readRsp(iid);
         return initMissTokStore(idx);
     endmethod
 
@@ -501,7 +515,7 @@ module [HASIM_MODULE] mkCacheMissTracker
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
 
         let miss_idx = missTokIndex(miss_tok);
-        freelist.getRAM(iid, 0).upd(tailPtr, miss_idx);
+        freelist.write(iid, tailPtr, miss_idx);
 
         tailPtr <= tailPtr + 1;
     endmethod

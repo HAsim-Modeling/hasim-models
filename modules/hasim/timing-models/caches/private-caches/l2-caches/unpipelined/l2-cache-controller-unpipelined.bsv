@@ -198,8 +198,8 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L2_LOCAL_STATE, Bool)) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, L2_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, L2_LOCAL_STATE) stage4Ctrl <- mkStageController(); // XXX TMP
-    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, MEMORY_REQ, Maybe#(CACHE_ENTRY#(VOID)), L2_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L2_LOCAL_STATE, Maybe#(MEMORY_REQ))) stage4Ctrl <- mkStageController();
+    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, MEMORY_REQ, Maybe#(CACHE_ENTRY#(VOID)), L2_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid);
 
 
     // ****** Stats ******
@@ -463,7 +463,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             reqFromCore.noDeq(cpu_iid);
             eventHit.recordEvent(cpu_iid, tagged Invalid);
             eventMiss.recordEvent(cpu_iid, tagged Invalid);
-            stage4Ctrl.ready(cpu_iid, local_state);
+            stage4Ctrl.ready(cpu_iid, tuple2(local_state, tagged Invalid));
         end
     endrule
     
@@ -482,6 +482,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         //
         Maybe#(EVENT_PARAM) evt_hit = tagged Invalid;
         Maybe#(EVENT_PARAM) evt_miss = tagged Invalid;
+        Maybe#(MEMORY_REQ) new_miss_tok_req = tagged Invalid;
 
         //
         // Is the line already in the cache?
@@ -549,21 +550,16 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     memQAvailable(local_state))
                 begin
                     // Allocate the next miss ID.
-                    let miss_tok <- outstandingMisses.allocateStore(cpu_iid);
+                    new_miss_tok_req = tagged Valid req;
+                    outstandingMisses.allocateStoreReq(cpu_iid);
 
                     // Record that we are using the memory queue.
                     local_state.memQUsed = True;
 
-                    // Use the opaque bits to store the miss token.
-                    // Note that we use a load to simulate getting exclusive access.
-                    let mem_req = initMemLoad(req.physicalAddress);
-                    mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
-                    local_state.memQData = mem_req;
-
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     //statWriteMiss.incr(cpu_iid);
                     evt_miss = tagged Valid resize({ req.physicalAddress, 1'b1 });
-                    debugLog.record(cpu_iid, $format("3: STORE MISS: %0d", miss_tok.index));
+                    debugLog.record(cpu_iid, $format("3: STORE MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
                 else
@@ -582,25 +578,17 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     memQAvailable(local_state))
                 begin
                     // Allocate the next miss ID.
-                    let miss_tok <- outstandingMisses.allocateLoad(cpu_iid, req.physicalAddress);
-
-                    // Record the original opaque for returning.
-                    opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
-                                      fromMemOpaque(req.opaque));
+                    new_miss_tok_req = tagged Valid req;
+                    outstandingMisses.allocateLoadReq(cpu_iid, req.physicalAddress);
 
                     // Record that we are using the memory queue.
                     local_state.memQUsed = True;
-
-                    // Use the opaque bits to store the miss token.
-                    let mem_req = initMemLoad(req.physicalAddress);
-                    mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
-                    local_state.memQData = mem_req;
 
                     // A miss, so no response. (Don't change the response in case
                     // there's an existing fill.)
                     statReadMiss.incr(cpu_iid);
                     evt_miss = tagged Valid resize({ req.physicalAddress, 1'b0 });
-                    debugLog.record(cpu_iid, $format("3: LOAD MISS: %0d", miss_tok.index));
+                    debugLog.record(cpu_iid, $format("3: LOAD MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
                 else
@@ -617,13 +605,43 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         eventMiss.recordEvent(cpu_iid, evt_miss);
 
         stage3Stall <= tagged Invalid;
-        stage4Ctrl.ready(cpu_iid, local_state);
+        stage4Ctrl.ready(cpu_iid, tuple2(local_state, new_miss_tok_req));
     endrule
     
 
-    (* conservative_implicit_conditions *)
     rule stage4_end (True);
-        match {.cpu_iid, .local_state} <- stage4Ctrl.nextReadyInstance();
+        match {.cpu_iid, {.local_state, .new_miss_tok_req}} <- stage4Ctrl.nextReadyInstance();
+
+        if (new_miss_tok_req matches tagged Valid .req)
+        begin
+            if (req.isStore)
+            begin
+                let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
+
+                // Use the opaque bits to store the miss token.
+                // Note that we use a load to simulate getting exclusive access.
+                let mem_req = initMemLoad(req.physicalAddress);
+                mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
+                local_state.memQData = mem_req;
+
+                debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
+            end
+            else
+            begin
+                let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
+
+                // Record the original opaque for returning.
+                opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
+                                  fromMemOpaque(req.opaque));
+
+                // Use the opaque bits to store the miss token.
+                let mem_req = initMemLoad(req.physicalAddress);
+                mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
+                local_state.memQData = mem_req;
+
+                debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));
+            end
+        end
 
         // Take care of the memory queue.
         if (local_state.memQUsed)
