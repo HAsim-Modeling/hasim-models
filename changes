@@ -7002,3 +7002,14 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
   pair.  This allows free token tracking to be in BRAM instead of LUTRAM.
 
 - Fix a bug in routing table creation.
+
+----------
+mcadler     Date: Mon Jan 13 17:10:00 EST 2014  CSN: CSN-hasim-models-229
+                  Mon Jan 13 22:10:00 UTC 2014
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          228 
+
+Used the wrong parameter for picking BRAM vs. scratchpad.  Doesn't affect
+any currently used sizes.

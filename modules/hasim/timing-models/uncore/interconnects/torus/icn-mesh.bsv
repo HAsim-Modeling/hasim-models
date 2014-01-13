@@ -1342,7 +1342,7 @@ module [HASIM_MODULE] mkVCBufferStorage#(TIMEP_DEBUG_FILE_MULTIPLEXED#(n_STATION
                                                Tuple2#(t_GLOB_VC_IDX,
                                                        Bit#(TLog#(NUM_VC_FIFO_ENTRIES))),
                                                MESH_FLIT)) vcFlits;
-    if (valueOf(NUM_PORTS) < 128)
+    if (valueOf(n_STATIONS) < 350)
     begin
         // Smaller configurations use BRAM for virtual channel FIFO storage.
         vcFlits <- replicateM(mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False)));
