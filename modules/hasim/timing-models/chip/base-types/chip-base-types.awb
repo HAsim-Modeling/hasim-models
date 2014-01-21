@@ -8,9 +8,9 @@
 
 %public chip-base-types.bsv
 
-%param MAX_NUM_CPUS           2   "Maximum number of CPUs on the chip."
-%param MAX_NUM_MEM_CTRLS      1   "Maximum number of on-chip memory controllers."
-%param NUM_EXTRA_OCN_STATIONS 0   "Number of extra OCN stations (to allow empty stations.)"
+%param --global MAX_NUM_CPUS           2   "Maximum number of CPUs on the chip."
+%param --global MAX_NUM_MEM_CTRLS      1   "Maximum number of on-chip memory controllers."
+%param --global NUM_EXTRA_OCN_STATIONS 0   "Number of extra OCN stations (to allow empty stations.)"
 %param NUM_LANES              3   "Number of lanes in in the on-chip network."
 %param VCS_PER_LANE           1   "Number of virtual channels per lane in the on-chip network."
 

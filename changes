@@ -7013,3 +7013,13 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
 
 Used the wrong parameter for picking BRAM vs. scratchpad.  Doesn't affect
 any currently used sizes.
+
+----------
+mcadler     Date: Tue Jan 21 10:53:45 EST 2014  CSN: CSN-hasim-models-230
+                  Tue Jan 21 15:53:45 UTC 2014
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          229 
+
+Make a few parameters global.
