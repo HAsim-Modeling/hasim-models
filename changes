@@ -7023,3 +7023,25 @@ Directory modules/hasim/timing-models/chip/base-types
  chip-base-types.awb       Locally Modified          229 
 
 Make a few parameters global.
+
+----------
+mcadler     Date: Tue Feb 11 08:08:02 EST 2014  CSN: CSN-hasim-models-231
+                  Tue Feb 11 13:08:02 UTC 2014
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          230 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          230 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          230 
+
+Provide a base module for connecting a vector of stall ports to an on-chip
+network.  The module maps vector slots to lanes in the network.  Saving
+message data in a side buffer instead of encoding the entire message as
+flits is handled internally.
+
+The ports may have different data types, though all types must belong
+to the OCN_SEND_TYPE typclass.

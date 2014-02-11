@@ -115,7 +115,7 @@ instance FShow#(OCN_FLIT);
         else if (ocnFlit matches tagged FLIT_BODY .flit)
         begin
             String b_type = flit.isTail ? "TAIL" : "BODY";
-            return $format("{%s} flit_opaque %d", b_type, flit.opaque);
+            return $format("{%s} flit_opaque 0x%0x", b_type, flit.opaque);
         end
         else
         begin

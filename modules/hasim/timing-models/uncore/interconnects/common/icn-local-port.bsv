@@ -586,3 +586,504 @@ module [HASIM_MODULE] mkLocalNetworkPortRecv#(
         endinterface
     endinterface
 endmodule
+
+
+// ========================================================================
+//
+//   Expose the OCN interface as vectors of stall ports.
+//
+// ========================================================================
+
+//
+// Ports connecting to the OCN must be of types that are members of the
+// OCN_SEND_TYPE typeclass.
+//
+typedef struct
+{
+    OCN_FLIT_HEAD headFlit;
+    OCN_PACKET_PAYLOAD payload;
+}
+OCN_MSG_HEAD_AND_PAYLOAD
+    deriving (Eq, Bits);
+
+typeclass OCN_SEND_TYPE#(type t_MSG);
+    function OCN_MSG_HEAD_AND_PAYLOAD cvtToOCNFlits(STATION_ID tgt, t_MSG msg);
+
+    function Tuple2#(STATION_ID, t_MSG) cvtFromOCNFlits(
+        OCN_MSG_HEAD_AND_PAYLOAD ocnMsg
+        );
+endtypeclass
+
+
+//
+// Convert between MEMORY_REQ and OCN_SEND_TYPE.
+//
+instance OCN_SEND_TYPE#(MEMORY_REQ);
+    function OCN_MSG_HEAD_AND_PAYLOAD cvtToOCNFlits(STATION_ID tgt, MEMORY_REQ req);
+        OCN_MSG_HEAD_AND_PAYLOAD info;
+
+        info.headFlit = OCN_FLIT_HEAD { src: ?,
+                                        dst: tgt,
+                                        isStore: req.isStore };
+
+        info.payload = zeroExtend(pack(tuple2(req.opaque,
+                                              req.physicalAddress)));
+
+        return info;
+    endfunction
+
+    function Tuple2#(STATION_ID, MEMORY_REQ) cvtFromOCNFlits(
+        OCN_MSG_HEAD_AND_PAYLOAD ocnMsg
+        );
+
+        let head = ocnMsg.headFlit;
+
+        MEM_OPAQUE opaque;
+        LINE_ADDRESS pa;
+        {opaque, pa} = unpack(truncate(ocnMsg.payload));
+
+        MEMORY_REQ mreq = head.isStore ? initMemStore(pa) : initMemLoad(pa);
+        mreq.opaque = opaque;
+
+        return tuple2(head.src, mreq);
+    endfunction
+endinstance
+
+//
+// Convert between MEMORY_RSP and OCN_SEND_TYPE.
+//
+instance OCN_SEND_TYPE#(MEMORY_RSP);
+    function OCN_MSG_HEAD_AND_PAYLOAD cvtToOCNFlits(STATION_ID tgt, MEMORY_RSP rsp);
+        OCN_MSG_HEAD_AND_PAYLOAD info;
+
+        info.headFlit = OCN_FLIT_HEAD { src: ?,
+                                        dst: tgt,
+                                        isStore: False };
+
+        info.payload = zeroExtend(pack(tuple2(rsp.opaque,
+                                              rsp.physicalAddress)));
+
+        return info;
+    endfunction
+
+    function Tuple2#(STATION_ID, MEMORY_RSP) cvtFromOCNFlits(
+        OCN_MSG_HEAD_AND_PAYLOAD ocnMsg
+        );
+
+        let head = ocnMsg.headFlit;
+
+        MEM_OPAQUE opaque;
+        LINE_ADDRESS pa;
+        {opaque, pa} = unpack(truncate(ocnMsg.payload));
+
+        return tuple2(head.src, initMemRsp(pa, opaque));
+    endfunction
+endinstance
+
+
+//
+// Ports are passed in as the following vectors.
+//
+
+typedef Vector#(n_LANES,
+                PORT_STALL_RECV_MULTIPLEXED#(n_INSTANCES,
+                                             OCN_MSG_HEAD_AND_PAYLOAD))
+    OCN_FROM_PORT_VEC_MULTIPLEXED#(numeric type n_INSTANCES, numeric type n_LANES);
+
+typedef Vector#(n_LANES,
+                PORT_STALL_SEND_MULTIPLEXED#(n_INSTANCES,
+                                             OCN_MSG_HEAD_AND_PAYLOAD))
+    OCN_TO_PORT_VEC_MULTIPLEXED#(numeric type n_INSTANCES, numeric type n_LANES);
+
+
+
+//
+// mkPortToOCNChannel --
+//   Convert a receive port of arbitrary type to a port that can be part of
+//   a vector passed in to mkOCNConnection().  The type must be a member
+//   of the OCN_SEND_TYPE typeclass.
+//
+module [HASIM_MODULE] mkPortToOCNChannel#(
+    PORT_STALL_RECV_MULTIPLEXED#(n_INSTANCES, Tuple2#(STATION_ID, t_MSG)) port)
+
+    // Interface:
+    (PORT_STALL_RECV_MULTIPLEXED#(n_INSTANCES, OCN_MSG_HEAD_AND_PAYLOAD))
+    provisos (OCN_SEND_TYPE#(t_MSG));
+
+    method noDeq = port.noDeq;
+    method doDeq = port.doDeq;
+
+    method ActionValue#(Maybe#(OCN_MSG_HEAD_AND_PAYLOAD)) receive(INSTANCE_ID#(n_INSTANCES) iid);
+        let m <- port.receive(iid);
+        if (m matches tagged Valid {.dst, .msg})
+        begin
+            return tagged Valid cvtToOCNFlits(dst, msg);
+        end
+        else
+        begin
+            return tagged Invalid;
+        end
+    endmethod
+
+    interface INSTANCE_CONTROL_IN_OUT ctrl = port.ctrl;
+endmodule
+
+//
+// mkOCNChannelToPort --
+//   The equivalent of mkPortToOCNChannel for send ports, forwarding data from
+//   the OCN to a port.
+//
+module [HASIM_MODULE] mkOCNChannelToPort#(
+    PORT_STALL_SEND_MULTIPLEXED#(n_INSTANCES, Tuple2#(STATION_ID, t_MSG)) port)
+
+    // Interface:
+    (PORT_STALL_SEND_MULTIPLEXED#(n_INSTANCES, OCN_MSG_HEAD_AND_PAYLOAD))
+    provisos (OCN_SEND_TYPE#(t_MSG));
+
+    method Action doEnq(INSTANCE_ID#(n_INSTANCES) iid,
+                        OCN_MSG_HEAD_AND_PAYLOAD ocnMsg);
+        port.doEnq(iid, cvtFromOCNFlits(ocnMsg));
+    endmethod
+
+    method noEnq = port.noEnq;
+    method canEnq = port.canEnq;
+    interface INSTANCE_CONTROL_IN_OUT ctrl = port.ctrl;
+endmodule
+
+
+//
+// mkOCNConnection --
+//   Build a shim, connecting a set of stall ports to a set of OCN virtual
+//   channels.  The ports are passed in as two vectors, one for each
+//   direction:  portsToOCN and ocnToPorts.  Positions in the vector
+//   correspond to virtual channel numbers.
+//
+module [HASIM_MODULE] mkOCNConnection#(
+    OCN_FROM_PORT_VEC_MULTIPLEXED#(n_INSTANCES, n_LANES) portsToOCN,
+    OCN_TO_PORT_VEC_MULTIPLEXED#(n_INSTANCES, n_LANES) ocnToPorts,
+    String ifcName)
+    // Interface:
+    ();
+
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(n_INSTANCES) debugLog <-
+        mkTIMEPDebugFile_Multiplexed("ocn_connection_" + ifcName + ".out");
+
+    //
+    // Side memories hold the actual contents of a packet instead of forcing all
+    // datapaths in the simulated OCN to be wide enough to pass a full packet.
+    //
+    OCN_PACKET_PAYLOAD_CLIENT payloadStorage <- mkNetworkPacketPayloadClient(1);
+
+    //
+    // Wrapped interfaces to/from the OCN.  The wrappers simplify
+    // the protocol for credit management.
+    //
+    PORT_OCN_LOCAL_SEND_MULTIPLEXED#(n_INSTANCES) ocnSend <-
+        mkLocalNetworkPortSend(ifcName + "OutQ",
+                               ifcName + "InQ",
+                               debugLog);
+
+    PORT_OCN_LOCAL_RECV_MULTIPLEXED#(n_INSTANCES,
+                                     MAX_FLITS_PER_PACKET) ocnRecv <-
+        mkLocalNetworkPortRecv(ifcName + "OutQ",
+                               ifcName + "InQ",
+                               debugLog);
+
+
+    Vector#(TAdd#(2, TMul#(2, n_LANES)),
+            INSTANCE_CONTROL_IN#(n_INSTANCES)) inctrls = newVector();
+    inctrls[0] = ocnSend.ctrl.in;
+    inctrls[1] = ocnRecv.ctrl.in;
+
+    Vector#(TAdd#(2, TMul#(2, n_LANES)),
+            INSTANCE_CONTROL_OUT#(n_INSTANCES)) outctrls = newVector();
+    outctrls[0] = ocnSend.ctrl.out;
+    outctrls[1] = ocnRecv.ctrl.out;
+
+    //    
+    // Add controls for the ports passed in to the connector.
+    //    
+    Integer slot = 2;
+    for (Integer i = 0; i < valueOf(n_LANES); i = i + 1)    
+    begin
+        inctrls[slot] = portsToOCN[i].ctrl.in;
+        outctrls[slot] = portsToOCN[i].ctrl.out;
+        slot = slot + 1;
+    end
+
+    for (Integer i = 0; i < valueOf(n_LANES); i = i + 1)    
+    begin
+        inctrls[slot] = ocnToPorts[i].ctrl.in;
+        outctrls[slot] = ocnToPorts[i].ctrl.out;
+        slot = slot + 1;
+    end
+
+
+    LOCAL_CONTROLLER#(n_INSTANCES) localCtrl <- mkNamedLocalController("LLC Network Connection", inctrls, outctrls);
+    STAGE_CONTROLLER#(n_INSTANCES, Tuple2#(Bool, Maybe#(LANE_IDX))) stage2Ctrl <- mkStageController();
+    STAGE_CONTROLLER#(n_INSTANCES, Tuple3#(Bool,
+                                            Maybe#(OCN_PACKET_HANDLE),
+                                            Maybe#(Tuple2#(LANE_IDX, OCN_FLIT)))) stage3Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(n_INSTANCES, Bool) stage4Ctrl <- mkBufferedStageController();
+
+    //
+    // Messages are broken into flits in this module when transmitted on the
+    // OCN.  For now we always use packets that are two flits.  These
+    // registers hold the tail flits after a head is transmitted.
+    //
+    MULTIPLEXED_REG#(n_INSTANCES,
+                     Maybe#(Tuple2#(LANE_IDX, OCN_FLIT_OPAQUE))) packetizingToOCNPool <-
+        mkMultiplexedReg(tagged Invalid);
+
+    //
+    // Track the source of the packet being received.  The OCN receiver interface
+    // guarantees that once a packet starts the only flits seen will be from
+    // the same packet.  This makes matching header and body flits trivial.
+    //
+    MULTIPLEXED_REG#(n_INSTANCES, OCN_FLIT_HEAD) recvPacketHeadPool <-
+        mkMultiplexedReg(?);
+
+
+    (* conservative_implicit_conditions *)
+    rule stage1_sendToOCN (True);
+        let cpu_iid <- localCtrl.startModelCycle();
+        debugLog.nextModelCycle(cpu_iid);
+
+        // Check credits for sending to the network
+        let can_enq <- ocnSend.canEnq(cpu_iid);
+
+        // Remaining packets for all outbound lanes.
+        Reg#(Maybe#(Tuple2#(LANE_IDX, OCN_FLIT_OPAQUE))) packetizingToOCN =
+            packetizingToOCNPool.getReg(cpu_iid);
+
+        //
+        // Collect messages heading toward the OCN.  The "receive" operation
+        // here is not a commitment to process a message.  For that, doDeq()
+        // must be called.
+        //
+        Vector#(n_LANES, Maybe#(OCN_MSG_HEAD_AND_PAYLOAD)) m_outToOCN = newVector();
+
+        for (Integer i = 0; i < valueOf(n_LANES); i = i + 1)
+        begin
+            m_outToOCN[i] <- portsToOCN[i].receive(cpu_iid);
+        end
+
+        //
+        // Pick a winner.
+        //
+
+        Vector#(n_LANES, Bool) did_enq_outToOCN = replicate(False);
+        Bool did_payload_storage_write = False;
+        Bool did_ocn_enq = False;
+
+        //
+        // Send a flit -- either a remaining flit from a previous packet or
+        // a new packet.
+        //
+        if (packetizingToOCN matches tagged Valid {.lane, .op})
+        begin
+            //
+            // Complete an LLC response by sending the remainder of an old packet.
+            //
+            if (can_enq[lane])
+            begin
+                let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
+                ocnSend.doEnq(cpu_iid, pack(lane), msg);
+                packetizingToOCN <= tagged Invalid;
+                did_ocn_enq = True;
+
+                debugLog.record(cpu_iid, $format("1: Lane %0d: tail", lane));
+            end
+        end
+        else
+        begin
+            //
+            // Start a new packet if one exists for a channel that is ready
+            // to receive.
+            //
+            // For now, arbitration is static with priority going to lower
+            // channels.
+            //
+            for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+            begin
+                if (m_outToOCN[i] matches tagged Valid .info &&&
+                    can_enq[i] &&&
+                    payloadStorage.allocNotEmpty &&&
+                    ! did_payload_storage_write)
+                begin
+                    // Send the head flit.
+                    OCN_FLIT flit = tagged FLIT_HEAD info.headFlit;
+                    ocnSend.doEnq(cpu_iid, i, flit);
+                    did_ocn_enq = True;
+
+                    // Note deq from port.
+                    portsToOCN[i].doDeq(cpu_iid);
+                    did_enq_outToOCN[i] = True;
+
+                    // Save the full payload in the side buffer.  The flits
+                    // sent over the OCN in te model are a subset of the message.
+                    let h <- payloadStorage.allocHandle();
+                    payloadStorage.write(h, info.payload);
+                    did_payload_storage_write = True;
+
+                    // The packet is broken into two flits.  The second flit
+                    // holds the index of the payload storage record.
+                    packetizingToOCN <= tagged Valid tuple2(i, h);
+
+                    debugLog.record(cpu_iid, $format("1: Lane %0d: FWD to OCN, payload idx 0x%0x, ", i, h) + fshow(flit));
+                end
+            end
+        end
+
+        // Was anything sent to the OCN?
+        if (! did_ocn_enq)
+        begin
+            ocnSend.noEnq(cpu_iid);
+        end
+
+        // For each incoming port note lack of deq if no message consumed.
+        for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+        begin
+            if (! did_enq_outToOCN[i])
+            begin
+                portsToOCN[i].noDeq(cpu_iid);
+            end
+        end
+
+        
+        //
+        // Is a message available incoming from the OCN?  We start here
+        // because it is a multi-cycle operation.
+        //
+
+        // Only request packets that can be forwarded this cycle.
+        Vector#(NUM_LANES, Bool) can_enq_vec = newVector();
+        for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+        begin
+            can_enq_vec[i] <- ocnToPorts[i].canEnq(cpu_iid);
+        end
+
+        Maybe#(LANE_IDX) recv_ln = tagged Invalid;
+        if (ocnRecv.pickChannel(cpu_iid, can_enq_vec) matches
+                tagged Valid {.ln_in, .vc_in})
+        begin
+            ocnRecv.receiveReq(cpu_iid, ln_in, vc_in);
+            recv_ln = tagged Valid ln_in;
+        end
+        else
+        begin
+            ocnRecv.noDeq(cpu_iid);
+        end
+
+        stage2Ctrl.ready(cpu_iid, tuple2(did_payload_storage_write, recv_ln));
+    endrule
+
+
+    rule stage2_lookupAddr (True);
+        match {.cpu_iid,
+               .did_payload_storage_write,
+               .m_ln} <- stage2Ctrl.nextReadyInstance();
+
+        Maybe#(OCN_PACKET_HANDLE) m_payload_storage_read = tagged Invalid;
+
+        OCN_FLIT flit = ?;
+        if (isValid(m_ln))
+        begin
+            flit <- ocnRecv.receiveRsp(cpu_iid);
+        end
+
+        // Need to read the PA associated with an incoming message?  Stage 3
+        // is separate from this step to wait for the BRAM read.
+        if (flit matches tagged FLIT_BODY .info &&& info.isTail)
+        begin
+            payloadStorage.readReq(info.opaque);
+            m_payload_storage_read = tagged Valid info.opaque;
+        end
+
+        if (m_ln matches tagged Valid .ln)
+        begin
+            stage3Ctrl.ready(cpu_iid, tuple3(did_payload_storage_write,
+                                             m_payload_storage_read,
+                                             tagged Valid tuple2(ln, flit)));
+        end
+        else
+        begin
+            stage3Ctrl.ready(cpu_iid, tuple3(did_payload_storage_write,
+                                             m_payload_storage_read,
+                                             tagged Invalid));
+        end
+    endrule
+
+
+    rule stage3_recvFromOCN (True);
+        match {.cpu_iid,
+               .did_payload_storage_write,
+               .m_payload_storage_read,
+               .m_flit} <- stage3Ctrl.nextReadyInstance();
+        
+        // Remaining packets for all outbound lanes.
+        Reg#(OCN_FLIT_HEAD) recvPacketHead =
+            recvPacketHeadPool.getReg(cpu_iid);
+
+        Vector#(n_LANES, Bool) did_enq_ocnToPorts = replicate(False);
+
+        // Looking up payload contents in the side storage buffer?
+        OCN_PACKET_PAYLOAD payload = ?;
+        if (m_payload_storage_read matches tagged Valid .h)
+        begin
+            payload <- payloadStorage.readRsp();
+            
+            // Packet complete.  Release the buffer entry.
+            payloadStorage.freeHandle(h);
+            debugLog.record(cpu_iid, $format("3: Free 0x%0x", h));
+        end
+
+        if (m_flit matches tagged Valid {.ln, .flit})
+        begin
+            if (flit matches tagged FLIT_HEAD .info)
+            begin
+                // Record the source of the packet
+                recvPacketHead <= info;
+                debugLog.record(cpu_iid, $format("3: Lane %0d: Recv ", ln) + fshow(flit));
+            end
+            else if (flit matches tagged FLIT_BODY .info &&& info.isTail)
+            begin
+                // Message arrived completely.  Forward it to the outgoing port.
+                OCN_MSG_HEAD_AND_PAYLOAD msg;
+                msg.headFlit = recvPacketHead;
+                msg.payload = payload;
+
+                ocnToPorts[ln].doEnq(cpu_iid, msg);
+                did_enq_ocnToPorts[ln] = True;
+                debugLog.record(cpu_iid, $format("3: Lane %0d: Recv ", ln) + fshow(flit));
+            end
+        end
+
+        for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+        begin
+            if (! did_enq_ocnToPorts[i])
+            begin
+                ocnToPorts[i].noEnq(cpu_iid);
+            end
+        end
+        
+        stage4Ctrl.ready(cpu_iid, did_payload_storage_write);
+    endrule
+
+
+    //
+    // Wait for confirmation that the payload storage buffer has been updated
+    // and is visible to the recipient.
+    //
+    rule stage4_writeAck (True);
+        match {.cpu_iid,
+               .did_payload_storage_write} <- stage4Ctrl.nextReadyInstance();
+
+        if (did_payload_storage_write)
+        begin
+            payloadStorage.writeAck();
+        end
+
+        localCtrl.endModelCycle(cpu_iid, 0);
+    endrule
+endmodule

@@ -25,6 +25,7 @@ import FShow::*;
 `include "awb/provides/hasim_common.bsh"
 `include "awb/provides/soft_connections.bsh"
 `include "awb/provides/fpga_components.bsh"
+`include "awb/provides/librl_bsv_base.bsh"
 
 
 // ******* Timing Model Imports *******
@@ -213,7 +214,8 @@ module [HASIM_MODULE] mkLastLevelCache();
     //
     // Ports from the OCN to the LLC.
     //
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_REQ) reqInFromOCN <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqInFromOCN <-
         mkPortStallRecv_Multiplexed("OCN_to_LLC_req");
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
                                  Tuple2#(STATION_ID, MEMORY_RSP)) rspInFromOCN <-
@@ -446,10 +448,11 @@ module [HASIM_MODULE] mkLastLevelCache();
         //
         // New requests from remote cores to local LLC.
         //
-        if (m_reqInFromOCN matches tagged Valid .req &&&
+        if (m_reqInFromOCN matches tagged Valid {.src, .mreq} &&&
             can_enq_reqToLocalLLC &&&
             ! isValid(m_new_reqToLocalLLC))
         begin
+            let req = LLC_MEMORY_REQ { src: tagged Valid src, mreq: mreq };
             m_new_reqToLocalLLC = tagged Valid req;
             reqInFromOCN.doDeq(cpu_iid);
             debugLog.record(cpu_iid, $format("1: Remote REQ to local LLC, ") + fshow(req));
@@ -1073,9 +1076,10 @@ endmodule
 //   This module converts LLC messages used in the core and LLC into multi-flit
 //   packets that traverse the network.
 //
-module [HASIM_MODULE] mkLLCNetworkConnection();
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc_ocn_connection.out");
+module [HASIM_MODULE] mkLLCNetworkConnection
+    // Interface:
+    ();
 
     //
     // Messages from the core and LLC destined for the OCN arrive here.
@@ -1083,402 +1087,40 @@ module [HASIM_MODULE] mkLLCNetworkConnection();
     // deadlock, so each class gets a separate port.
     //
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqOutToLLC <-
-        mkPortStallRecv_Multiplexed("LLC_to_LLC_OCN_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
                                  Tuple2#(STATION_ID, MEMORY_REQ)) reqOutToMem <-
         mkPortStallRecv_Multiplexed("LLC_to_MEM_OCN_req");
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
                                  Tuple2#(STATION_ID, MEMORY_RSP)) rspOutFromLLC <-
         mkPortStallRecv_Multiplexed("LLC_to_OCN_rsp");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqOutToLLC <-
+        mkPortStallRecv_Multiplexed("LLC_to_LLC_OCN_req");
+
+    OCN_FROM_PORT_VEC_MULTIPLEXED#(MAX_NUM_CPUS, 3) portsToOCN = newVector();
+    // Requests out to memory
+    portsToOCN[0] <- mkPortToOCNChannel(reqOutToMem);
+    // Responses from LLC to LLC
+    portsToOCN[1] <- mkPortToOCNChannel(rspOutFromLLC);
+    // Requests out to LLC
+    portsToOCN[2] <- mkPortToOCNChannel(reqOutToLLC);
 
     //
     // Messages from the OCN to an LLC.
     //
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_REQ) reqInToLLC <-
-        mkPortStallSend_Multiplexed("OCN_to_LLC_req");
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
                                  Tuple2#(STATION_ID, MEMORY_RSP)) rspInToLLC <-
         mkPortStallSend_Multiplexed("OCN_to_LLC_rsp");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqInToLLC <-
+        mkPortStallSend_Multiplexed("OCN_to_LLC_req");
 
-    //
-    // Wrapped interfaces to/from the OCN.  The wrappers simplify
-    // the protocol for credit management.
-    //
-    PORT_OCN_LOCAL_SEND_MULTIPLEXED#(MAX_NUM_CPUS) ocnSend <-
-        mkLocalNetworkPortSend("CoreMemOutQ",
-                               "CoreMemInQ",
-                               debugLog);
+    OCN_TO_PORT_VEC_MULTIPLEXED#(MAX_NUM_CPUS, 3) ocnToPorts = newVector();
+    // Not used
+    ocnToPorts[0] <- mkPortStallSend_Multiplexed_NULL();
+    // Responses from LLC or memory to LLC
+    ocnToPorts[1] <- mkOCNChannelToPort(rspInToLLC);
+    // Requests in from remote LLC
+    ocnToPorts[2] <- mkOCNChannelToPort(reqInToLLC);
 
-    PORT_OCN_LOCAL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                     MAX_FLITS_PER_PACKET) ocnRecv <-
-        mkLocalNetworkPortRecv("CoreMemOutQ",
-                               "CoreMemInQ",
-                               debugLog);
-
-
-    Vector#(7, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    inctrls[0] = ocnSend.ctrl.in;
-    inctrls[1] = ocnRecv.ctrl.in;
-    inctrls[2] = reqOutToLLC.ctrl.in;
-    inctrls[3] = reqOutToMem.ctrl.in;
-    inctrls[4] = rspOutFromLLC.ctrl.in;
-    inctrls[5] = reqInToLLC.ctrl.in;
-    inctrls[6] = rspInToLLC.ctrl.in;
-
-    Vector#(7, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
-    outctrls[0] = ocnSend.ctrl.out;
-    outctrls[1] = ocnRecv.ctrl.out;
-    outctrls[2] = reqOutToLLC.ctrl.out;
-    outctrls[3] = reqOutToMem.ctrl.out;
-    outctrls[4] = rspOutFromLLC.ctrl.out;
-    outctrls[5] = reqInToLLC.ctrl.out;
-    outctrls[6] = rspInToLLC.ctrl.out;
-
-
-    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Network Connection", inctrls, outctrls);
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(Bool, Maybe#(LANE_IDX))) stage2Ctrl <- mkStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(Bool,
-                                            Maybe#(OCN_PACKET_HANDLE),
-                                            Maybe#(Tuple2#(LANE_IDX, OCN_FLIT)))) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage4Ctrl <- mkBufferedStageController();
-
-    //
-    // Messages are broken into flits in this module when transmitted on the
-    // OCN.  For now we always use packets that are two flits.  These
-    // registers hold the tail flits after a head is transmitted.
-    //
-    Vector#(NUM_LANES, MULTIPLEXED_REG#(MAX_NUM_CPUS,
-                                        Maybe#(OCN_FLIT_OPAQUE))) packetizingToOCNPool <-
-        replicateM(mkMultiplexedReg(tagged Invalid));
-    Vector#(NUM_LANES, MULTIPLEXED_REG#(MAX_NUM_CPUS,
-                                        Maybe#(OCN_FLIT_OPAQUE))) packetizingFromOCNPool <-
-        replicateM(mkMultiplexedReg(tagged Invalid));
-
-    //
-    // Track the source of the packet being received.  The OCN receiver interface
-    // guarantees that once a packet starts the only flits seen will be from
-    // the same packet.  This makes matching header and body flits trivial.
-    //
-    MULTIPLEXED_REG#(MAX_NUM_CPUS,
-                     Tuple2#(STATION_ID, Bool)) recvPacketStationIDPool <-
-        mkMultiplexedReg(?);
-
-    //
-    // Side memories hold the actual contents of a packet instead of forcing all
-    // datapaths in the simulated OCN to be wide enough to pass a full packet.
-    //
-    OCN_PACKET_PAYLOAD_CLIENT payloadStorage <- mkNetworkPacketPayloadClient(1);
-
-
-    (* conservative_implicit_conditions *)
-    rule stage1_sendToOCN (True);
-        let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
-
-        // Check credits for sending to the network
-        let can_enq <- ocnSend.canEnq(cpu_iid);
-
-        // Remaining packets for all outbound lanes.
-        Vector#(NUM_LANES, Reg#(Maybe#(OCN_FLIT_OPAQUE))) packetizingToOCN =
-            map(getMultiplexedReg(cpu_iid), packetizingToOCNPool);
-
-        //
-        // Collect messages heading toward the OCN.  The "receive" operation
-        // here is not a commitment to process a message.  For that, doDeq()
-        // must be called.
-        //
-        let m_reqOutToLLC <- reqOutToLLC.receive(cpu_iid);
-        let m_reqOutToMem <- reqOutToMem.receive(cpu_iid);
-        let m_rspOutFromLLC <- rspOutFromLLC.receive(cpu_iid);
-
-        //
-        // Pick a winner.
-        //
-
-        Bool did_deq_reqOutToLLC = False;
-        Bool did_deq_reqOutToMem = False;
-        Bool did_deq_rspOutFromLLC = False;
-        Bool did_payload_storage_write = False;
-
-        // Function that will be used to test whether a buffered flit remains
-        // to be sent on a port.  The function returns true iff there is a
-        // flit and the port can accept a message this cycle.
-        function Bool oldFlitRemains(Tuple2#(Bool, Reg#(Maybe#(OCN_FLIT_OPAQUE))) state);
-            match {.can_enq_port, .flit} = state;
-            return can_enq_port && isValid(flit);
-        endfunction
-
-        if (findIndex(oldFlitRemains,
-                      zip(can_enq, packetizingToOCN)) matches tagged Valid .lane)
-        begin
-            //
-            // Complete an LLC response by sending an old flit.
-            //
-            let op = validValue(packetizingToOCN[lane]);
-            let msg = tagged FLIT_BODY OCN_FLIT_BODY {opaque: op, isTail: True};
-            ocnSend.doEnq(cpu_iid, pack(lane), msg);
-            packetizingToOCN[lane] <= tagged Invalid;
-
-            debugLog.record(cpu_iid, $format("1: Lane %0d: tail", lane));
-        end
-        else if (m_rspOutFromLLC matches tagged Valid {.dst, .rsp} &&&
-                 can_enq[`LANE_RSP])
-        begin
-            //
-            // Start a response.
-            //
-            // No need to set the src address.  The network will set it
-            // as the packet is accepted.
-            //
-            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: ?,
-                                                      dst: dst,
-                                                      isStore: False};
-            ocnSend.doEnq(cpu_iid, `LANE_RSP, msg);
-            rspOutFromLLC.doDeq(cpu_iid);
-            did_deq_rspOutFromLLC = True;
-
-            let h <- payloadStorage.allocHandle();
-            payloadStorage.write(h, zeroExtend(pack(tuple2(rsp.opaque,
-                                                           rsp.physicalAddress))));
-            did_payload_storage_write = True;
-
-            packetizingToOCN[`LANE_RSP] <= tagged Valid h;
-
-            debugLog.record(cpu_iid, $format("1: Lane %0d: Send RSP ", `LANE_RSP) + fshow(rsp) + $format(", dst %0d", dst));
-        end
-        else if (m_reqOutToMem matches tagged Valid {.dst, .req} &&&
-                 can_enq[`LANE_MEM_REQ] &&&
-                 payloadStorage.allocNotEmpty)
-        begin
-            //
-            // Start a request from the cache to a memory controller.  Note
-            // that this fires only if there is a free entry in the payloadStorage
-            // heap.  This is an artifical restriction.  Just make the heap
-            // large enough.
-            //
-            // No need to set the src address.  The network will set it
-            // as the packet is accepted.
-            //
-            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: ?,
-                                                      dst: dst,
-                                                      isStore: req.isStore};
-            ocnSend.doEnq(cpu_iid, `LANE_MEM_REQ, msg);
-            reqOutToMem.doDeq(cpu_iid);
-            did_deq_reqOutToMem = True;
-
-            let h <- payloadStorage.allocHandle();
-            payloadStorage.write(h, zeroExtend(pack(tuple2(req.opaque,
-                                                           req.physicalAddress))));
-            did_payload_storage_write = True;
-
-            packetizingToOCN[`LANE_MEM_REQ] <= tagged Valid h;
-
-            String ld_st = req.isStore ? "STORE" : "LOAD";
-            debugLog.record(cpu_iid, $format("1: Lane %0d: Send REQ ", `LANE_MEM_REQ) + fshow(req) + $format(", handle 0x%x to MEM node %0d", h, dst));
-        end
-        else if (m_reqOutToLLC matches tagged Valid {.dst, .req} &&&
-                 can_enq[`LANE_LLC_REQ] &&&
-                 payloadStorage.allocNotEmpty)
-        begin
-            //
-            // Similar to memory requests above, but to a remote LLC.
-            //
-            let msg = tagged FLIT_HEAD OCN_FLIT_HEAD {src: ?,
-                                                      dst: dst,
-                                                      isStore: req.isStore};
-            ocnSend.doEnq(cpu_iid, `LANE_LLC_REQ, msg);
-            reqOutToLLC.doDeq(cpu_iid);
-            did_deq_reqOutToLLC = True;
-
-            let h <- payloadStorage.allocHandle();
-            payloadStorage.write(h, zeroExtend(pack(tuple2(req.opaque,
-                                                           req.physicalAddress))));
-            did_payload_storage_write = True;
-
-            packetizingToOCN[`LANE_LLC_REQ] <= tagged Valid h;
-
-            String ld_st = req.isStore ? "STORE" : "LOAD";
-            debugLog.record(cpu_iid, $format("1: Lane %0d: Send REQ ", `LANE_LLC_REQ) + fshow(req) + $format(", handle 0x%x to LLC node %0d", h, dst));
-        end
-        else
-        begin
-            //
-            // Nothing to send.
-            //
-            ocnSend.noEnq(cpu_iid);
-        end
-
-        if (! did_deq_rspOutFromLLC)
-        begin
-            rspOutFromLLC.noDeq(cpu_iid);
-        end
-
-        if (! did_deq_reqOutToLLC)
-        begin
-            reqOutToLLC.noDeq(cpu_iid);
-        end
-
-        if (! did_deq_reqOutToMem)
-        begin
-            reqOutToMem.noDeq(cpu_iid);
-        end
-
-        
-        //
-        // Is a message available incoming from the OCN?  We start here
-        // because it is a multi-cycle operation.
-        //
-
-        // Only request packets that can be forwarded this cycle.
-        let can_enq_reqInToLLC <- reqInToLLC.canEnq(cpu_iid);
-        let can_enq_rspInToLLC <- rspInToLLC.canEnq(cpu_iid);
-        Vector#(NUM_LANES, Bool) can_enq_vec = replicate(False);
-        can_enq_vec[`LANE_LLC_REQ] = can_enq_reqInToLLC;
-        can_enq_vec[`LANE_RSP] = can_enq_rspInToLLC;
-
-        Maybe#(LANE_IDX) recv_ln = tagged Invalid;
-        if (ocnRecv.pickChannel(cpu_iid, can_enq_vec) matches
-                tagged Valid {.ln_in, .vc_in})
-        begin
-            ocnRecv.receiveReq(cpu_iid, ln_in, vc_in);
-            recv_ln = tagged Valid ln_in;
-        end
-        else
-        begin
-            ocnRecv.noDeq(cpu_iid);
-        end
-
-        stage2Ctrl.ready(cpu_iid, tuple2(did_payload_storage_write, recv_ln));
-    endrule
-
-
-    rule stage2_lookupAddr (True);
-        match {.cpu_iid,
-               .did_payload_storage_write,
-               .m_ln} <- stage2Ctrl.nextReadyInstance();
-
-        Maybe#(OCN_PACKET_HANDLE) m_payload_storage_read = tagged Invalid;
-
-        OCN_FLIT flit = ?;
-        if (isValid(m_ln))
-        begin
-            flit <- ocnRecv.receiveRsp(cpu_iid);
-        end
-
-        // Need to read the PA associated with an incoming message?  Stage 3
-        // is separate from this step to wait for the BRAM read.
-        if (flit matches tagged FLIT_BODY .info &&& info.isTail)
-        begin
-            payloadStorage.readReq(info.opaque);
-            m_payload_storage_read = tagged Valid info.opaque;
-        end
-
-        if (m_ln matches tagged Valid .ln)
-        begin
-            stage3Ctrl.ready(cpu_iid, tuple3(did_payload_storage_write,
-                                             m_payload_storage_read,
-                                             tagged Valid tuple2(ln, flit)));
-        end
-        else
-        begin
-            stage3Ctrl.ready(cpu_iid, tuple3(did_payload_storage_write,
-                                             m_payload_storage_read,
-                                             tagged Invalid));
-        end
-    endrule
-
-
-    rule stage3_recvFromOCN (True);
-        match {.cpu_iid,
-               .did_payload_storage_write,
-               .m_payload_storage_read,
-               .m_flit} <- stage3Ctrl.nextReadyInstance();
-        
-        // Remaining packets for all outbound lanes.
-        Reg#(Tuple2#(STATION_ID, Bool)) recvPacketStationID =
-            getMultiplexedReg(cpu_iid, recvPacketStationIDPool);
-
-        Bool did_enq_reqInToLLC = False;
-        Bool did_enq_rspInToLLC = False;
-
-        // Looking up payload contents in the side storage buffer?
-        MEM_OPAQUE opaque = ?;
-        LINE_ADDRESS pa = ?;
-        if (m_payload_storage_read matches tagged Valid .h)
-        begin
-            let v <- payloadStorage.readRsp();
-            {opaque, pa} = unpack(truncate(v));
-            
-            // Packet complete.  Release the buffer entry.
-            payloadStorage.freeHandle(h);
-            debugLog.record(cpu_iid, $format("3: Free 0x%0x", h));
-        end
-
-        if (m_flit matches tagged Valid {.ln, .flit})
-        begin
-            if (flit matches tagged FLIT_HEAD .info)
-            begin
-                // Record the source of the packet
-                recvPacketStationID <= tuple2(info.src, info.isStore);
-                debugLog.record(cpu_iid, $format("3: Lane %0d: Recv from node %0d", ln, info.src));
-            end
-            else if (flit matches tagged FLIT_BODY .info &&& info.isTail)
-            begin
-                let src = tpl_1(recvPacketStationID);
-
-                if (ln == `LANE_LLC_REQ)
-                begin
-                    // Reconstruct the request as a MEMORY_REQ, combining
-                    // packet header and state from the payloadStorage side
-                    // buffer.
-                    MEMORY_REQ mreq = tpl_2(recvPacketStationID) ?
-                                          initMemStore(pa) :
-                                          initMemLoad(pa);
-                    mreq.opaque = opaque;
-                    let req = LLC_MEMORY_REQ { src: tagged Valid src,
-                                               mreq: mreq };
-                    reqInToLLC.doEnq(cpu_iid, req);
-                    did_enq_reqInToLLC = True;
-                    debugLog.record(cpu_iid, $format("3: Lane %0d: Recv ", ln) + fshow(req));
-                end
-                else if (ln == `LANE_RSP)
-                begin
-                    let rsp = initMemRsp(pa, opaque);
-                    rspInToLLC.doEnq(cpu_iid, tuple2(src, rsp));
-                    did_enq_rspInToLLC = True;
-                    debugLog.record(cpu_iid, $format("3: Lane %0d: Recv ", ln) + fshow(rsp));
-                end
-            end
-        end
-
-        if (! did_enq_reqInToLLC)
-        begin
-            reqInToLLC.noEnq(cpu_iid);
-        end
-        
-        if (! did_enq_rspInToLLC)
-        begin
-            rspInToLLC.noEnq(cpu_iid);
-        end
-        
-        stage4Ctrl.ready(cpu_iid, did_payload_storage_write);
-    endrule
-
-
-    //
-    // Wait for confirmation that the payload storage buffer has been updated
-    // and is visible to the recipient.
-    //
-    rule stage4_writeAck (True);
-        match {.cpu_iid,
-               .did_payload_storage_write} <- stage4Ctrl.nextReadyInstance();
-
-        if (did_payload_storage_write)
-        begin
-            payloadStorage.writeAck();
-        end
-
-        localCtrl.endModelCycle(cpu_iid, 0);
-    endrule
+    mkOCNConnection(portsToOCN, ocnToPorts, "CoreMem");
 endmodule
