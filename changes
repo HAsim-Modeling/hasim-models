@@ -7045,3 +7045,185 @@ flits is handled internally.
 
 The ports may have different data types, though all types must belong
 to the OCN_SEND_TYPE typclass.
+
+----------
+mcadler     Date: Thu Feb 13 17:58:24 EST 2014  CSN: CSN-hasim-models-232
+                  Thu Feb 13 22:58:24 UTC 2014
+
+
+Directory modules/hasim/timing-models/chip/multi-core
+ multi-core-chip.h         Locally Modified          231 
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.bsv       Locally Modified          231 
+
+Directory modules/hasim/timing-models/chip/topology/std
+ topology-std.cpp          Locally Modified          231 
+ topology-std.h            Locally Modified          231 
+ topology-std.bsv          Locally Modified          231 
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.h        Locally Modified          231 
+
+Directory modules/hasim/timing-models/structures/base-types
+ next-address-predictor-base.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/structures/branch/target_buffer/multi-entry
+ btb-multi-entry.bsv       Locally Modified          231 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/static
+ static-bp-alg.bsv         Locally Modified          231 
+
+Directory modules/hasim/timing-models/structures/branch/predictor/n-bit
+ n-bit-bp-alg.bsv          Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/imem
+ inorder-imem-stage.bsv    Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline-front-end.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.h        Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder
+ inorder-pipeline.bsv      Locally Modified          231 
+ inorder-pipeline-back-end.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/inorder/base-types
+ inorder-pipeline-base-types.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/execute
+ ooo-execute-stage.bsv     Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/decode
+ ooo-decode-stage-sequential.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/commit
+ ooo-commit-stage.bsv      Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt
+ smt-pipeline.bsv          Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt/execute
+ smt-execute-stage.bsv     Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt/decode
+ smt-decode-stage.bsv      Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt/pccalc
+ smt-pccalc-stage.bsv      Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.bsv      Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.bsv       Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt/base-types
+ smt-pipeline-base-types.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/smt/instq
+ smt-instq-stage.bsv       Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/superscalar-out-of-order
+ fetch.bsv                 Locally Modified          231 
+ pipeline-6-stage.h        Locally Modified          231 
+ rob.bsv                   Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/store-buffers/single-entry
+ single-entry-store-buffer.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/store-buffers/smt-multi-entry
+ store-buffer-smt-multi-entry.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/miss-trackers/unified
+ miss-tracker-unified.bsv  Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/set-associative-dcache/set-associative-writeback-dcache
+ dcache-setassoc-writeback.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-set-associative.bsv Locally Modified          231 
+ cache-algorithm-direct-mapped.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/set-associative-icache
+ icache-setassoc.bsv       Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/alg
+ l2-alg-always-hit.bsv     Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ private-caches.bsv        Locally Modified          231 
+
+Directory modules/hasim/timing-models/core/cacheless-core
+ core-no-cache.h           Locally Modified          231 
+
+Directory modules/hasim/timing-models/core/core-with-cache
+ core-with-cache.h         Locally Modified          231 
+
+Directory modules/hasim/timing-models/memory/base-types
+ memory-base-types.bsv     Locally Modified          231 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.h Locally Modified          231 
+ uncore-magic-memory.h     Locally Modified          231 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          231 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          231 
+ icn-packet-payload.bsv    Locally Modified          231 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Modified          231 
+ icn-mesh.h                Locally Modified          231 
+ icn-mesh.bsv              Locally Modified          231 
+
+Switch to BSD license.
