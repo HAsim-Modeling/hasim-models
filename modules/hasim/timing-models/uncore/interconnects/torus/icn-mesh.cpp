@@ -34,6 +34,7 @@
 #include "asim/syntax.h"
 #include "awb/provides/hasim_interconnect.h"
 #include "awb/provides/chip_base_types.h"
+#include "awb/provides/hasim_interconnect_common.h"
 #include "awb/provides/hasim_chip_topology.h"
 
 

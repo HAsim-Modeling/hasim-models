@@ -60,6 +60,24 @@ import List::*;
 `include "awb/provides/memory_base_types.bsh"
 `include "awb/provides/hasim_chip_topology.bsh"
 
+`include "awb/dict/OCN_LANES.bsh"
+
+
+//
+// laneNameToOCN and laneNameFromOCN --
+//   OCN lanes may be enumerated in a model as dictionary entries.  This
+//   convenience function maps a lane number to a soft connection name.
+//
+function String laneNameToOCN(String prefix, Integer lane);
+    Integer id = lane - `OCN_LANES__BASE;
+    return "OCN_LANE_SEND_" + prefix + "_" + integerToString(id);
+endfunction
+
+function String laneNameFromOCN(String prefix, Integer lane);
+    Integer id = lane - `OCN_LANES__BASE;
+    return "OCN_LANE_RECV_" + prefix + "_" + integerToString(id);
+endfunction
+
 
 //
 // PORT_OCN_LOCAL_SEND_MULTIPLEXED --
@@ -607,6 +625,37 @@ endmodule
 //
 // ========================================================================
 
+
+//
+// mkPortsToOCNLanes --
+//   The lowest level connection between model component (e.g. a core's
+//   memory hierarhcy) and the on-chip network.  The module maps a set
+//   of soft connections into OCN lanes.
+//
+module [HASIM_MODULE] mkPortsToOCNLanes#(String name,
+                                         NumTypeParam#(n_INSTANCES) p0)
+    // Interface:
+    ();
+
+    //
+    // Port names are simply a function of the lane number.
+    //
+
+    OCN_FROM_PORT_VEC_MULTIPLEXED#(n_INSTANCES,
+                                   NUM_LANES) portsToOCN = newVector();
+    OCN_TO_PORT_VEC_MULTIPLEXED#(n_INSTANCES,
+                                 NUM_LANES) ocnToPorts = newVector();
+
+    for (Integer ln = 0; ln < valueOf(NUM_LANES); ln = ln + 1)
+    begin
+        portsToOCN[ln] <- mkPortStallRecv_Multiplexed(laneNameToOCN(name, ln));
+        ocnToPorts[ln] <- mkPortStallSend_Multiplexed(laneNameFromOCN(name, ln));
+    end
+
+    mkOCNConnection(portsToOCN, ocnToPorts, name + "_OCN_Connection");
+endmodule
+
+
 //
 // Ports connecting to the OCN must be of types that are members of the
 // OCN_SEND_TYPE typeclass.
@@ -618,6 +667,7 @@ typedef struct
 }
 OCN_MSG_HEAD_AND_PAYLOAD
     deriving (Eq, Bits);
+
 
 typeclass OCN_SEND_TYPE#(type t_MSG);
     function OCN_MSG_HEAD_AND_PAYLOAD cvtToOCNFlits(STATION_ID tgt, t_MSG msg);
@@ -709,61 +759,6 @@ typedef Vector#(n_LANES,
     OCN_TO_PORT_VEC_MULTIPLEXED#(numeric type n_INSTANCES, numeric type n_LANES);
 
 
-
-//
-// mkPortToOCNChannel --
-//   Convert a receive port of arbitrary type to a port that can be part of
-//   a vector passed in to mkOCNConnection().  The type must be a member
-//   of the OCN_SEND_TYPE typeclass.
-//
-module [HASIM_MODULE] mkPortToOCNChannel#(
-    PORT_STALL_RECV_MULTIPLEXED#(n_INSTANCES, Tuple2#(STATION_ID, t_MSG)) port)
-
-    // Interface:
-    (PORT_STALL_RECV_MULTIPLEXED#(n_INSTANCES, OCN_MSG_HEAD_AND_PAYLOAD))
-    provisos (OCN_SEND_TYPE#(t_MSG));
-
-    method noDeq = port.noDeq;
-    method doDeq = port.doDeq;
-
-    method ActionValue#(Maybe#(OCN_MSG_HEAD_AND_PAYLOAD)) receive(INSTANCE_ID#(n_INSTANCES) iid);
-        let m <- port.receive(iid);
-        if (m matches tagged Valid {.dst, .msg})
-        begin
-            return tagged Valid cvtToOCNFlits(dst, msg);
-        end
-        else
-        begin
-            return tagged Invalid;
-        end
-    endmethod
-
-    interface INSTANCE_CONTROL_IN_OUT ctrl = port.ctrl;
-endmodule
-
-//
-// mkOCNChannelToPort --
-//   The equivalent of mkPortToOCNChannel for send ports, forwarding data from
-//   the OCN to a port.
-//
-module [HASIM_MODULE] mkOCNChannelToPort#(
-    PORT_STALL_SEND_MULTIPLEXED#(n_INSTANCES, Tuple2#(STATION_ID, t_MSG)) port)
-
-    // Interface:
-    (PORT_STALL_SEND_MULTIPLEXED#(n_INSTANCES, OCN_MSG_HEAD_AND_PAYLOAD))
-    provisos (OCN_SEND_TYPE#(t_MSG));
-
-    method Action doEnq(INSTANCE_ID#(n_INSTANCES) iid,
-                        OCN_MSG_HEAD_AND_PAYLOAD ocnMsg);
-        port.doEnq(iid, cvtFromOCNFlits(ocnMsg));
-    endmethod
-
-    method noEnq = port.noEnq;
-    method canEnq = port.canEnq;
-    interface INSTANCE_CONTROL_IN_OUT ctrl = port.ctrl;
-endmodule
-
-
 //
 // mkOCNConnection --
 //   Build a shim, connecting a set of stall ports to a set of OCN virtual
@@ -792,14 +787,14 @@ module [HASIM_MODULE] mkOCNConnection#(
     // the protocol for credit management.
     //
     PORT_OCN_LOCAL_SEND_MULTIPLEXED#(n_INSTANCES) ocnSend <-
-        mkLocalNetworkPortSend(ifcName + "OutQ",
-                               ifcName + "InQ",
+        mkLocalNetworkPortSend(ifcName + "_OutQ",
+                               ifcName + "_InQ",
                                debugLog);
 
     PORT_OCN_LOCAL_RECV_MULTIPLEXED#(n_INSTANCES,
                                      MAX_FLITS_PER_PACKET) ocnRecv <-
-        mkLocalNetworkPortRecv(ifcName + "OutQ",
-                               ifcName + "InQ",
+        mkLocalNetworkPortRecv(ifcName + "_OutQ",
+                               ifcName + "_InQ",
                                debugLog);
 
 

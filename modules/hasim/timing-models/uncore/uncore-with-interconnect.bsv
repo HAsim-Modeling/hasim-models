@@ -27,6 +27,10 @@ module [HASIM_MODULE] mkUncore
     let memCtrl <- mkMemoryController();
     let lastLevelCache <- mkLastLevelCache();
 
+    // Instantiate a set of named ports that map to OCN lanes
+    NumTypeParam#(MAX_NUM_CPUS) num_cpus = ?;
+    let core_ocn_lanes <- mkPortsToOCNLanes("Core", num_cpus);
+
     //
     // Storage (side buffers) in which the actual network messages are stored
     // instead of building the interconnect's data paths wide enough to carry

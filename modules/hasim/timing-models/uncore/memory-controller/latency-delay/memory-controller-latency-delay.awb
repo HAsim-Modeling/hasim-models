@@ -4,7 +4,8 @@
 
 %attributes hasim uncore memory
 
-%public memory-controller-latency-delay.bsv 
+%public memory-controller-latency-delay.bsv
+%public memory-controller-latency-delay.dic
 
 %param MEM_CTRL_CAPACITY           16   "Simulated capacity of DRAM pipeline"
 %param --dynamic MEM_CTRL_LATENCY  50   "Simulated latency of DRAM (model cycles)"

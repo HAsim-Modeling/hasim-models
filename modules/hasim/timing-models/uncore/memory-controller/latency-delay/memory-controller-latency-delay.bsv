@@ -54,6 +54,7 @@ import FIFOF::*;
 
 `include "awb/dict/TOPOLOGY.bsh"
 `include "awb/dict/PARAMS_HASIM_MEMORY_CONTROLLER.bsh"
+`include "awb/dict/OCN_LANES.bsh"
 
 
 typedef struct
@@ -83,8 +84,6 @@ function MEM_CTRL_RSP initMemCtrlRsp(MEM_CTRL_REQ req);
     };
 endfunction
 
-`define LANE_MEM_REQ 0
-`define LANE_MEM_RSP 1
 
 
 module [HASIM_MODULE] mkMemoryController()
@@ -196,14 +195,14 @@ module [HASIM_MODULE] mkMemoryController()
         Bool finished_req = False;
 
         // Have credit to send?
-        if (can_enq[`LANE_MEM_RSP])
+        if (can_enq[`OCN_LANES_MEM_RSP])
         begin
             // Have a message to send?
             let m_flit <- memRespQ.receive(iid);
             if (m_flit matches tagged Valid .flit)
             begin
                 // Send it
-                ocnSend.doEnq(iid, `LANE_MEM_RSP, flit);
+                ocnSend.doEnq(iid, `OCN_LANES_MEM_RSP, flit);
                 memRespQ.doDeq(iid);
                 did_enq = True;
 

@@ -1,0 +1,5 @@
+//
+// On-chip network lanes are enumerated by dictionary entries.
+//
+def OCN_LANES.MEM_REQ           "OCN Lane: Memory Request";
+def OCN_LANES.MEM_RSP           "OCN Lane: Memory Response";

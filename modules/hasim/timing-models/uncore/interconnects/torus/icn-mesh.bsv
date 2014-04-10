@@ -211,10 +211,10 @@ module [HASIM_MODULE] mkInterconnect
     // ******** Ports *******
 
     // Queues to/from cores
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)       enqToCores      <- mkPortSend_Multiplexed("CoreMemInQ_enq");
-    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)       enqFromCores    <- mkPortRecv_Multiplexed("CoreMemOutQ_enq", 1);
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_MSG) creditToCores   <- mkPortSend_Multiplexed("CoreMemInQ_credit");
-    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_MSG) creditFromCores <- mkPortRecv_Multiplexed("CoreMemOutQ_credit", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)       enqToCores      <- mkPortSend_Multiplexed("Core_OCN_Connection_InQ_enq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, OCN_MSG)       enqFromCores    <- mkPortRecv_Multiplexed("Core_OCN_Connection_OutQ_enq", 1);
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_MSG) creditToCores   <- mkPortSend_Multiplexed("Core_OCN_Connection_InQ_credit");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VC_CREDIT_MSG) creditFromCores <- mkPortRecv_Multiplexed("Core_OCN_Connection_OutQ_credit", 1);
 
     // Queues to/from memory controller
     // Note: non-multiplexed as there is only one memory controller.

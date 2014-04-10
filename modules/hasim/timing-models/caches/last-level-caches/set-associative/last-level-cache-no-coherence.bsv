@@ -58,6 +58,7 @@ import FShow::*;
 
 `include "awb/dict/EVENTS_LLC.bsh"
 `include "awb/dict/TOPOLOGY.bsh"
+`include "awb/dict/OCN_LANES.bsh"
 
 
 // ****** Local Definitions *******
@@ -194,7 +195,6 @@ module [HASIM_MODULE] mkLastLevelCache();
 
     // Instantiate other LLC components
     let llc_distrib <- mkDistributedLastLevelCache();
-    let llc_ocn <- mkLLCNetworkConnection();
 
     //
     // Requests from the local core arrive here.  This router will forward
@@ -225,30 +225,46 @@ module [HASIM_MODULE] mkLastLevelCache();
         mkPortStallSend_Multiplexed("MEM_to_LLC_rsp");
 
     //
+    // Ports from the LLC to the OCN.  The names of the ports are picked
+    // indirectly through dictionary entries since the interface to the
+    // OCN uses model-independent port/lane name bindings.
+    //
+
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) reqToRemoteLLC <-
+        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_LLC_REQ));
+
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) reqToMem <-
+        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_MEM_REQ));
+
+    // LLC responses use the memory response lane since the lane is not
+    // otherwise used by core nodes.
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) rspToRemoteLLC <-
+        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_MEM_RSP));
+
+    //
     // Ports from the OCN to the LLC.
     //
+
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqInFromOCN <-
-        mkPortStallRecv_Multiplexed("OCN_to_LLC_req");
+                                 OCN_MSG_HEAD_AND_PAYLOAD) reqInFromOCN <-
+        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_LLC_REQ));
+    // Corresponds to rspToRemoteLLC lane, above.
+
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_RSP)) rspInFromOCN <-
-        mkPortStallRecv_Multiplexed("OCN_to_LLC_rsp");
+                                 OCN_MSG_HEAD_AND_PAYLOAD) rspInFromOCN <-
+        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_MEM_RSP));
 
-    //
-    // Ports from the LLC to the OCN.
-    //
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqToRemoteLLC <-
-        mkPortStallSend_Multiplexed("LLC_to_LLC_OCN_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqToMem <-
-        mkPortStallSend_Multiplexed("LLC_to_MEM_OCN_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_RSP)) rspToRemoteLLC <-
-        mkPortStallSend_Multiplexed("LLC_to_OCN_rsp");
+    // No memory request messages will arrive here, but the named port allocated
+    // in the core's OCN interface has to be tied off.
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) dummyReqInToMem <-
+        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_MEM_REQ));
 
 
-    Vector#(11, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(12, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
     inctrls[0] = reqFromCore.ctrl.in;
     inctrls[1] = rspToCore.ctrl.in;
     inctrls[2] = reqToLocalLLC.ctrl.in;
@@ -260,8 +276,9 @@ module [HASIM_MODULE] mkLastLevelCache();
     inctrls[8] = reqToRemoteLLC.ctrl.in;
     inctrls[9] = reqToMem.ctrl.in;
     inctrls[10] = rspToRemoteLLC.ctrl.in;
+    inctrls[11] = dummyReqInToMem.ctrl.in;
 
-    Vector#(11, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    Vector#(12, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     outctrls[0] = reqFromCore.ctrl.out;
     outctrls[1] = rspToCore.ctrl.out;
     outctrls[2] = reqToLocalLLC.ctrl.out;
@@ -273,6 +290,7 @@ module [HASIM_MODULE] mkLastLevelCache();
     outctrls[8] = reqToRemoteLLC.ctrl.out;
     outctrls[9] = reqToMem.ctrl.out;
     outctrls[10] = rspToRemoteLLC.ctrl.out;
+    outctrls[11] = dummyReqInToMem.ctrl.out;
 
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Coherence", inctrls, outctrls);
@@ -351,6 +369,9 @@ module [HASIM_MODULE] mkLastLevelCache();
         let m_reqInFromOCN <- reqInFromOCN.receive(cpu_iid);
         let m_rspInFromOCN <- rspInFromOCN.receive(cpu_iid);
 
+        // Tie off the dummy memory request port.
+        let dummy <- dummyReqInToMem.receive(cpu_iid);
+        dummyReqInToMem.noDeq(cpu_iid);
 
         // Check credits for sending to output ports.
         let can_enq_rspToCore <- rspToCore.canEnq(cpu_iid);
@@ -427,8 +448,11 @@ module [HASIM_MODULE] mkLastLevelCache();
         //
         // Memory controller response to local LLC.
         //
-        if (m_rspInFromOCN matches tagged Valid {.src, .rsp} &&& can_enq_memToCache)
+        if (m_rspInFromOCN matches tagged Valid .ocn_msg &&& can_enq_memToCache)
         begin
+            Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
+            match {.src, .rsp} = ocn_rsp;
+
             // From where is the message coming?  Cores have local port map
             // entries of 0.
             let src_is_memctrl = (localPortMap.sub(src) != 0);
@@ -461,10 +485,13 @@ module [HASIM_MODULE] mkLastLevelCache();
         //
         // New requests from remote cores to local LLC.
         //
-        if (m_reqInFromOCN matches tagged Valid {.src, .mreq} &&&
+        if (m_reqInFromOCN matches tagged Valid .ocn_msg &&&
             can_enq_reqToLocalLLC &&&
             ! isValid(m_new_reqToLocalLLC))
         begin
+            Tuple2#(STATION_ID, MEMORY_REQ) ocn_req = cvtFromOCNFlits(ocn_msg);
+            match {.src, .mreq} = ocn_req;
+
             let req = LLC_MEMORY_REQ { src: tagged Valid src, mreq: mreq };
             m_new_reqToLocalLLC = tagged Valid req;
             reqInFromOCN.doDeq(cpu_iid);
@@ -553,27 +580,27 @@ module [HASIM_MODULE] mkLastLevelCache();
             memToCache.noEnq(cpu_iid);
         end
 
-        if (m_new_reqToRemoteLLC matches tagged Valid .req)
+        if (m_new_reqToRemoteLLC matches tagged Valid {.tgt, .req})
         begin
-            reqToRemoteLLC.doEnq(cpu_iid, req);
+            reqToRemoteLLC.doEnq(cpu_iid, cvtToOCNFlits(tgt, req));
         end
         else
         begin
             reqToRemoteLLC.noEnq(cpu_iid);
         end
 
-        if (m_new_reqToMem matches tagged Valid .req)
+        if (m_new_reqToMem matches tagged Valid {.tgt, .req})
         begin
-            reqToMem.doEnq(cpu_iid, req);
+            reqToMem.doEnq(cpu_iid, cvtToOCNFlits(tgt, req));
         end
         else
         begin
             reqToMem.noEnq(cpu_iid);
         end
 
-        if (m_new_rspToRemoteLLC matches tagged Valid .rsp)
+        if (m_new_rspToRemoteLLC matches tagged Valid {.tgt, .rsp})
         begin
-            rspToRemoteLLC.doEnq(cpu_iid, rsp);
+            rspToRemoteLLC.doEnq(cpu_iid, cvtToOCNFlits(tgt, rsp));
         end
         else
         begin
@@ -1070,70 +1097,4 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         localCtrl.endModelCycle(cpu_iid, 1); 
     endrule
 
-endmodule
-
-
-//
-// Lanes used for primary memory operations (load and store requests).  These
-// may be requests from a core to the instance of the LLC distributed cache
-// that handles the request's address.  They may also be requests from LLC
-// instances to memory controllers.
-//
-`define LANE_MEM_REQ 0
-`define LANE_RSP 1
-`define LANE_LLC_REQ 2
-
-//
-// mkLLCNetworkConnection --
-//   The lowest level connection between a core/LLC and the on-chip-network.
-//   This module converts LLC messages used in the core and LLC into multi-flit
-//   packets that traverse the network.
-//
-
-module [HASIM_MODULE] mkLLCNetworkConnection
-    // Interface:
-    ();
-
-    //
-    // Messages from the core and LLC destined for the OCN arrive here.
-    // Requests and responses travel on separate OCN channels to avoid
-    // deadlock, so each class gets a separate port.
-    //
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqOutToMem <-
-        mkPortStallRecv_Multiplexed("LLC_to_MEM_OCN_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_RSP)) rspOutFromLLC <-
-        mkPortStallRecv_Multiplexed("LLC_to_OCN_rsp");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqOutToLLC <-
-        mkPortStallRecv_Multiplexed("LLC_to_LLC_OCN_req");
-
-    OCN_FROM_PORT_VEC_MULTIPLEXED#(MAX_NUM_CPUS, 3) portsToOCN = newVector();
-    // Requests out to memory
-    portsToOCN[0] <- mkPortToOCNChannel(reqOutToMem);
-    // Responses from LLC to LLC
-    portsToOCN[1] <- mkPortToOCNChannel(rspOutFromLLC);
-    // Requests out to LLC
-    portsToOCN[2] <- mkPortToOCNChannel(reqOutToLLC);
-
-    //
-    // Messages from the OCN to an LLC.
-    //
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_RSP)) rspInToLLC <-
-        mkPortStallSend_Multiplexed("OCN_to_LLC_rsp");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 Tuple2#(STATION_ID, MEMORY_REQ)) reqInToLLC <-
-        mkPortStallSend_Multiplexed("OCN_to_LLC_req");
-
-    OCN_TO_PORT_VEC_MULTIPLEXED#(MAX_NUM_CPUS, 3) ocnToPorts = newVector();
-    // Not used
-    ocnToPorts[0] <- mkPortStallSend_Multiplexed_NULL();
-    // Responses from LLC or memory to LLC
-    ocnToPorts[1] <- mkOCNChannelToPort(rspInToLLC);
-    // Requests in from remote LLC
-    ocnToPorts[2] <- mkOCNChannelToPort(reqInToLLC);
-
-    mkOCNConnection(portsToOCN, ocnToPorts, "CoreMem");
 endmodule

@@ -4,8 +4,13 @@
 
 %attributes hasim uncore
  
+%public  icn-base-types.bsv
 %public  icn-local-port.bsv
 %public  icn-packet-payload.bsv
 %public  icn-common.dic
 
+%param --global NUM_EXTRA_OCN_STATIONS 0   "Number of extra OCN stations (to allow empty stations.)"
+%param VCS_PER_LANE              1   "Number of virtual channels per lane in the on-chip network."
+
+%param MAX_FLITS_PER_PACKET      2   "Maximum flits in an on-chip network packet."
 %param OCN_PACKET_PAYLOAD_BITS  64   "Size of side-buffer in which OCN packet payloads are stored"

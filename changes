@@ -7227,3 +7227,42 @@ Directory modules/hasim/timing-models/uncore/interconnects/torus
  icn-mesh.bsv              Locally Modified          231 
 
 Switch to BSD license.
+
+----------
+mcadler     Date: Thu Apr 10 08:59:43 EDT 2014  CSN: CSN-hasim-models-233
+                  Thu Apr 10 12:59:43 UTC 2014
+
+
+Directory modules/hasim/timing-models/chip/base-types
+ chip-base-types.awb       Locally Modified          232 
+ chip-base-types.bsv       Locally Modified          232 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          232 
+ last-level-cache-no-coherence.dic Locally Modified          232 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-with-interconnect.bsv Locally Modified          232 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.dic Locally Added               0 
+ memory-controller-latency-delay.awb Locally Modified          232 
+ memory-controller-latency-delay.bsv Locally Modified          232 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-common.awb            Locally Modified          232 
+ icn-local-port.bsv        Locally Modified          232 
+ icn-base-types.bsv        Locally Added               0 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.cpp              Locally Modified          232 
+ icn-mesh.bsv              Locally Modified          232 
+
+Changes to core connections to the on-chip network:
+
+- A central hub now exposes OCN lanes as soft connections, allowing any level
+  in the hierarchy to define a virtual channel.
+
+- Lanes are enumerated as dictionary entries (OCN_LANES_<name>).
+
+- Move OCN-specific base types to interconnect from chip base types.
