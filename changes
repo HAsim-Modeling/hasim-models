@@ -7266,3 +7266,19 @@ Changes to core connections to the on-chip network:
 - Lanes are enumerated as dictionary entries (OCN_LANES_<name>).
 
 - Move OCN-specific base types to interconnect from chip base types.
+
+----------
+mcadler     Date: Thu Apr 10 17:52:39 EDT 2014  CSN: CSN-hasim-models-234
+                  Thu Apr 10 21:52:39 UTC 2014
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-set-associative.awb Locally Removed           233 
+ last-level-cache-set-associative.bsv Locally Removed           233 
+ last-level-cache-no-coherence.bsv Locally Modified          233 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          233 
+
+- Clean up LLC model, removing old references to coherence.
+- Remove old LLC model.

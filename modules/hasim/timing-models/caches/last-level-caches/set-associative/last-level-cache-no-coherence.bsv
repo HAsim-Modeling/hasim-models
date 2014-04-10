@@ -182,9 +182,9 @@ typedef TExp#(LLC_MISS_ID_SIZE) NUM_LLC_MISS_IDS;
 // mkLastLevelCache --
 //   The primary routing module.  This module takes in requests from the
 //   core and routes them either to the local copy of the distributed
-//   cache or across the OCN.  It also manages coherence messages from the
-//   local cache to other distributed instances and messages arriving
-//   from the OCN to the local cache.
+//   cache or across the OCN.  Requests from the local portion of the
+//   cache to memory controllers are also routed through this module,
+//   as are corresponding responses.
 //
 //   Very little work is done here.  It is just a stage for passing
 //   messages to the right places.
@@ -210,9 +210,9 @@ module [HASIM_MODULE] mkLastLevelCache();
     // core or a remote core.
     //
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_REQ) reqToLocalLLC <-
-        mkPortStallSend_Multiplexed("CC_to_LLC_req");
+        mkPortStallSend_Multiplexed("LLCHub_to_LLC_req");
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_RSP) rspFromLocalLLC <-
-        mkPortStallRecv_Multiplexed("LLC_to_CC_rsp");
+        mkPortStallRecv_Multiplexed("LLC_to_LLCHub_rsp");
     
     //
     // Messages that travel from this portion of the distrubted LLC to/from
@@ -293,7 +293,7 @@ module [HASIM_MODULE] mkLastLevelCache();
     outctrls[11] = dummyReqInToMem.ctrl.out;
 
 
-    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Coherence", inctrls, outctrls);
+    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Hub", inctrls, outctrls);
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(LANE_IDX)) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(Tuple2#(LANE_IDX, OCN_FLIT))) stage3Ctrl <- mkStageController();
 
@@ -639,27 +639,27 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
     // Queues to/from Cache hierarchy.
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_REQ) reqFromCore <-
-        mkPortStallRecv_Multiplexed("CC_to_LLC_req");
+        mkPortStallRecv_Multiplexed("LLCHub_to_LLC_req");
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_RSP) rspToCore <-
-        mkPortStallSend_Multiplexed("LLC_to_CC_rsp");
+        mkPortStallSend_Multiplexed("LLC_to_LLCHub_rsp");
     
     // Requests to memory from the LLC instance responsible for an address.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToCC <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMem <-
         mkPortStallSend_Multiplexed("LLC_to_MEM_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromCC <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromMem <-
         mkPortStallRecv_Multiplexed("MEM_to_LLC_rsp");
     
     Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
     inctrls[0] = reqFromCore.ctrl.in;
     inctrls[1] = rspToCore.ctrl.in;
-    inctrls[2] = reqToCC.ctrl.in;
-    inctrls[3] = rspFromCC.ctrl.in;
+    inctrls[2] = reqToMem.ctrl.in;
+    inctrls[3] = rspFromMem.ctrl.in;
 
     Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     outctrls[0] = reqFromCore.ctrl.out;
     outctrls[1] = rspToCore.ctrl.out;
-    outctrls[2] = reqToCC.ctrl.out;
-    outctrls[3] = rspFromCC.ctrl.out;
+    outctrls[2] = reqToMem.ctrl.out;
+    outctrls[3] = rspFromMem.ctrl.out;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC", inctrls, outctrls);
 
@@ -704,18 +704,18 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         // Make a conglomeration of local information to pass from stage to stage.
         let local_state = initLocalState();
 
-        // Check if the CC engine has room for any new requests.
-        let can_enq_cc_req <- reqToCC.canEnq(cpu_iid);
+        // Check whether the request ports have room for any new requests.
+        let can_enq_mem_req <- reqToMem.canEnq(cpu_iid);
         let can_enq_core_rsp <- rspToCore.canEnq(cpu_iid);
-        local_state.memQNotFull = can_enq_cc_req;
+        local_state.memQNotFull = can_enq_mem_req;
         local_state.coreQNotFull = can_enq_core_rsp;
 
-        // Now check for responses from the cache coherence engine.
-        let m_cc_rsp <- rspFromCC.receive(cpu_iid);
+        // Did a fill arrive from memory?
+        let m_mem_rsp <- rspFromMem.receive(cpu_iid);
 
         Bool read_opaques = False;
 
-        if (m_cc_rsp matches tagged Valid .rsp)
+        if (m_mem_rsp matches tagged Valid .rsp)
         begin
             if (local_state.coreQNotFull)
             begin
@@ -820,12 +820,12 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
-                    rspFromCC.doDeq(cpu_iid);
+                    rspFromMem.doDeq(cpu_iid);
                 end
                 else
                 begin
                     // The queue is full, so retry the fill next cycle. No dequeue.
-                    rspFromCC.noDeq(cpu_iid);
+                    rspFromMem.noDeq(cpu_iid);
                     
                     debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.physicalAddress));
 
@@ -841,7 +841,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 // We finished the fill succesfully with no writeback, so dequeue it and free the miss.
                 debugLog.record(cpu_iid, $format("2: CLEAN EVICTION"));
                 outstandingMisses.free(cpu_iid, local_state.missTokToFree);
-                rspFromCC.doDeq(cpu_iid);
+                rspFromMem.doDeq(cpu_iid);
             end
             // Note that the actual cache update will be done later, so that
             // any lookups this model cycle don't see it accidentally.
@@ -849,7 +849,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         else
         begin
             // No dequeue.
-            rspFromCC.noDeq(cpu_iid);
+            rspFromMem.noDeq(cpu_iid);
         end
 
         // Now read the input port.
@@ -886,7 +886,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     // Ports Written:
     // * loadRspImmToCPU
 
-    rule stage3_cpuRspCCReq (!isValid(stage3Stall));
+    rule stage3_cpuRsp (!isValid(stage3Stall));
         // Get the local state from the previous stage.
         match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
 
@@ -1070,11 +1070,11 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         // Take care of the memory queue.
         if (local_state.memQUsed)
         begin
-            reqToCC.doEnq(cpu_iid, local_state.memQData);
+            reqToMem.doEnq(cpu_iid, local_state.memQData);
         end
         else
         begin
-            reqToCC.noEnq(cpu_iid);
+            reqToMem.noEnq(cpu_iid);
         end
         
         // Take care of the cache update.

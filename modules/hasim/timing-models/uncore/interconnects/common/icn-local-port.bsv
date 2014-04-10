@@ -827,7 +827,7 @@ module [HASIM_MODULE] mkOCNConnection#(
     end
 
 
-    LOCAL_CONTROLLER#(n_INSTANCES) localCtrl <- mkNamedLocalController("LLC Network Connection", inctrls, outctrls);
+    LOCAL_CONTROLLER#(n_INSTANCES) localCtrl <- mkNamedLocalController(ifcName, inctrls, outctrls);
     STAGE_CONTROLLER#(n_INSTANCES, Tuple2#(Bool, Maybe#(LANE_IDX))) stage2Ctrl <- mkStageController();
     STAGE_CONTROLLER#(n_INSTANCES, Tuple3#(Bool,
                                             Maybe#(OCN_PACKET_HANDLE),
