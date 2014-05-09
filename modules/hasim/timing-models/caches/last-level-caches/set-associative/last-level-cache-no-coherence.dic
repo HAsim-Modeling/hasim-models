@@ -4,4 +4,11 @@ def EVENTS.LLC.MISS             "LLC: Miss";
 //
 // On-chip network lanes are enumerated by dictionary entries.
 //
-def OCN_LANES.LLC_REQ           "OCN Lane: LLC Request";
+def OCN_LANES.LLC_REQ             "OCN Lane: LLC Request";
+
+//
+// Responses share an OCN lane with other responses.  These are all transmitted
+// on one OCN lane (named SHARED_RSP).  LLC_RSP is a tag transmitted along with
+// each message, though the tag is hidden from most of the model.
+//
+def OCN_LANES.SHARED_RSP.LLC_RSP  "OCN Lane: Memory Response";

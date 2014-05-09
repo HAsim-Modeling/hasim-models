@@ -242,7 +242,11 @@ module [HASIM_MODULE] mkLastLevelCache();
     // otherwise used by core nodes.
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
                                  OCN_MSG_HEAD_AND_PAYLOAD) rspToRemoteLLC <-
-        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_MEM_RSP));
+        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_SHARED_RSP_LLC_RSP));
+
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) dummyMemRspToOCN <-
+        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_SHARED_RSP_MEM_RSP));
 
     //
     // Ports from the OCN to the LLC.
@@ -251,11 +255,14 @@ module [HASIM_MODULE] mkLastLevelCache();
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
                                  OCN_MSG_HEAD_AND_PAYLOAD) reqInFromOCN <-
         mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_LLC_REQ));
-    // Corresponds to rspToRemoteLLC lane, above.
 
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 OCN_MSG_HEAD_AND_PAYLOAD) rspInFromOCN <-
-        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_MEM_RSP));
+                                 OCN_MSG_HEAD_AND_PAYLOAD) rspInFromLLC <-
+        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_SHARED_RSP_LLC_RSP));
+
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) rspInFromMem <-
+        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_SHARED_RSP_MEM_RSP));
 
     // No memory request messages will arrive here, but the named port allocated
     // in the core's OCN interface has to be tied off.
@@ -264,7 +271,7 @@ module [HASIM_MODULE] mkLastLevelCache();
         mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_MEM_REQ));
 
 
-    Vector#(12, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(14, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
     inctrls[0] = reqFromCore.ctrl.in;
     inctrls[1] = rspToCore.ctrl.in;
     inctrls[2] = reqToLocalLLC.ctrl.in;
@@ -272,13 +279,15 @@ module [HASIM_MODULE] mkLastLevelCache();
     inctrls[4] = cacheToMem.ctrl.in;
     inctrls[5] = memToCache.ctrl.in;
     inctrls[6] = reqInFromOCN.ctrl.in;
-    inctrls[7] = rspInFromOCN.ctrl.in;
-    inctrls[8] = reqToRemoteLLC.ctrl.in;
-    inctrls[9] = reqToMem.ctrl.in;
-    inctrls[10] = rspToRemoteLLC.ctrl.in;
-    inctrls[11] = dummyReqInToMem.ctrl.in;
+    inctrls[7] = rspInFromLLC.ctrl.in;
+    inctrls[8] = rspInFromMem.ctrl.in;
+    inctrls[9] = reqToRemoteLLC.ctrl.in;
+    inctrls[10] = reqToMem.ctrl.in;
+    inctrls[11] = rspToRemoteLLC.ctrl.in;
+    inctrls[12] = dummyMemRspToOCN.ctrl.in;
+    inctrls[13] = dummyReqInToMem.ctrl.in;
 
-    Vector#(12, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    Vector#(14, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     outctrls[0] = reqFromCore.ctrl.out;
     outctrls[1] = rspToCore.ctrl.out;
     outctrls[2] = reqToLocalLLC.ctrl.out;
@@ -286,11 +295,13 @@ module [HASIM_MODULE] mkLastLevelCache();
     outctrls[4] = cacheToMem.ctrl.out;
     outctrls[5] = memToCache.ctrl.out;
     outctrls[6] = reqInFromOCN.ctrl.out;
-    outctrls[7] = rspInFromOCN.ctrl.out;
-    outctrls[8] = reqToRemoteLLC.ctrl.out;
-    outctrls[9] = reqToMem.ctrl.out;
-    outctrls[10] = rspToRemoteLLC.ctrl.out;
-    outctrls[11] = dummyReqInToMem.ctrl.out;
+    outctrls[7] = rspInFromLLC.ctrl.out;
+    outctrls[8] = rspInFromMem.ctrl.out;
+    outctrls[9] = reqToRemoteLLC.ctrl.out;
+    outctrls[10] = reqToMem.ctrl.out;
+    outctrls[11] = rspToRemoteLLC.ctrl.out;
+    outctrls[12] = dummyMemRspToOCN.ctrl.out;
+    outctrls[13] = dummyReqInToMem.ctrl.out;
 
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Hub", inctrls, outctrls);
@@ -367,10 +378,13 @@ module [HASIM_MODULE] mkLastLevelCache();
         let m_rspFromLocalLLC <- rspFromLocalLLC.receive(cpu_iid);
         let m_cacheToMem <- cacheToMem.receive(cpu_iid);
         let m_reqInFromOCN <- reqInFromOCN.receive(cpu_iid);
-        let m_rspInFromOCN <- rspInFromOCN.receive(cpu_iid);
+        let m_rspInFromLLC <- rspInFromLLC.receive(cpu_iid);
+        let m_rspInFromMem <- rspInFromMem.receive(cpu_iid);
 
         // Tie off the dummy memory request port.
-        let dummy <- dummyReqInToMem.receive(cpu_iid);
+        let dummy_send_mem_rsp <- dummyMemRspToOCN.canEnq(cpu_iid);
+        dummyMemRspToOCN.noEnq(cpu_iid);
+        let dummy_recv_mem_req <- dummyReqInToMem.receive(cpu_iid);
         dummyReqInToMem.noDeq(cpu_iid);
 
         // Check credits for sending to output ports.
@@ -393,7 +407,6 @@ module [HASIM_MODULE] mkLastLevelCache();
         Maybe#(Tuple2#(STATION_ID, MEMORY_RSP)) m_new_rspToRemoteLLC = tagged Invalid;
 
         Bool did_deq_rspFromLocalLLC = False;
-        Bool did_deq_rspInFromOCN = False;
 
         //
         // Local LLC response to either the local core or a remote core.
@@ -446,40 +459,41 @@ module [HASIM_MODULE] mkLastLevelCache();
         end
 
         //
-        // Memory controller response to local LLC.
+        // Distributed LLC response from remote LLC.
         //
-        if (m_rspInFromOCN matches tagged Valid .ocn_msg &&& can_enq_memToCache)
+        if (m_rspInFromLLC matches tagged Valid .ocn_msg &&&
+            can_enq_rspToCore &&&
+            ! isValid(m_new_rspToCore))
         begin
             Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
             match {.src, .rsp} = ocn_rsp;
 
-            // From where is the message coming?  Cores have local port map
-            // entries of 0.
-            let src_is_memctrl = (localPortMap.sub(src) != 0);
-            if (src_is_memctrl)
-            begin
-                if (can_enq_memToCache)
-                begin
-                    m_new_memToCache = tagged Valid rsp;
-                    did_deq_rspInFromOCN = True;
-                    debugLog.record(cpu_iid, $format("1: MEM to LLC, ") + fshow(rsp));
-                end
-            end
-            else if (can_enq_rspToCore &&& ! isValid(m_new_rspToCore))
-            begin
-                m_new_rspToCore = tagged Valid rsp;
-                did_deq_rspInFromOCN = True;
-                debugLog.record(cpu_iid, $format("1: Remote LLC %0d to local Core, ", src) + fshow(rsp));
-            end
-        end
+            m_new_rspToCore = tagged Valid rsp;
+            rspInFromLLC.doDeq(cpu_iid);
 
-        if (did_deq_rspInFromOCN)
-        begin
-            rspInFromOCN.doDeq(cpu_iid);
+            debugLog.record(cpu_iid, $format("1: Remote LLC %0d to local Core, ", src) + fshow(rsp));
         end
         else
         begin
-            rspInFromOCN.noDeq(cpu_iid);
+            rspInFromLLC.noDeq(cpu_iid);
+        end
+
+        //
+        // Memory controller response to local LLC.
+        //
+        if (m_rspInFromMem matches tagged Valid .ocn_msg &&& can_enq_memToCache)
+        begin
+            Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
+            match {.src, .rsp} = ocn_rsp;
+
+            m_new_memToCache = tagged Valid rsp;
+            rspInFromMem.doDeq(cpu_iid);
+
+            debugLog.record(cpu_iid, $format("1: MEM to LLC, ") + fshow(rsp));
+        end
+        else
+        begin
+            rspInFromMem.noDeq(cpu_iid);
         end
 
         //

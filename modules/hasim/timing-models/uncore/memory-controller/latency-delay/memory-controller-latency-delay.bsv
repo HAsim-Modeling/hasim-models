@@ -117,6 +117,13 @@ module [HASIM_MODULE] mkMemoryController()
     outports[1] = ocnRecv.ctrl.out;
 
     //
+    // Map OCN_LANES dictionary entries to lanes.
+    //
+    let laneMap <- ocnMapPortsToLanes();
+    match {.rspLane, .rspTag} = laneMap[`OCN_LANES_SHARED_RSP_MEM_RSP];
+
+
+    //
     // Statistics
     //
 
@@ -195,14 +202,14 @@ module [HASIM_MODULE] mkMemoryController()
         Bool finished_req = False;
 
         // Have credit to send?
-        if (can_enq[`OCN_LANES_MEM_RSP])
+        if (can_enq[rspLane])
         begin
             // Have a message to send?
             let m_flit <- memRespQ.receive(iid);
             if (m_flit matches tagged Valid .flit)
             begin
                 // Send it
-                ocnSend.doEnq(iid, `OCN_LANES_MEM_RSP, flit);
+                ocnSend.doEnq(iid, rspLane, flit);
                 memRespQ.doDeq(iid);
                 did_enq = True;
 

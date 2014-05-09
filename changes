@@ -7282,3 +7282,31 @@ Directory modules/hasim/timing-models/uncore/interconnects/common
 
 - Clean up LLC model, removing old references to coherence.
 - Remove old LLC model.
+
+----------
+mcadler     Date: Thu May  8 22:30:10 EDT 2014  CSN: CSN-hasim-models-235
+                  Fri May  9 02:30:10 UTC 2014
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          234 
+ last-level-cache-no-coherence.dic Locally Modified          234 
+
+Directory modules/hasim/timing-models/uncore
+ uncore-magic-memory.h     Locally Removed           234 
+ uncore-magic-memory.awb   Locally Removed           234 
+ uncore-magic-memory.bsv   Locally Removed           234 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.dic Locally Modified          234 
+ memory-controller-latency-delay.bsv Locally Modified          234 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-common.awb            Locally Modified          234 
+ icn-local-port.bsv        Locally Modified          234 
+ icn-base-types.bsv        Locally Modified          234 
+ icn-packet-payload.bsv    Locally Modified          234 
+
+Add support for mapping groups of A-Ports to a single OCN virtual channel
+(lane).  Dictionary entries sharing a lower-level group map multiple
+A-Ports to a lane.

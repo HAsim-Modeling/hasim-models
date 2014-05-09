@@ -69,14 +69,101 @@ import List::*;
 //   convenience function maps a lane number to a soft connection name.
 //
 function String laneNameToOCN(String prefix, Integer lane);
-    Integer id = lane - `OCN_LANES__BASE;
-    return "OCN_LANE_SEND_" + prefix + "_" + integerToString(id);
+    return "OCN_LANE_SEND_" + prefix + "_" + integerToString(lane);
 endfunction
 
 function String laneNameFromOCN(String prefix, Integer lane);
-    Integer id = lane - `OCN_LANES__BASE;
-    return "OCN_LANE_RECV_" + prefix + "_" + integerToString(id);
+    return "OCN_LANE_RECV_" + prefix + "_" + integerToString(lane);
 endfunction
+
+
+typedef Vector#(`OCN_LANES_DICT_ENTRIES, Tuple2#(LANE_IDX, OCN_PACKET_TAG))
+    OCN_MAP_PORTS_TO_LANES;
+
+typedef Vector#(NUM_LANES, Tuple2#(Integer, Bool)) OCN_MAP_LANES_TO_PORTS;
+
+//
+// ocnMapPortsToLanes --
+//   Build a vector that maps all lane indices in the OCN_LANES dictionary
+//   space to a OCN lanes.
+//
+//   Names that have a hierarchy (i.e. names not at top level in the OCN_LANES
+//   space) form groups that share a lane.  These sharing groups
+//   use a tag to differentiate channels.  The tag is returned as the second
+//   integer in the tuples.
+//  
+module ocnMapPortsToLanes
+    // Interface (just a returned type for this module):
+    (OCN_MAP_PORTS_TO_LANES);
+
+    Integer lane = 0;
+    Integer idx = 0;
+    OCN_MAP_PORTS_TO_LANES result = newVector();
+
+    // Walk all groups of names in the OCN_LANES space.  Group 0 is special
+    // because it is the top-level group.  Each top-level entry gets its own
+    // lane with tag 0.  Subsequent groups share a lane among the group and
+    // are disambiguated with the second part of the tuple -- the tag.
+    for (Integer g = 0; g < nGroupsOCN_LANES_DICT; g = g + 1)
+    begin
+        // Iterate through all entries within the group.
+        for (Integer i = 0; i < groupsOCN_LANES_DICT[g][1]; i = i + 1)
+        begin
+            Integer tag = (g == 0 ? 0 : i);
+            result[idx] = tuple2(fromInteger(lane), fromInteger(tag));
+
+            idx = idx + 1;
+            if (g == 0) lane = lane + 1;
+        end
+
+        if (g != 0) lane = lane + 1;
+    end
+
+    // This hack puts the proper offset for MEM_RSP in the MEM_REQ tag.
+    // It allows for a simple memory controller that doesn't need a write
+    // port to the payload storage buffers.  The tag needed for the response
+    // will be set as a side-effect of making the request.
+    //
+    // For outbound port mapping, setting the tag is harmless since tags are
+    // ignored on non-shared ports.  MEM_REQ is non-shared.
+    result[`OCN_LANES_MEM_REQ] = tuple2(tpl_1(result[`OCN_LANES_MEM_REQ]),
+                                        tpl_2(result[`OCN_LANES_SHARED_RSP_MEM_RSP]));
+
+    return result;
+endmodule
+
+
+//
+// ocnMapLanesToPorts --
+//   The reverse mapping of ocnMapPortsToLanes.  Given an OCN lane, return the
+//   index of the corresponding A-port to the model.  The 2nd, bool part of the
+//   tuple indicates whether the lane maps to a group of ports all sharing
+//   the lane.
+//
+module ocnMapLanesToPorts
+    // Interface (just a returned type for this module):
+    (OCN_MAP_LANES_TO_PORTS);
+
+    Integer idx = 0;
+    OCN_MAP_LANES_TO_PORTS result = newVector();
+
+    // The first set of lanes is not shared
+    for (Integer p = 0; p < groupsOCN_LANES_DICT[0][1]; p = p + 1)
+    begin
+        result[idx] = tuple2(p, False);
+        idx = idx + 1;
+    end
+
+    // Remaining groups are shared.
+    for (Integer g = 1; g < nGroupsOCN_LANES_DICT; g = g + 1)
+    begin
+        result[idx] = tuple2(groupsOCN_LANES_DICT[g][0], True);
+        idx = idx + 1;
+    end
+
+    return result;
+endmodule
+
 
 
 //
@@ -641,18 +728,24 @@ module [HASIM_MODULE] mkPortsToOCNLanes#(String name,
     // Port names are simply a function of the lane number.
     //
 
-    OCN_FROM_PORT_VEC_MULTIPLEXED#(n_INSTANCES,
-                                   NUM_LANES) portsToOCN = newVector();
-    OCN_TO_PORT_VEC_MULTIPLEXED#(n_INSTANCES,
-                                 NUM_LANES) ocnToPorts = newVector();
+    OCN_FROM_PORT_VEC_MULTIPLEXED#(n_INSTANCES, `OCN_LANES_DICT_ENTRIES)
+        portsToOCN = newVector();
 
-    for (Integer ln = 0; ln < valueOf(NUM_LANES); ln = ln + 1)
+    OCN_TO_PORT_VEC_MULTIPLEXED#(n_INSTANCES, `OCN_LANES_DICT_ENTRIES)
+        ocnToPorts = newVector();
+
+    for (Integer p = 0; p < `OCN_LANES_DICT_ENTRIES; p = p + 1)
     begin
-        portsToOCN[ln] <- mkPortStallRecv_Multiplexed(laneNameToOCN(name, ln));
-        ocnToPorts[ln] <- mkPortStallSend_Multiplexed(laneNameFromOCN(name, ln));
+        portsToOCN[p] <- mkPortStallRecv_Multiplexed(laneNameToOCN(name, p));
+        ocnToPorts[p] <- mkPortStallSend_Multiplexed(laneNameFromOCN(name, p));
     end
 
-    mkOCNConnection(portsToOCN, ocnToPorts, name + "_OCN_Connection");
+    let mapPortsToLanes <- ocnMapPortsToLanes();
+    let mapLanesToPorts <- ocnMapLanesToPorts();
+
+    mkOCNConnection(portsToOCN, ocnToPorts,
+                    mapPortsToLanes, mapLanesToPorts,
+                    name + "_OCN_Connection");
 endmodule
 
 
@@ -748,15 +841,15 @@ endinstance
 // Ports are passed in as the following vectors.
 //
 
-typedef Vector#(n_LANES,
+typedef Vector#(n_PORTS,
                 PORT_STALL_RECV_MULTIPLEXED#(n_INSTANCES,
                                              OCN_MSG_HEAD_AND_PAYLOAD))
-    OCN_FROM_PORT_VEC_MULTIPLEXED#(numeric type n_INSTANCES, numeric type n_LANES);
+    OCN_FROM_PORT_VEC_MULTIPLEXED#(numeric type n_INSTANCES, numeric type n_PORTS);
 
-typedef Vector#(n_LANES,
+typedef Vector#(n_PORTS,
                 PORT_STALL_SEND_MULTIPLEXED#(n_INSTANCES,
                                              OCN_MSG_HEAD_AND_PAYLOAD))
-    OCN_TO_PORT_VEC_MULTIPLEXED#(numeric type n_INSTANCES, numeric type n_LANES);
+    OCN_TO_PORT_VEC_MULTIPLEXED#(numeric type n_INSTANCES, numeric type n_PORTS);
 
 
 //
@@ -767,11 +860,14 @@ typedef Vector#(n_LANES,
 //   correspond to virtual channel numbers.
 //
 module [HASIM_MODULE] mkOCNConnection#(
-    OCN_FROM_PORT_VEC_MULTIPLEXED#(n_INSTANCES, n_LANES) portsToOCN,
-    OCN_TO_PORT_VEC_MULTIPLEXED#(n_INSTANCES, n_LANES) ocnToPorts,
+    OCN_FROM_PORT_VEC_MULTIPLEXED#(n_INSTANCES, n_PORTS) portsToOCN,
+    OCN_TO_PORT_VEC_MULTIPLEXED#(n_INSTANCES, n_PORTS) ocnToPorts,
+    OCN_MAP_PORTS_TO_LANES mapPortsToLanes,
+    OCN_MAP_LANES_TO_PORTS mapLanesToPorts,
     String ifcName)
     // Interface:
-    ();
+    ()
+    provisos (Alias#(t_PORT_IDX, Bit#(TLog#(n_PORTS))));
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(n_INSTANCES) debugLog <-
         mkTIMEPDebugFile_Multiplexed("ocn_connection_" + ifcName + ".out");
@@ -798,12 +894,12 @@ module [HASIM_MODULE] mkOCNConnection#(
                                debugLog);
 
 
-    Vector#(TAdd#(2, TMul#(2, n_LANES)),
+    Vector#(TAdd#(2, TMul#(2, n_PORTS)),
             INSTANCE_CONTROL_IN#(n_INSTANCES)) inctrls = newVector();
     inctrls[0] = ocnSend.ctrl.in;
     inctrls[1] = ocnRecv.ctrl.in;
 
-    Vector#(TAdd#(2, TMul#(2, n_LANES)),
+    Vector#(TAdd#(2, TMul#(2, n_PORTS)),
             INSTANCE_CONTROL_OUT#(n_INSTANCES)) outctrls = newVector();
     outctrls[0] = ocnSend.ctrl.out;
     outctrls[1] = ocnRecv.ctrl.out;
@@ -812,14 +908,14 @@ module [HASIM_MODULE] mkOCNConnection#(
     // Add controls for the ports passed in to the connector.
     //    
     Integer slot = 2;
-    for (Integer i = 0; i < valueOf(n_LANES); i = i + 1)    
+    for (Integer i = 0; i < valueOf(n_PORTS); i = i + 1)    
     begin
         inctrls[slot] = portsToOCN[i].ctrl.in;
         outctrls[slot] = portsToOCN[i].ctrl.out;
         slot = slot + 1;
     end
 
-    for (Integer i = 0; i < valueOf(n_LANES); i = i + 1)    
+    for (Integer i = 0; i < valueOf(n_PORTS); i = i + 1)    
     begin
         inctrls[slot] = ocnToPorts[i].ctrl.in;
         outctrls[slot] = ocnToPorts[i].ctrl.out;
@@ -869,9 +965,9 @@ module [HASIM_MODULE] mkOCNConnection#(
         // here is not a commitment to process a message.  For that, doDeq()
         // must be called.
         //
-        Vector#(n_LANES, Maybe#(OCN_MSG_HEAD_AND_PAYLOAD)) m_outToOCN = newVector();
+        Vector#(n_PORTS, Maybe#(OCN_MSG_HEAD_AND_PAYLOAD)) m_outToOCN = newVector();
 
-        for (Integer i = 0; i < valueOf(n_LANES); i = i + 1)
+        for (Integer i = 0; i < valueOf(n_PORTS); i = i + 1)
         begin
             m_outToOCN[i] <- portsToOCN[i].receive(cpu_iid);
         end
@@ -880,7 +976,7 @@ module [HASIM_MODULE] mkOCNConnection#(
         // Pick a winner.
         //
 
-        Vector#(n_LANES, Bool) did_enq_outToOCN = replicate(False);
+        Vector#(n_PORTS, Bool) did_enq_outToOCN = replicate(False);
         Bool did_payload_storage_write = False;
         Bool did_ocn_enq = False;
 
@@ -912,16 +1008,18 @@ module [HASIM_MODULE] mkOCNConnection#(
             // For now, arbitration is static with priority going to lower
             // channels.
             //
-            for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+            for (Integer i = 0; i < valueOf(n_PORTS); i = i + 1)
             begin
+                match {.ln, .tag} = mapPortsToLanes[i];
+
                 if (m_outToOCN[i] matches tagged Valid .info &&&
-                    can_enq[i] &&&
+                    can_enq[ln] &&&
                     payloadStorage.allocNotEmpty &&&
                     ! did_payload_storage_write)
                 begin
                     // Send the head flit.
                     OCN_FLIT flit = tagged FLIT_HEAD info.headFlit;
-                    ocnSend.doEnq(cpu_iid, i, flit);
+                    ocnSend.doEnq(cpu_iid, ln, flit);
                     did_ocn_enq = True;
 
                     // Note deq from port.
@@ -931,14 +1029,15 @@ module [HASIM_MODULE] mkOCNConnection#(
                     // Save the full payload in the side buffer.  The flits
                     // sent over the OCN in te model are a subset of the message.
                     let h <- payloadStorage.allocHandle();
-                    payloadStorage.write(h, info.payload);
+                    payloadStorage.write(h, OCN_PACKET_BUNDLE { tag: tag,
+                                                                payload: info.payload });
                     did_payload_storage_write = True;
 
                     // The packet is broken into two flits.  The second flit
                     // holds the index of the payload storage record.
-                    packetizingToOCN <= tagged Valid tuple2(i, h);
+                    packetizingToOCN <= tagged Valid tuple2(ln, h);
 
-                    debugLog.record(cpu_iid, $format("1: Lane %0d: FWD to OCN, payload idx 0x%0x, ", i, h) + fshow(flit));
+                    debugLog.record(cpu_iid, $format("1: Port %0d, Lane %0d: FWD to OCN, payload idx 0x%0x, ", i, ln, h) + fshow(flit));
                 end
             end
         end
@@ -950,7 +1049,7 @@ module [HASIM_MODULE] mkOCNConnection#(
         end
 
         // For each incoming port note lack of deq if no message consumed.
-        for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+        for (Integer i = 0; i < fromInteger(valueOf(n_PORTS)); i = i + 1)
         begin
             if (! did_enq_outToOCN[i])
             begin
@@ -965,10 +1064,16 @@ module [HASIM_MODULE] mkOCNConnection#(
         //
 
         // Only request packets that can be forwarded this cycle.
-        Vector#(NUM_LANES, Bool) can_enq_vec = newVector();
-        for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+        Vector#(NUM_LANES, Bool) can_enq_vec = replicate(True);
+        for (Integer i = 0; i < fromInteger(valueOf(n_PORTS)); i = i + 1)
         begin
-            can_enq_vec[i] <- ocnToPorts[i].canEnq(cpu_iid);
+            // Multiple ports may map to the same lane.  Claim ability to
+            // enq to a lane only if all ports in a group can accept
+            // a message.  All the ports shared a lane (virtual channel)
+            // in the OCN already, so this requirement won't induce a deadlock.
+            match {.ln, .tag} = mapPortsToLanes[i];
+            let can_enq_to_port <- ocnToPorts[i].canEnq(cpu_iid);
+            can_enq_vec[ln] = can_enq_vec[ln] && can_enq_to_port;
         end
 
         Maybe#(LANE_IDX) recv_ln = tagged Invalid;
@@ -1033,13 +1138,13 @@ module [HASIM_MODULE] mkOCNConnection#(
         Reg#(OCN_FLIT_HEAD) recvPacketHead =
             recvPacketHeadPool.getReg(cpu_iid);
 
-        Vector#(n_LANES, Bool) did_enq_ocnToPorts = replicate(False);
+        Vector#(n_PORTS, Bool) did_enq_ocnToPorts = replicate(False);
 
         // Looking up payload contents in the side storage buffer?
-        OCN_PACKET_PAYLOAD payload = ?;
+        OCN_PACKET_BUNDLE bundle = ?;
         if (m_payload_storage_read matches tagged Valid .h)
         begin
-            payload <- payloadStorage.readRsp();
+            bundle <- payloadStorage.readRsp();
             
             // Packet complete.  Release the buffer entry.
             payloadStorage.freeHandle(h);
@@ -1059,15 +1164,24 @@ module [HASIM_MODULE] mkOCNConnection#(
                 // Message arrived completely.  Forward it to the outgoing port.
                 OCN_MSG_HEAD_AND_PAYLOAD msg;
                 msg.headFlit = recvPacketHead;
-                msg.payload = payload;
+                msg.payload = bundle.payload;
 
-                ocnToPorts[ln].doEnq(cpu_iid, msg);
-                did_enq_ocnToPorts[ln] = True;
-                debugLog.record(cpu_iid, $format("3: Lane %0d: Recv ", ln) + fshow(flit));
+                // Compute the A-Port corresponding to the OCN lane.
+                t_PORT_IDX idx = fromInteger(tpl_1(mapLanesToPorts[ln]));
+                Bool is_group = tpl_2(mapLanesToPorts[ln]);
+                if (is_group)
+                begin
+                    // Multiple ports connect to the lane.  The tag disambiguates.
+                    idx = idx + resize(bundle.tag);
+                end
+
+                ocnToPorts[idx].doEnq(cpu_iid, msg);
+                did_enq_ocnToPorts[idx] = True;
+                debugLog.record(cpu_iid, $format("3: Lane %0d, Port %0d: Recv ", ln, idx) + fshow(flit));
             end
         end
 
-        for (LANE_IDX i = 0; i < fromInteger(valueOf(n_LANES)); i = i + 1)
+        for (Integer i = 0; i < fromInteger(valueOf(n_PORTS)); i = i + 1)
         begin
             if (! did_enq_ocnToPorts[i])
             begin
