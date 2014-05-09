@@ -120,8 +120,7 @@ typedef struct
     LLC_MISS_TOKEN missTokToFree;
 
     Bool memQNotFull;
-    Bool memQUsed;
-    MEMORY_REQ memQData;
+    Maybe#(MEMORY_REQ) memQData;
     
     Bool writePortUsed;
     Bool writeDataDirty;
@@ -147,8 +146,7 @@ function LLC_LOCAL_STATE initLocalState();
         { 
             missTokToFree: ?,
             memQNotFull: True,
-            memQUsed: False,
-            memQData: ?,
+            memQData: tagged Invalid,
             coreQNotFull: True,
             coreQUsed: False,
             coreQData: ?,
@@ -167,7 +165,7 @@ endfunction
 
 function Bool memQAvailable(LLC_LOCAL_STATE local_state);
 
-    return local_state.memQNotFull && !local_state.memQUsed;
+    return local_state.memQNotFull && ! isValid(local_state.memQData);
 
 endfunction
 
@@ -213,16 +211,6 @@ module [HASIM_MODULE] mkLastLevelCache();
         mkPortStallSend_Multiplexed("LLCHub_to_LLC_req");
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_RSP) rspFromLocalLLC <-
         mkPortStallRecv_Multiplexed("LLC_to_LLCHub_rsp");
-    
-    //
-    // Messages that travel from this portion of the distrubted LLC to/from
-    // memory controllers.  This module will route the messages through the
-    // network.
-    //
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) cacheToMem <-
-        mkPortStallRecv_Multiplexed("LLC_to_MEM_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) memToCache <-
-        mkPortStallSend_Multiplexed("MEM_to_LLC_rsp");
 
     //
     // Ports from the LLC to the OCN.  The names of the ports are picked
@@ -233,10 +221,6 @@ module [HASIM_MODULE] mkLastLevelCache();
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
                                  OCN_MSG_HEAD_AND_PAYLOAD) reqToRemoteLLC <-
         mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_LLC_REQ));
-
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 OCN_MSG_HEAD_AND_PAYLOAD) reqToMem <-
-        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_MEM_REQ));
 
     // LLC responses use the memory response lane since the lane is not
     // otherwise used by core nodes.
@@ -260,10 +244,6 @@ module [HASIM_MODULE] mkLastLevelCache();
                                  OCN_MSG_HEAD_AND_PAYLOAD) rspInFromLLC <-
         mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_SHARED_RSP_LLC_RSP));
 
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 OCN_MSG_HEAD_AND_PAYLOAD) rspInFromMem <-
-        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_SHARED_RSP_MEM_RSP));
-
     // No memory request messages will arrive here, but the named port allocated
     // in the core's OCN interface has to be tied off.
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
@@ -271,37 +251,29 @@ module [HASIM_MODULE] mkLastLevelCache();
         mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_MEM_REQ));
 
 
-    Vector#(14, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(10, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
     inctrls[0] = reqFromCore.ctrl.in;
     inctrls[1] = rspToCore.ctrl.in;
     inctrls[2] = reqToLocalLLC.ctrl.in;
     inctrls[3] = rspFromLocalLLC.ctrl.in;
-    inctrls[4] = cacheToMem.ctrl.in;
-    inctrls[5] = memToCache.ctrl.in;
-    inctrls[6] = reqInFromOCN.ctrl.in;
-    inctrls[7] = rspInFromLLC.ctrl.in;
-    inctrls[8] = rspInFromMem.ctrl.in;
-    inctrls[9] = reqToRemoteLLC.ctrl.in;
-    inctrls[10] = reqToMem.ctrl.in;
-    inctrls[11] = rspToRemoteLLC.ctrl.in;
-    inctrls[12] = dummyMemRspToOCN.ctrl.in;
-    inctrls[13] = dummyReqInToMem.ctrl.in;
+    inctrls[4] = reqInFromOCN.ctrl.in;
+    inctrls[5] = rspInFromLLC.ctrl.in;
+    inctrls[6] = reqToRemoteLLC.ctrl.in;
+    inctrls[7] = rspToRemoteLLC.ctrl.in;
+    inctrls[8] = dummyMemRspToOCN.ctrl.in;
+    inctrls[9] = dummyReqInToMem.ctrl.in;
 
-    Vector#(14, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    Vector#(10, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     outctrls[0] = reqFromCore.ctrl.out;
     outctrls[1] = rspToCore.ctrl.out;
     outctrls[2] = reqToLocalLLC.ctrl.out;
     outctrls[3] = rspFromLocalLLC.ctrl.out;
-    outctrls[4] = cacheToMem.ctrl.out;
-    outctrls[5] = memToCache.ctrl.out;
-    outctrls[6] = reqInFromOCN.ctrl.out;
-    outctrls[7] = rspInFromLLC.ctrl.out;
-    outctrls[8] = rspInFromMem.ctrl.out;
-    outctrls[9] = reqToRemoteLLC.ctrl.out;
-    outctrls[10] = reqToMem.ctrl.out;
-    outctrls[11] = rspToRemoteLLC.ctrl.out;
-    outctrls[12] = dummyMemRspToOCN.ctrl.out;
-    outctrls[13] = dummyReqInToMem.ctrl.out;
+    outctrls[4] = reqInFromOCN.ctrl.out;
+    outctrls[5] = rspInFromLLC.ctrl.out;
+    outctrls[6] = reqToRemoteLLC.ctrl.out;
+    outctrls[7] = rspToRemoteLLC.ctrl.out;
+    outctrls[8] = dummyMemRspToOCN.ctrl.out;
+    outctrls[9] = dummyReqInToMem.ctrl.out;
 
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Hub", inctrls, outctrls);
@@ -326,24 +298,6 @@ module [HASIM_MODULE] mkLastLevelCache();
     //
     let localPortInit <- mkTopologyParamStream(`TOPOLOGY_NET_LOCAL_PORT_TYPE_MAP);
     LUTRAM#(STATION_ID, Bit#(2)) localPortMap <- mkLUTRAMWithGet(localPortInit);
-
-    //
-    // Physical addresses are assigned to memory controllers during setup
-    // by software.  The map table is larger than the number of controllers
-    // in order to enable relatively even mapping even when the number of
-    // controllers isn't a power of two.  A large map also makes it
-    // unnecessary to hash the addresses.
-    //
-
-    let ctrlAddrMapInit <- mkTopologyParamStream(`TOPOLOGY_NET_MEM_CTRL_MAP);
-    // The table holds 8 entries for every memory controller.
-    LUTRAM#(Bit#(TLog#(TMul#(8, MAX_NUM_MEM_CTRLS))),
-            STATION_ID) memCtrlDstForAddr <-
-        mkLUTRAMWithGet(ctrlAddrMapInit);
-
-    function STATION_ID getMemCtrlDstForAddr(LINE_ADDRESS addr);
-        return memCtrlDstForAddr.sub(resize(addr));
-    endfunction
 
 
     //
@@ -376,10 +330,8 @@ module [HASIM_MODULE] mkLastLevelCache();
         //
         let m_reqFromCore <- reqFromCore.receive(cpu_iid);
         let m_rspFromLocalLLC <- rspFromLocalLLC.receive(cpu_iid);
-        let m_cacheToMem <- cacheToMem.receive(cpu_iid);
         let m_reqInFromOCN <- reqInFromOCN.receive(cpu_iid);
         let m_rspInFromLLC <- rspInFromLLC.receive(cpu_iid);
-        let m_rspInFromMem <- rspInFromMem.receive(cpu_iid);
 
         // Tie off the dummy memory request port.
         let dummy_send_mem_rsp <- dummyMemRspToOCN.canEnq(cpu_iid);
@@ -390,9 +342,7 @@ module [HASIM_MODULE] mkLastLevelCache();
         // Check credits for sending to output ports.
         let can_enq_rspToCore <- rspToCore.canEnq(cpu_iid);
         let can_enq_reqToLocalLLC <- reqToLocalLLC.canEnq(cpu_iid);
-        let can_enq_memToCache <- memToCache.canEnq(cpu_iid);
         let can_enq_reqToRemoteLLC <- reqToRemoteLLC.canEnq(cpu_iid);
-        let can_enq_reqToMem <- reqToMem.canEnq(cpu_iid);
         let can_enq_rspToRemoteLLC <- rspToRemoteLLC.canEnq(cpu_iid);
 
         //
@@ -401,9 +351,7 @@ module [HASIM_MODULE] mkLastLevelCache();
 
         Maybe#(MEMORY_RSP) m_new_rspToCore = tagged Invalid;
         Maybe#(LLC_MEMORY_REQ) m_new_reqToLocalLLC = tagged Invalid;
-        Maybe#(MEMORY_RSP) m_new_memToCache = tagged Invalid;
         Maybe#(Tuple2#(STATION_ID, MEMORY_REQ)) m_new_reqToRemoteLLC = tagged Invalid;
-        Maybe#(Tuple2#(STATION_ID, MEMORY_REQ)) m_new_reqToMem = tagged Invalid;
         Maybe#(Tuple2#(STATION_ID, MEMORY_RSP)) m_new_rspToRemoteLLC = tagged Invalid;
 
         Bool did_deq_rspFromLocalLLC = False;
@@ -442,23 +390,6 @@ module [HASIM_MODULE] mkLastLevelCache();
         end
 
         //
-        // Local LLC to memory controller request.
-        //
-        if (m_cacheToMem matches tagged Valid .req &&&
-            can_enq_reqToMem &&&
-            ! isValid(m_new_reqToMem))
-        begin
-            cacheToMem.doDeq(cpu_iid);
-            let dst = getMemCtrlDstForAddr(req.physicalAddress);
-            m_new_reqToMem = tagged Valid tuple2(dst, req);
-            debugLog.record(cpu_iid, $format("1: LLC to MEM %0d, ", dst) + fshow(req));
-        end
-        else
-        begin
-            cacheToMem.noDeq(cpu_iid);
-        end
-
-        //
         // Distributed LLC response from remote LLC.
         //
         if (m_rspInFromLLC matches tagged Valid .ocn_msg &&&
@@ -476,24 +407,6 @@ module [HASIM_MODULE] mkLastLevelCache();
         else
         begin
             rspInFromLLC.noDeq(cpu_iid);
-        end
-
-        //
-        // Memory controller response to local LLC.
-        //
-        if (m_rspInFromMem matches tagged Valid .ocn_msg &&& can_enq_memToCache)
-        begin
-            Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
-            match {.src, .rsp} = ocn_rsp;
-
-            m_new_memToCache = tagged Valid rsp;
-            rspInFromMem.doDeq(cpu_iid);
-
-            debugLog.record(cpu_iid, $format("1: MEM to LLC, ") + fshow(rsp));
-        end
-        else
-        begin
-            rspInFromMem.noDeq(cpu_iid);
         end
 
         //
@@ -585,15 +498,6 @@ module [HASIM_MODULE] mkLastLevelCache();
             reqToLocalLLC.noEnq(cpu_iid);
         end
 
-        if (m_new_memToCache matches tagged Valid .rsp)
-        begin
-            memToCache.doEnq(cpu_iid, rsp);
-        end
-        else
-        begin
-            memToCache.noEnq(cpu_iid);
-        end
-
         if (m_new_reqToRemoteLLC matches tagged Valid {.tgt, .req})
         begin
             reqToRemoteLLC.doEnq(cpu_iid, cvtToOCNFlits(tgt, req));
@@ -601,15 +505,6 @@ module [HASIM_MODULE] mkLastLevelCache();
         else
         begin
             reqToRemoteLLC.noEnq(cpu_iid);
-        end
-
-        if (m_new_reqToMem matches tagged Valid {.tgt, .req})
-        begin
-            reqToMem.doEnq(cpu_iid, cvtToOCNFlits(tgt, req));
-        end
-        else
-        begin
-            reqToMem.noEnq(cpu_iid);
         end
 
         if (m_new_rspToRemoteLLC matches tagged Valid {.tgt, .rsp})
@@ -658,10 +553,12 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         mkPortStallSend_Multiplexed("LLC_to_LLCHub_rsp");
     
     // Requests to memory from the LLC instance responsible for an address.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMem <-
-        mkPortStallSend_Multiplexed("LLC_to_MEM_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromMem <-
-        mkPortStallRecv_Multiplexed("MEM_to_LLC_rsp");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) reqToMem <-
+        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_MEM_REQ));
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                 OCN_MSG_HEAD_AND_PAYLOAD) rspFromMem <-
+        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_SHARED_RSP_MEM_RSP));
     
     Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
     inctrls[0] = reqFromCore.ctrl.in;
@@ -681,6 +578,24 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, LLC_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(LLC_LOCAL_STATE, Maybe#(LLC_MEMORY_REQ))) stage4Ctrl <- mkStageController();
     Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, LLC_MEMORY_REQ, Maybe#(CACHE_ENTRY#(VOID)), LLC_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
+
+    //
+    // Physical addresses are assigned to memory controllers during setup
+    // by software.  The map table is larger than the number of controllers
+    // in order to enable relatively even mapping even when the number of
+    // controllers isn't a power of two.  A large map also makes it
+    // unnecessary to hash the addresses.
+    //
+
+    let ctrlAddrMapInit <- mkTopologyParamStream(`TOPOLOGY_NET_MEM_CTRL_MAP);
+    // The table holds 8 entries for every memory controller.
+    LUTRAM#(Bit#(TLog#(TMul#(8, MAX_NUM_MEM_CTRLS))),
+            STATION_ID) memCtrlDstForAddr <-
+        mkLUTRAMWithGet(ctrlAddrMapInit);
+
+    function STATION_ID getMemCtrlDstForAddr(LINE_ADDRESS addr);
+        return memCtrlDstForAddr.sub(resize(addr));
+    endfunction
 
 
     // ****** Stats ******
@@ -729,8 +644,12 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
         Bool read_opaques = False;
 
-        if (m_mem_rsp matches tagged Valid .rsp)
+        if (m_mem_rsp matches tagged Valid .ocn_msg)
         begin
+            // Convert OCN message to a MEMORY_RSP
+            Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
+            match {.src, .rsp} = ocn_rsp;
+
             if (local_state.coreQNotFull)
             begin
                 let fill = rsp;
@@ -829,8 +748,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.physicalAddress));
 
                     // Record that we're using the memQ.
-                    local_state.memQUsed = True;
-                    local_state.memQData = initMemStore(evict.physicalAddress);
+                    local_state.memQData = tagged Valid initMemStore(evict.physicalAddress);
                     outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
@@ -993,9 +911,6 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     new_miss_tok_req = tagged Valid req;
                     outstandingMisses.allocateStoreReq(cpu_iid);
 
-                    // Record that we are using the memory queue.
-                    local_state.memQUsed = True;
-
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     //statWriteMiss.incr(cpu_iid);
                     evt_miss = tagged Valid resize({ req.mreq.physicalAddress, 1'b1 });
@@ -1020,9 +935,6 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     new_miss_tok_req = tagged Valid req;
                     outstandingMisses.allocateLoadReq(cpu_iid,
                                                       req.mreq.physicalAddress);
-
-                    // Record that we are using the memory queue.
-                    local_state.memQUsed = True;
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     statReadMiss.incr(cpu_iid);
@@ -1060,7 +972,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 // Note that we use a load to simulate getting exclusive access.
                 let mem_req = initMemLoad(req.mreq.physicalAddress);
                 mem_req.opaque = updateMemOpaque(req.mreq.opaque, miss_tok);
-                local_state.memQData = mem_req;
+                local_state.memQData = tagged Valid mem_req;
 
                 debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
             end
@@ -1075,16 +987,20 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 // Use the opaque bits to store the miss token.
                 let mem_req = initMemLoad(req.mreq.physicalAddress);
                 mem_req.opaque = updateMemOpaque(req.mreq.opaque, miss_tok);
-                local_state.memQData = mem_req;
+                local_state.memQData = tagged Valid mem_req;
 
                 debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));
             end
         end
 
         // Take care of the memory queue.
-        if (local_state.memQUsed)
+        if (local_state.memQData matches tagged Valid .req)
         begin
-            reqToMem.doEnq(cpu_iid, local_state.memQData);
+            // Which memory controller handles the request's address?
+            let dst = getMemCtrlDstForAddr(req.physicalAddress);
+
+            reqToMem.doEnq(cpu_iid, cvtToOCNFlits(dst, req));
+            debugLog.record(cpu_iid, $format("4: Req to MEM %0d: ", dst) + fshow(req));
         end
         else
         begin

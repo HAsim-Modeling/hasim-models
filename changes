@@ -7310,3 +7310,14 @@ Directory modules/hasim/timing-models/uncore/interconnects/common
 Add support for mapping groups of A-Ports to a single OCN virtual channel
 (lane).  Dictionary entries sharing a lower-level group map multiple
 A-Ports to a lane.
+
+----------
+mcadler     Date: Fri May  9 15:08:25 EDT 2014  CSN: CSN-hasim-models-236
+                  Fri May  9 19:08:25 UTC 2014
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          235 
+
+Route some messages directly to the distributed LLC from the OCN instead of going
+through the LLC Hub.
