@@ -64,48 +64,57 @@ import FShow::*;
 // ****** Local Definitions *******
 
 //
+// For the distributed LLC with no coherence protocol, requests are just
+// memory requests.
+//
+typedef MEMORY_REQ LLC_REQ;
+typedef MEMORY_RSP LLC_RSP;
+
+
+//
 // An LLC memory request is a memory request coming either from the local core
-// (src is Invalid) or from a remote network station.
+// (src is Invalid) or from a remote network station.  Routed requests contain
+// the base request plus routing information.
 //
 typedef struct
 {
     Maybe#(STATION_ID) src;
-    MEMORY_REQ mreq;
+    LLC_REQ lreq;
 }
-LLC_MEMORY_REQ
+ROUTED_LLC_REQ
     deriving (Eq, Bits);
 
 typedef struct
 {
     Maybe#(STATION_ID) dst;
-    MEMORY_RSP mrsp;
+    LLC_RSP lrsp;
 }
-LLC_MEMORY_RSP
+ROUTED_LLC_RSP
     deriving (Eq, Bits);
 
-function LLC_MEMORY_RSP initLLCMemRspFromReq(LLC_MEMORY_REQ req);
-    return LLC_MEMORY_RSP { dst: req.src, mrsp: initMemRspFromReq(req.mreq) };
+function ROUTED_LLC_RSP initLLCMemRspFromReq(ROUTED_LLC_REQ req);
+    return ROUTED_LLC_RSP { dst: req.src, lrsp: initMemRspFromReq(req.lreq) };
 endfunction
 
-instance FShow#(LLC_MEMORY_REQ);
-    function Fmt fshow(LLC_MEMORY_REQ req);
+instance FShow#(ROUTED_LLC_REQ);
+    function Fmt fshow(ROUTED_LLC_REQ req);
         let src_msg =
             case (req.src) matches
                 tagged Valid .src: return $format(", src=%0d", src);
                 tagged Invalid: return $format(", local");
             endcase;
-        return fshow(req.mreq) + src_msg;
+        return fshow(req.lreq) + src_msg;
     endfunction
 endinstance
 
-instance FShow#(LLC_MEMORY_RSP);
-    function Fmt fshow(LLC_MEMORY_RSP req);
+instance FShow#(ROUTED_LLC_RSP);
+    function Fmt fshow(ROUTED_LLC_RSP req);
         let dst_msg =
             case (req.dst) matches
                 tagged Valid .dst: return $format(", dst=%0d", dst);
                 tagged Invalid: return $format(", local");
             endcase;
-        return fshow(req.mrsp) + dst_msg;
+        return fshow(req.lrsp) + dst_msg;
     endfunction
 endinstance
 
@@ -120,7 +129,7 @@ typedef struct
     LLC_MISS_TOKEN missTokToFree;
 
     Bool memQNotFull;
-    Maybe#(MEMORY_REQ) memQData;
+    Maybe#(LLC_REQ) memQData;
     
     Bool writePortUsed;
     Bool writeDataDirty;
@@ -128,9 +137,9 @@ typedef struct
     
     Bool coreQNotFull;
     Bool coreQUsed;
-    LLC_MEMORY_RSP coreQData;
+    ROUTED_LLC_RSP coreQData;
 
-    Maybe#(LLC_MEMORY_REQ) loadReq;
+    Maybe#(ROUTED_LLC_REQ) loadReq;
 }
 LLC_LOCAL_STATE
     deriving (Eq, Bits);
@@ -198,18 +207,18 @@ module [HASIM_MODULE] mkLastLevelCache();
     // Requests from the local core arrive here.  This router will forward
     // the request to the correct distributed LLC segment.
     //
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_REQ) reqFromCore <-
         mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_RSP) rspToCore <-
         mkPortStallSend_Multiplexed("Uncore_to_CorePvtCacheQ");
     
     //
     // Queues to/from local LLC segment.  These may either come from the local
     // core or a remote core.
     //
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_REQ) reqToLocalLLC <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_REQ) reqToLocalLLC <-
         mkPortStallSend_Multiplexed("LLCHub_to_LLC_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_RSP) rspFromLocalLLC <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_RSP) rspFromLocalLLC <-
         mkPortStallRecv_Multiplexed("LLC_to_LLCHub_rsp");
 
     //
@@ -349,10 +358,10 @@ module [HASIM_MODULE] mkLastLevelCache();
         // Make routing choices.  The priority of competing ports is static.
         //
 
-        Maybe#(MEMORY_RSP) m_new_rspToCore = tagged Invalid;
-        Maybe#(LLC_MEMORY_REQ) m_new_reqToLocalLLC = tagged Invalid;
-        Maybe#(Tuple2#(STATION_ID, MEMORY_REQ)) m_new_reqToRemoteLLC = tagged Invalid;
-        Maybe#(Tuple2#(STATION_ID, MEMORY_RSP)) m_new_rspToRemoteLLC = tagged Invalid;
+        Maybe#(LLC_RSP) m_new_rspToCore = tagged Invalid;
+        Maybe#(ROUTED_LLC_REQ) m_new_reqToLocalLLC = tagged Invalid;
+        Maybe#(Tuple2#(STATION_ID, LLC_REQ)) m_new_reqToRemoteLLC = tagged Invalid;
+        Maybe#(Tuple2#(STATION_ID, LLC_RSP)) m_new_rspToRemoteLLC = tagged Invalid;
 
         Bool did_deq_rspFromLocalLLC = False;
 
@@ -366,7 +375,7 @@ module [HASIM_MODULE] mkLastLevelCache();
                 // Response is to a remote core.  Is the OCN port available?
                 if (can_enq_rspToRemoteLLC && ! isValid(m_new_rspToRemoteLLC))
                 begin
-                    m_new_rspToRemoteLLC = tagged Valid tuple2(dst, rsp.mrsp);
+                    m_new_rspToRemoteLLC = tagged Valid tuple2(dst, rsp.lrsp);
                     did_deq_rspFromLocalLLC = True;
                     debugLog.record(cpu_iid, $format("1: LLC to remote Core, ") + fshow(rsp));
                 end
@@ -374,9 +383,9 @@ module [HASIM_MODULE] mkLastLevelCache();
             // Reponse is to the local core.
             else if (can_enq_rspToCore &&& ! isValid(m_new_rspToCore))
             begin
-                m_new_rspToCore = tagged Valid rsp.mrsp;
+                m_new_rspToCore = tagged Valid rsp.lrsp;
                 did_deq_rspFromLocalLLC = True;
-                debugLog.record(cpu_iid, $format("1: LLC to local Core, ") + fshow(rsp.mrsp));
+                debugLog.record(cpu_iid, $format("1: LLC to local Core, ") + fshow(rsp.lrsp));
             end
         end
 
@@ -396,7 +405,7 @@ module [HASIM_MODULE] mkLastLevelCache();
             can_enq_rspToCore &&&
             ! isValid(m_new_rspToCore))
         begin
-            Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
+            Tuple2#(STATION_ID, LLC_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
             match {.src, .rsp} = ocn_rsp;
 
             m_new_rspToCore = tagged Valid rsp;
@@ -416,10 +425,10 @@ module [HASIM_MODULE] mkLastLevelCache();
             can_enq_reqToLocalLLC &&&
             ! isValid(m_new_reqToLocalLLC))
         begin
-            Tuple2#(STATION_ID, MEMORY_REQ) ocn_req = cvtFromOCNFlits(ocn_msg);
-            match {.src, .mreq} = ocn_req;
+            Tuple2#(STATION_ID, LLC_REQ) ocn_req = cvtFromOCNFlits(ocn_msg);
+            match {.src, .lreq} = ocn_req;
 
-            let req = LLC_MEMORY_REQ { src: tagged Valid src, mreq: mreq };
+            let req = ROUTED_LLC_REQ { src: tagged Valid src, lreq: lreq };
             m_new_reqToLocalLLC = tagged Valid req;
             reqInFromOCN.doDeq(cpu_iid);
             debugLog.record(cpu_iid, $format("1: Remote REQ to local LLC, ") + fshow(req));
@@ -446,8 +455,8 @@ module [HASIM_MODULE] mkLastLevelCache();
                 begin
                     // Port to LLC is available.  Send the local request.
                     did_deq_reqFromCore = True;
-                    m_new_reqToLocalLLC = tagged Valid LLC_MEMORY_REQ { src: tagged Invalid,
-                                                                   mreq: req };
+                    m_new_reqToLocalLLC = tagged Valid ROUTED_LLC_REQ { src: tagged Invalid,
+                                                                        lreq: req };
                     debugLog.record(cpu_iid, $format("1: Core REQ to local LLC, ") + fshow(req));
                 end
             end
@@ -547,9 +556,9 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     // ****** Ports ******
 
     // Queues to/from Cache hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_REQ) reqFromCore <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_REQ) reqFromCore <-
         mkPortStallRecv_Multiplexed("LLCHub_to_LLC_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_MEMORY_RSP) rspToCore <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_RSP) rspToCore <-
         mkPortStallSend_Multiplexed("LLC_to_LLCHub_rsp");
     
     // Requests to memory from the LLC instance responsible for an address.
@@ -576,8 +585,8 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(LLC_LOCAL_STATE, Bool)) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, LLC_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(LLC_LOCAL_STATE, Maybe#(LLC_MEMORY_REQ))) stage4Ctrl <- mkStageController();
-    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, LLC_MEMORY_REQ, Maybe#(CACHE_ENTRY#(VOID)), LLC_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(LLC_LOCAL_STATE, Maybe#(ROUTED_LLC_REQ))) stage4Ctrl <- mkStageController();
+    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, ROUTED_LLC_REQ, Maybe#(CACHE_ENTRY#(VOID)), LLC_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
 
     //
     // Physical addresses are assigned to memory controllers during setup
@@ -646,8 +655,8 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
         if (m_mem_rsp matches tagged Valid .ocn_msg)
         begin
-            // Convert OCN message to a MEMORY_RSP
-            Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
+            // Convert OCN message to a LLC_RSP
+            Tuple2#(STATION_ID, LLC_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
             match {.src, .rsp} = ocn_rsp;
 
             if (local_state.coreQNotFull)
@@ -675,8 +684,8 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 if (missTokIsLoad(miss_tok))
                 begin
                     local_state.coreQUsed = True;
-                    local_state.coreQData = LLC_MEMORY_RSP { dst: ?,
-                                                             mrsp: fill };
+                    local_state.coreQData = ROUTED_LLC_RSP { dst: ?,
+                                                             lrsp: fill };
 
                     // The destination and opaque are stored in opaquesPool.
                     // Retrieve them and overwrite dst/opaque in coreQData
@@ -730,8 +739,8 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
             //
             match {.prev_src, .prev_opaque} <- opaquesPool.readRsp(cpu_iid);
             local_state.coreQData.dst = prev_src;
-            local_state.coreQData.mrsp.opaque =
-                updateMemOpaque(local_state.coreQData.mrsp.opaque, prev_opaque);
+            local_state.coreQData.lrsp.opaque =
+                updateMemOpaque(local_state.coreQData.lrsp.opaque, prev_opaque);
         end
 
         // See if we started an eviction in the previous stage.
@@ -791,7 +800,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         if (m_core_req matches tagged Valid .req)
         begin
             // See if the cache algorithm hit or missed.
-            llcAlg.loadLookupReq(cpu_iid, req.mreq.physicalAddress);
+            llcAlg.loadLookupReq(cpu_iid, req.lreq.physicalAddress);
             debugLog.record(cpu_iid, $format("2: REQ: ") + fshow(req));
 
             // Finish the request in the next stage.
@@ -850,11 +859,11 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         //
         Maybe#(EVENT_PARAM) evt_hit = tagged Invalid;
         Maybe#(EVENT_PARAM) evt_miss = tagged Invalid;
-        Maybe#(LLC_MEMORY_REQ) new_miss_tok_req = tagged Invalid;
+        Maybe#(ROUTED_LLC_REQ) new_miss_tok_req = tagged Invalid;
 
         if (m_entry matches tagged Valid .entry)
         begin
-            if (req.mreq.isStore)
+            if (req.lreq.isStore)
             begin
                 if (! local_state.writePortUsed)
                 begin
@@ -866,12 +875,12 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     // one writeback to memory will occur.
 
                     local_state.writePortUsed = True;
-                    local_state.writePortData = req.mreq.physicalAddress;
+                    local_state.writePortData = req.lreq.physicalAddress;
                     local_state.writeDataDirty = True;
 
                     // No response to a store. Don't change the coreQData in case there was a fill.
                     statWriteHit.incr(cpu_iid);
-                    evt_hit = tagged Valid resize({ req.mreq.physicalAddress, 1'b1 });
+                    evt_hit = tagged Valid resize({ req.lreq.physicalAddress, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE HIT, ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -889,7 +898,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 local_state.coreQData = initLLCMemRspFromReq(req);
                 local_state.coreQUsed = True;
                 statReadHit.incr(cpu_iid);
-                evt_hit = tagged Valid resize({ req.mreq.physicalAddress, 1'b0 });
+                evt_hit = tagged Valid resize({ req.lreq.physicalAddress, 1'b0 });
                 debugLog.record(cpu_iid, $format("3: LOAD HIT") + fshow(req));
                 reqFromCore.doDeq(cpu_iid);
             end
@@ -903,7 +912,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         end
         else
         begin
-            if (req.mreq.isStore)
+            if (req.lreq.isStore)
             begin
                 if (outstandingMisses.canAllocateStore(cpu_iid) && memQAvailable(local_state))
                 begin
@@ -913,7 +922,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     //statWriteMiss.incr(cpu_iid);
-                    evt_miss = tagged Valid resize({ req.mreq.physicalAddress, 1'b1 });
+                    evt_miss = tagged Valid resize({ req.lreq.physicalAddress, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -934,11 +943,11 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     // Allocate the next miss ID.
                     new_miss_tok_req = tagged Valid req;
                     outstandingMisses.allocateLoadReq(cpu_iid,
-                                                      req.mreq.physicalAddress);
+                                                      req.lreq.physicalAddress);
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     statReadMiss.incr(cpu_iid);
-                    evt_miss = tagged Valid resize({ req.mreq.physicalAddress, 1'b0 });
+                    evt_miss = tagged Valid resize({ req.lreq.physicalAddress, 1'b0 });
                     debugLog.record(cpu_iid, $format("3: LOAD MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -964,14 +973,14 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
         if (new_miss_tok_req matches tagged Valid .req)
         begin
-            if (req.mreq.isStore)
+            if (req.lreq.isStore)
             begin
                 let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
 
                 // Use the opaque bits to store the miss token.
                 // Note that we use a load to simulate getting exclusive access.
-                let mem_req = initMemLoad(req.mreq.physicalAddress);
-                mem_req.opaque = updateMemOpaque(req.mreq.opaque, miss_tok);
+                let mem_req = initMemLoad(req.lreq.physicalAddress);
+                mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
                 local_state.memQData = tagged Valid mem_req;
 
                 debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
@@ -982,11 +991,11 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
                 // Record the original opaque for returning.
                 opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
-                                  tuple2(req.src, fromMemOpaque(req.mreq.opaque)));
+                                  tuple2(req.src, fromMemOpaque(req.lreq.opaque)));
 
                 // Use the opaque bits to store the miss token.
-                let mem_req = initMemLoad(req.mreq.physicalAddress);
-                mem_req.opaque = updateMemOpaque(req.mreq.opaque, miss_tok);
+                let mem_req = initMemLoad(req.lreq.physicalAddress);
+                mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
                 local_state.memQData = tagged Valid mem_req;
 
                 debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));

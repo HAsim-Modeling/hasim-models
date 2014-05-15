@@ -7321,3 +7321,13 @@ Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
 
 Route some messages directly to the distributed LLC from the OCN instead of going
 through the LLC Hub.
+
+----------
+mcadler     Date: Thu May 15 15:54:30 EDT 2014  CSN: CSN-hasim-models-237
+                  Thu May 15 19:54:30 UTC 2014
+
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          236 
+
+Clean up types.
