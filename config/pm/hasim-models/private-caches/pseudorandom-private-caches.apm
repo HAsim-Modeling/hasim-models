@@ -47,25 +47,25 @@ File=modules/hasim/timing-models/caches/private-caches/base-types/l1-cache-base-
 Packagehint=hasim-models
 
 [Unpipelined L1 DCache]
-File=modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined/l1-dcache-controller-unpipelined.awb
+File=modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache/unpipelined/l1-dcache-controller-unpipelined.awb
 Packagehint=hasim-models
 
 [Pseudorandom L1 ICache Alg]
-File=modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/alg/l1-icache-alg-pseudorandom.awb
+File=modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-instruction-cache/l1-icache-alg-pseudorandom.awb
 Packagehint=hasim-models
 
 [L1 ICache/Requires]
 hasim_l1_icache_alg=Pseudorandom L1 ICache Alg
 
 [L1 ICache]
-File=modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/l1-instruction-cache.awb
+File=modules/hasim/timing-models/caches/protocol/no-coherence/l1-instruction-cache/l1-instruction-cache.awb
 Packagehint=hasim-models
 
 [Unpipelined L1 DCache/Requires]
 hasim_l1_dcache_alg=Pseudorandom L1 DCache Alg
 
 [Pseudorandom L1 DCache Alg]
-File=modules/hasim/timing-models/caches/private-caches/l1-data-caches/alg/l1-dcache-alg-pseudorandom.awb
+File=modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-data-cache/l1-dcache-alg-pseudorandom.awb
 Packagehint=hasim-models
 
 [Unified Cache Miss Tracker]
@@ -73,12 +73,12 @@ File=modules/hasim/timing-models/caches/miss-trackers/unified/miss-tracker-unifi
 Packagehint=hasim-models
 
 [Unpipelined L2 Cache]
-File=modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined/l2-cache-controller-unpipelined.awb
+File=modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined/l2-cache-controller-unpipelined.awb
 Packagehint=hasim-models
 
 [Unpipelined L2 Cache/Requires]
 hasim_l2_cache_alg=Pseudorandom L2 Cache Alg
 
 [Pseudorandom L2 Cache Alg]
-File=modules/hasim/timing-models/caches/private-caches/l2-caches/alg/l2-alg-pseudorandom.awb
+File=modules/hasim/timing-models/caches/cache-algorithms/wrappers/l2-cache/l2-alg-pseudorandom.awb
 Packagehint=hasim-models

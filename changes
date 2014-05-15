@@ -7331,3 +7331,166 @@ Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
  last-level-cache-no-coherence.bsv Locally Modified          236 
 
 Clean up types.
+
+----------
+mcadler     Date: Thu May 15 17:33:18 EDT 2014  CSN: CSN-hasim-models-238
+                  Thu May 15 21:33:18 UTC 2014
+
+
+Directory config/pm/hasim-models/private-caches
+ null-private-caches.apm   Locally Modified          237 
+ private-caches-no-tlbs.apm Locally Modified          237 
+ pseudorandom-private-caches.apm Locally Modified          237 
+ private-caches.apm        Locally Modified          237 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/alg
+ llc-set-associative.awb   Locally Removed           237 
+ llc-set-associative.bsv   Locally Removed           237 
+ llc-set-associative.dic   Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/last-level-caches
+ set-associative/          Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/set-associative
+ last-level-cache-no-coherence.awb Locally Removed           237 
+ last-level-cache-no-coherence.bsv Locally Removed           237 
+ last-level-cache-no-coherence.dic Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/last-level-caches
+ null/                     Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/last-level-caches/null
+ last-level-cache-null.awb Locally Removed           237 
+ last-level-cache-null.bsv Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/alg
+ l1-icache-alg-always-hit.awb Locally Removed           237 
+ l1-icache-alg-always-hit.bsv Locally Removed           237 
+ l1-icache-alg-direct-mapped.dic Locally Removed           237 
+ l1-icache-alg-direct-mapped.awb Locally Removed           237 
+ l1-icache-alg-direct-mapped.bsv Locally Removed           237 
+ l1-icache-alg-pseudorandom.awb Locally Removed           237 
+ l1-icache-alg-pseudorandom.bsv Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-instruction-caches
+ l1-instruction-cache.awb  Locally Removed           237 
+ l1-instruction-cache.bsv  Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/alg
+ l2-alg-pseudorandom.awb   Locally Removed           237 
+ l2-alg-pseudorandom.bsv   Locally Removed           237 
+ l2-alg-always-hit.awb     Locally Removed           237 
+ l2-alg-always-hit.bsv     Locally Removed           237 
+ l2-alg-set-associative.awb Locally Removed           237 
+ l2-alg-set-associative.bsv Locally Removed           237 
+ l2-alg-set-associative.dic Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches
+ unpipelined/              Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined
+ l2-cache-controller-unpipelined.awb Locally Removed           237 
+ l2-cache-controller-unpipelined.bsv Locally Removed           237 
+ l2-cache-controller-unpipelined.dic Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches/alg
+ l1-dcache-alg-direct-mapped.awb Locally Removed           237 
+ l1-dcache-alg-direct-mapped.bsv Locally Removed           237 
+ l1-dcache-alg-pseudorandom.awb Locally Removed           237 
+ l1-dcache-alg-pseudorandom.bsv Locally Removed           237 
+ l1-dcache-alg-always-hit.awb Locally Removed           237 
+ l1-dcache-alg-always-hit.bsv Locally Removed           237 
+ l1-dcache-alg-direct-mapped.dic Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches
+ unpipelined/              Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined
+ l1-dcache-controller-unpipelined.awb Locally Removed           237 
+ l1-dcache-controller-unpipelined.bsv Locally Removed           237 
+
+Directory modules/hasim/timing-models/caches
+ protocol/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/protocol
+ no-coherence/             Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence
+ l1-data-cache/            Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache
+ unpipelined/              Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence
+ last-level-cache/         Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/last-level-cache
+ set-associative/          Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence
+ l1-instruction-cache/     Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-instruction-cache
+ l1-instruction-cache.awb  Locally Added               - 
+ l1-instruction-cache.bsv  Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence
+ l2-cache/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache
+ unpipelined/              Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/protocol
+ README                    Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ wrappers/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers
+ l1-data-cache/            Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-data-cache
+ l1-dcache-alg-direct-mapped.awb Locally Added               - 
+ l1-dcache-alg-direct-mapped.bsv Locally Added               - 
+ l1-dcache-alg-pseudorandom.awb Locally Added               - 
+ l1-dcache-alg-pseudorandom.bsv Locally Added               - 
+ l1-dcache-alg-always-hit.awb Locally Added               - 
+ l1-dcache-alg-always-hit.bsv Locally Added               - 
+ l1-dcache-alg-direct-mapped.dic Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers
+ last-level-cache/         Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/last-level-cache
+ llc-set-associative.awb   Locally Added               - 
+ llc-set-associative.bsv   Locally Added               - 
+ llc-set-associative.dic   Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers
+ l1-instruction-cache/     Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-instruction-cache
+ l1-icache-alg-always-hit.awb Locally Added               - 
+ l1-icache-alg-always-hit.bsv Locally Added               - 
+ l1-icache-alg-direct-mapped.dic Locally Added               - 
+ l1-icache-alg-direct-mapped.awb Locally Added               - 
+ l1-icache-alg-direct-mapped.bsv Locally Added               - 
+ l1-icache-alg-pseudorandom.awb Locally Added               - 
+ l1-icache-alg-pseudorandom.bsv Locally Added               - 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers
+ README                    Locally Added               0 
+ l2-cache/                 Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l2-cache
+ l2-alg-pseudorandom.awb   Locally Added               - 
+ l2-alg-pseudorandom.bsv   Locally Added               - 
+ l2-alg-always-hit.awb     Locally Added               - 
+ l2-alg-always-hit.bsv     Locally Added               - 
+ l2-alg-set-associative.awb Locally Added               - 
+ l2-alg-set-associative.bsv Locally Added               - 
+ l2-alg-set-associative.dic Locally Added               - 
+
+Cache hierachy components in working models must all speak the same protocol.
+Reorganize cache hierarchies under a "protocol" tree.  Wrappers for cache
+algorithms are now in a cache-algorithms/wrappers tree.
