@@ -7494,3 +7494,28 @@ Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l2-cache
 Cache hierachy components in working models must all speak the same protocol.
 Reorganize cache hierarchies under a "protocol" tree.  Wrappers for cache
 algorithms are now in a cache-algorithms/wrappers tree.
+
+----------
+mcadler     Date: Thu May 15 17:39:44 EDT 2014  CSN: CSN-hasim-models-239
+                  Thu May 15 21:39:44 UTC 2014
+
+
+Directory modules/hasim/timing-models/caches/private-caches
+ l1-instruction-caches/    Locally Removed           238 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-instruction-caches
+ alg/                      Locally Removed           238 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ l2-caches/                Locally Removed           238 
+
+Directory modules/hasim/timing-models/caches/private-caches/l2-caches
+ alg/                      Locally Removed           238 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ l1-data-caches/           Locally Removed           238 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches
+ alg/                      Locally Removed           238 
+
+Remove empty directories.
