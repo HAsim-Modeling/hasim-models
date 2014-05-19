@@ -1,3 +1,33 @@
+//
+// Copyright (c) 2014, Intel Corporation
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// Redistributions of source code must retain the above copyright notice, this
+// list of conditions and the following disclaimer.
+//
+// Redistributions in binary form must reproduce the above copyright notice,
+// this list of conditions and the following disclaimer in the documentation
+// and/or other materials provided with the distribution.
+//
+// Neither the name of the Intel Corporation nor the names of its contributors
+// may be used to endorse or promote products derived from this software
+// without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+
 // ******* Library Imports *******
 
 import Vector::*;
@@ -5,27 +35,28 @@ import FIFO::*;
 
 // ******* Application Imports *******
 
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/common_services.bsh"
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/common_services.bsh"
 
 // ******* HAsim Imports *******
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/hasim_modellib.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/hasim_modellib.bsh"
 
-`include "asim/provides/funcp_base_types.bsh"
-`include "asim/provides/funcp_memstate_base_types.bsh"
-`include "asim/provides/funcp_interface.bsh"
+`include "awb/provides/funcp_base_types.bsh"
+`include "awb/provides/funcp_memstate_base_types.bsh"
+`include "awb/provides/funcp_interface.bsh"
 
 // ******* Timing Model Imports *******
 
-`include "asim/provides/memory_base_types.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/l1_cache_base_types.bsh"
-`include "asim/provides/hasim_cache_algorithms.bsh"
-`include "asim/provides/hasim_l1_icache_alg.bsh"
-`include "asim/provides/hasim_miss_tracker.bsh"
+`include "awb/provides/memory_base_types.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/hasim_cache_protocol.bsh"
+`include "awb/provides/l1_cache_base_types.bsh"
+`include "awb/provides/hasim_cache_algorithms.bsh"
+`include "awb/provides/hasim_l1_icache_alg.bsh"
+`include "awb/provides/hasim_miss_tracker.bsh"
 
 // ****** Local Definitions *******
 
@@ -94,8 +125,8 @@ module [HASIM_MODULE] mkL1ICache ();
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("ICache_to_CPU_load_delayed");
 
     // Queues to and from the memory hierarchy, encapsulated as StallPorts.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToMemQ      <- mkPortStallSend_Multiplexed("L1_ICache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_ICache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToMemQ <- mkPortStallSend_Multiplexed("L1_ICache_OutQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_ICache_InQ");
 
 
     // ****** Local Controller ******
@@ -133,6 +164,12 @@ module [HASIM_MODULE] mkL1ICache ();
         mkStatCounter_Multiplexed(statName("MODEL_L1_ICACHE_RETRY",
                                            "L1 ICache Controller Read Retries"));
 
+    // ****** Assertions ******
+
+    let assertRspOk <- mkAssertionSimOnly("l1-instruction-cache.bsv: Unexpected response kind",
+                                          ASSERT_ERROR);
+
+
     // ****** Rules ******
 
     // stage1_fill
@@ -160,52 +197,48 @@ module [HASIM_MODULE] mkL1ICache ();
         
         if (outstandingMisses.fillToDeliver(cpu_iid) matches tagged Valid .miss_tok)
         begin
-
             // A fill that came in previously is going to multiple miss tokens.
             outstandingMisses.free(cpu_iid, miss_tok);
             
             // Return it to the CPU.
-            debugLog.record_next_cycle(cpu_iid, $format("1: FILL MULTIPLE RSP: %0d", miss_tok.index));
+            debugLog.record(cpu_iid, $format("1: FILL MULTIPLE RSP: %0d", miss_tok.index));
             let rsp = initICacheMissRsp(miss_tok.index);
             loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);
             // We must ignore any fills this cycle.
             fillFromMemory.noDeq(cpu_iid);
-
         end
         else if (m_fill matches tagged Valid .fill)
         begin
-
             // Note that the actual cache update will be done later, so that
             // any lookups this model cycle don't see it accidentally.
 
+            assertRspOk(cacheMsg_IsRspLoad(fill));
+
             local_state.writePortUsed = True;
-            local_state.writePortData = fill.physicalAddress;
+            local_state.writePortData = fill.linePAddr;
 
             // Deallocate the Miss ID.
             L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
             outstandingMisses.free(cpu_iid, miss_tok);
-            outstandingMisses.reportLoadDone(cpu_iid, fill.physicalAddress);
+            outstandingMisses.reportLoadDone(cpu_iid, fill.linePAddr);
             
 
             // Return it to the CPU.
-            debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d LINE: 0x%h", miss_tok.index, fill.physicalAddress));
+            debugLog.record(cpu_iid, $format("1: MEM RSP: %0d LINE: 0x%h", miss_tok.index, fill.linePAddr));
             let rsp = initICacheMissRsp(miss_tok.index);
             loadRspDelToCPU.send(cpu_iid, tagged Valid rsp);            
 
             // We finished the fill succesfully, so dequeue it.
             fillFromMemory.doDeq(cpu_iid);
-
         end
         else
         begin
-
             // Tell the CPU there's no delayed response.
-            debugLog.record_next_cycle(cpu_iid, $format("1: NO RSP"));
+            debugLog.record(cpu_iid, $format("1: NO RSP"));
             loadRspDelToCPU.send(cpu_iid, tagged Invalid);
             
             // No dequeue.
             fillFromMemory.noDeq(cpu_iid);
-
         end
 
         // Now read the load input port.
@@ -214,7 +247,6 @@ module [HASIM_MODULE] mkL1ICache ();
         // Deal with any load requests.
         if (msg_from_cpu matches tagged Valid .req)
         begin
-
             let line_addr = toLineAddress(req.physicalAddress);
 
             // See if it's served by the fill from this cycle
@@ -222,38 +254,31 @@ module [HASIM_MODULE] mkL1ICache ();
             begin
                 
                 // The fill was for this address, so we'll serve it, bypassing the cache.
-                debugLog.record_next_cycle(cpu_iid, $format("1: LOAD BYPASS: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
+                debugLog.record(cpu_iid, $format("1: LOAD BYPASS: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
 
                 // Pass the bypass to the next stage.
                 local_state.loadBypass = True;
                 local_state.loadReq = tagged Valid req;
-
             end
             else
             begin
-            
                 // See if the cache algorithm hit or missed.
                 iCacheAlg.loadLookupReq(cpu_iid, line_addr);
-                debugLog.record_next_cycle(cpu_iid, $format("1: LOAD REQ: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
+                debugLog.record(cpu_iid, $format("1: LOAD REQ: 0x%h LINE: 0x%h", req.physicalAddress, line_addr));
 
                 // Finish the request in the next stage.
                 local_state.loadReq = tagged Valid req;
-
             end
-
-
         end
         else
         begin
-        
-            debugLog.record_next_cycle(cpu_iid, $format("1: NO LOAD"));
-
+            debugLog.record(cpu_iid, $format("1: NO LOAD"));
         end
         
         // Pass our information to the next stage.
         stage2Ctrl.ready(cpu_iid, local_state);
-
     endrule
+
     
     // stage2_loadRsp
     
@@ -378,8 +403,7 @@ module [HASIM_MODULE] mkL1ICache ();
             else
             begin
                 // Send the fill request to memory, using the opaque bits for the miss id.
-                let mem_req = initMemLoad(line_addr);
-                mem_req.opaque = toMemOpaque(miss_tok);
+                let mem_req = cacheMsg_LoadReq(line_addr, toMemOpaque(miss_tok));
                 reqToMemQ.doEnq(cpu_iid, mem_req);
 
                 // Tell the CPU their load missed, but we're handling it.

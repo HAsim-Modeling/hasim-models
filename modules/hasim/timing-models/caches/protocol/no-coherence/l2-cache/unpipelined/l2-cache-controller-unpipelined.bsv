@@ -55,6 +55,7 @@ import FIFO::*;
 
 `include "awb/provides/memory_base_types.bsh"
 `include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/hasim_cache_protocol.bsh"
 `include "awb/provides/hasim_cache_algorithms.bsh"
 `include "awb/provides/hasim_l2_cache_alg.bsh"
 `include "awb/provides/hasim_miss_tracker.bsh"
@@ -90,7 +91,7 @@ typedef struct
 
     Bool memQNotFull;
     Bool memQUsed;
-    MEMORY_REQ memQData;
+    CACHE_PROTOCOL_MSG memQData;
     
     Bool writePortUsed;
     Bool writeDataDirty;
@@ -98,10 +99,9 @@ typedef struct
     
     Bool coreQNotFull;
     Bool coreQUsed;
-    MEMORY_RSP coreQData;
+    CACHE_PROTOCOL_MSG coreQData;
 
-    Maybe#(MEMORY_REQ)  loadReq;
-    
+    Maybe#(CACHE_PROTOCOL_MSG) req;
 }
 L2_LOCAL_STATE deriving (Eq, Bits);
 
@@ -123,7 +123,7 @@ function L2_LOCAL_STATE initLocalState();
             writePortUsed: False,
             writeDataDirty: False,
             writePortData: 0,
-            loadReq: tagged Invalid
+            req: tagged Invalid
         };
 endfunction
 
@@ -174,20 +174,20 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     // ****** Ports ******
 
     // Queues to/from core hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromCore <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqFromCore <-
         mkPortStallRecv_Multiplexed(reqFromL1Name);
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToCore <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToCore <-
         mkPortStallSend_Multiplexed(rspToL1Name);
     
     // Queues to/from coherence engine.
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, L2_CC_REQ) reqFromCC <-
         mkPortStallRecv_Multiplexed("CC_to_L2_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToCC <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToCC <-
         mkPortStallSend_Multiplexed("L2_to_CC_req");
     
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromCC <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspFromCC <-
         mkPortStallRecv_Multiplexed("CC_to_L2_rsp");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) rspToCC <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToCC <-
         mkPortStallSend_Multiplexed("L2_to_CC_rsp");
     
     Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
@@ -211,8 +211,14 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L2_LOCAL_STATE, Bool)) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, L2_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L2_LOCAL_STATE, Maybe#(MEMORY_REQ))) stage4Ctrl <- mkStageController();
-    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, MEMORY_REQ, Maybe#(CACHE_ENTRY#(VOID)), L2_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid);
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L2_LOCAL_STATE,
+                                            Maybe#(CACHE_PROTOCOL_MSG))) stage4Ctrl <-
+        mkStageController();
+
+    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID,
+                        CACHE_PROTOCOL_MSG,
+                        Maybe#(CACHE_ENTRY#(VOID)),
+                        L2_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid);
 
 
     // ****** Stats ******
@@ -239,6 +245,13 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventHit  <- mkEventRecorder_Multiplexed(`EVENTS_L2_HIT);
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventMiss <- mkEventRecorder_Multiplexed(`EVENTS_L2_MISS);
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventFill <- mkEventRecorder_Multiplexed(`EVENTS_L2_FILL);
+
+    // ****** Assertions ******
+
+    let assertReqOk <- mkAssertionSimOnly("l2-cache-controller-unpipelined.bsv: Unexpected request kind",
+                                          ASSERT_ERROR);
+    let assertRspOk <- mkAssertionSimOnly("l2-cache-controller-unpipelined.bsv: Unexpected response kind",
+                                          ASSERT_ERROR);
 
 
     //
@@ -288,19 +301,20 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         //
         if (m_cc_rsp matches tagged Valid .rsp)
         begin
+            assertRspOk(cacheMsg_IsRspLoad(rsp));
+
             // Yes.  Can it be sent up toward the core?
             if (local_state.coreQNotFull)
             begin
                 // Yes.  Consume the response.
-
-                let fill = initMemRsp(rsp.physicalAddress, rsp.opaque);
+                let fill = rsp;
 
                 // We want to use the cache write port.
                 // Since we're the highest priority we don't have to check if
                 // someone else has it. Just record that we're using it so
                 // no one else will.
                 local_state.writePortUsed = True;
-                local_state.writePortData = fill.physicalAddress;
+                local_state.writePortData = fill.linePAddr;
                 local_state.writeDataDirty = False;
 
                 // Get the Miss ID.
@@ -310,7 +324,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                 local_state.missTokToFree = miss_tok;
 
                 // Return the fill to higher levels.
-                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d, LINE: 0x%h", miss_tok.index, fill.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d, LINE: 0x%h", miss_tok.index, fill.linePAddr));
 
                 // Only respond to loads.
                 if (missTokIsLoad(miss_tok))
@@ -325,14 +339,14 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
                 // See if our allocation will evict a dirty line for writeback.
                 // This check will be finished in the following stage.
-                l2Alg.evictionCheckReq(cpu_iid, fill.physicalAddress);
+                l2Alg.evictionCheckReq(cpu_iid, fill.linePAddr);
             end
             else
             begin
                 // Can't consume the response because there is no space to
                 // forward it. 
                 L2_MISS_TOKEN miss_tok = fromMemOpaque(rsp.opaque);
-                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP RETRY: %0d, LINE: 0x%h", miss_tok.index, rsp.physicalAddress));
+                debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP RETRY: %0d, LINE: 0x%h", miss_tok.index, rsp.linePAddr));
             end
         end
         else
@@ -381,7 +395,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
                     // Record that we're using the memQ.
                     local_state.memQUsed = True;
-                    local_state.memQData = initMemStore(evict.physicalAddress);
+                    local_state.memQData = cacheMsg_StoreReq(evict.physicalAddress, ?);
                     outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
@@ -417,7 +431,6 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         begin
             // No fill received
             rspFromCC.noDeq(cpu_iid);
-        
         end
 
         if (local_state.writePortUsed)
@@ -437,12 +450,14 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         // Deal with any load/store requests.
         if (m_core_req matches tagged Valid .req)
         begin
+            assertReqOk(cacheMsg_IsReqLoad(req) || cacheMsg_IsReqStore(req));
+
             // See if the cache algorithm hit or missed.
-            l2Alg.loadLookupReq(cpu_iid, req.physicalAddress);
-            debugLog.record(cpu_iid, $format("2: REQ: LINE: 0x%h", req.physicalAddress));
+            l2Alg.loadLookupReq(cpu_iid, req.linePAddr);
+            debugLog.record(cpu_iid, $format("2: REQ: LINE: 0x%h", req.linePAddr));
 
             // Finish the request in the next stage.
-            local_state.loadReq = tagged Valid req;
+            local_state.req = tagged Valid req;
         end
         else
         begin
@@ -464,7 +479,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
 
         // See if we need to finish any cpu responses.
-        if (local_state.loadReq matches tagged Valid .req)
+        if (local_state.req matches tagged Valid .req)
         begin
             // Get the lookup response.
             let m_entry <- l2Alg.loadLookupRsp(cpu_iid);
@@ -495,7 +510,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         //
         Maybe#(EVENT_PARAM) evt_hit = tagged Invalid;
         Maybe#(EVENT_PARAM) evt_miss = tagged Invalid;
-        Maybe#(MEMORY_REQ) new_miss_tok_req = tagged Invalid;
+        Maybe#(CACHE_PROTOCOL_MSG) new_miss_tok_req = tagged Invalid;
 
         //
         // Is the line already in the cache?
@@ -503,7 +518,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         if (m_entry matches tagged Valid .entry)
         begin
             // Yes:  hit
-            if (req.isStore)
+            if (cacheMsg_IsReqStore(req))
             begin
                 if (!local_state.writePortUsed)
                 begin
@@ -513,13 +528,13 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     // In other words, the writes will be coalesced and only
                     // one writeback to memory will occur.
                     local_state.writePortUsed = True;
-                    local_state.writePortData = req.physicalAddress;
+                    local_state.writePortData = req.linePAddr;
                     local_state.writeDataDirty = True;
 
                     // No response to a store. Don't change the coreQData in
                     // case there was a fill.
                     statWriteHit.incr(cpu_iid);
-                    evt_hit = tagged Valid resize({ req.physicalAddress, 1'b1 });
+                    evt_hit = tagged Valid resize({ req.linePAddr, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE HIT"));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -536,10 +551,10 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             begin
                 // A load hit, so give the data back. We won't need the
                 // memory queue.
-                local_state.coreQData = initMemRsp(req.physicalAddress, req.opaque);
+                local_state.coreQData = cacheMsg_LoadRsp(req.linePAddr, req.opaque);
                 local_state.coreQUsed = True;
                 statReadHit.incr(cpu_iid);
-                evt_hit = tagged Valid resize({ req.physicalAddress, 1'b0 });
+                evt_hit = tagged Valid resize({ req.linePAddr, 1'b0 });
                 debugLog.record(cpu_iid, $format("3: LOAD HIT"));
                 reqFromCore.doDeq(cpu_iid);
             end
@@ -557,7 +572,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             //
             // Miss path.
             //
-            if (req.isStore)
+            if (cacheMsg_IsReqStore(req))
             begin
                 if (outstandingMisses.canAllocateStore(cpu_iid) &&
                     memQAvailable(local_state))
@@ -571,7 +586,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     //statWriteMiss.incr(cpu_iid);
-                    evt_miss = tagged Valid resize({ req.physicalAddress, 1'b1 });
+                    evt_miss = tagged Valid resize({ req.linePAddr, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -592,7 +607,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                 begin
                     // Allocate the next miss ID.
                     new_miss_tok_req = tagged Valid req;
-                    outstandingMisses.allocateLoadReq(cpu_iid, req.physicalAddress);
+                    outstandingMisses.allocateLoadReq(cpu_iid, req.linePAddr);
 
                     // Record that we are using the memory queue.
                     local_state.memQUsed = True;
@@ -600,7 +615,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     // A miss, so no response. (Don't change the response in case
                     // there's an existing fill.)
                     statReadMiss.incr(cpu_iid);
-                    evt_miss = tagged Valid resize({ req.physicalAddress, 1'b0 });
+                    evt_miss = tagged Valid resize({ req.linePAddr, 1'b0 });
                     debugLog.record(cpu_iid, $format("3: LOAD MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -627,14 +642,14 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
         if (new_miss_tok_req matches tagged Valid .req)
         begin
-            if (req.isStore)
+            if (cacheMsg_IsReqStore(req))
             begin
                 let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
 
                 // Use the opaque bits to store the miss token.
                 // Note that we use a load to simulate getting exclusive access.
-                let mem_req = initMemLoad(req.physicalAddress);
-                mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
+                let mem_req = cacheMsg_LoadReq(req.linePAddr,
+                                               updateMemOpaque(req.opaque, miss_tok));
                 local_state.memQData = mem_req;
 
                 debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
@@ -648,8 +663,8 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                                   fromMemOpaque(req.opaque));
 
                 // Use the opaque bits to store the miss token.
-                let mem_req = initMemLoad(req.physicalAddress);
-                mem_req.opaque = updateMemOpaque(req.opaque, miss_tok);
+                let mem_req = cacheMsg_LoadReq(req.linePAddr,
+                                               updateMemOpaque(req.opaque, miss_tok));
                 local_state.memQData = mem_req;
 
                 debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));
@@ -678,7 +693,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         // Take care of CPU rsp
         if (local_state.coreQUsed)
         begin
-            rspToCore.doEnq(cpu_iid, local_state.coreQData); 
+            rspToCore.doEnq(cpu_iid, local_state.coreQData);
         end
         else
         begin
@@ -704,18 +719,19 @@ module [HASIM_MODULE] mkL2CacheCoherenceInterface#(String reqToMemoryName,
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l2_coherence.out");
 
     // Requests from / responses to L2
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqFromL2 <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqFromL2 <-
         mkPortStallRecv_Multiplexed("L2_to_CC_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspToL2 <-
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToL2 <-
         mkPortStallSend_Multiplexed("CC_to_L2_rsp");
 
     // Coherence traffic to L2
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, L2_CC_REQ) reqToL2 <-
         mkPortStallSend_Multiplexed("CC_to_L2_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) rspFromL2 <-
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspFromL2 <-
         mkPortStallRecv_Multiplexed("L2_to_CC_rsp");
     
-    // Requests to / responses from uncore (L3)
+    // Requests to / responses from uncore (L3).  In the no-coherence model,
+    // the LLC communicates with MEMORY_REQ/MEMORY_RSP.
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToUncore <-
         mkPortStallSend_Multiplexed(reqToMemoryName);
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromUncore <-
@@ -769,7 +785,11 @@ module [HASIM_MODULE] mkL2CacheCoherenceInterface#(String reqToMemoryName,
         let m_l2_req <- reqFromL2.receive(cpu_iid);
         if (can_enq_uncore_req &&& m_l2_req matches tagged Valid .req)
         begin
-            reqToUncore.doEnq(cpu_iid, req);
+            let mreq = MEMORY_REQ { physicalAddress: req.linePAddr,
+                                    opaque: req.opaque,
+                                    isStore: cacheMsg_IsReqStore(req) };
+
+            reqToUncore.doEnq(cpu_iid, mreq);
             reqFromL2.doDeq(cpu_iid);
             debugLog.record_next_cycle(cpu_iid, $format("1: FWD L2 Req"));
         end
@@ -792,7 +812,7 @@ module [HASIM_MODULE] mkL2CacheCoherenceInterface#(String reqToMemoryName,
         let m_uncore_rsp <- rspFromUncore.receive(cpu_iid);
         if (can_enq_l2_rsp &&& m_uncore_rsp matches tagged Valid .rsp)
         begin
-            rspToL2.doEnq(cpu_iid, rsp);
+            rspToL2.doEnq(cpu_iid, cacheMsgFromMemRsp(rsp));
             rspFromUncore.doDeq(cpu_iid);
             debugLog.record_next_cycle(cpu_iid, $format("1: FWD Uncore Rsp"));
         end

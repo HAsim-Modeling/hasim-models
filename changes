@@ -7519,3 +7519,43 @@ Directory modules/hasim/timing-models/caches/private-caches/l1-data-caches
  alg/                      Locally Removed           238 
 
 Remove empty directories.
+
+----------
+mcadler     Date: Mon May 19 19:37:36 EDT 2014  CSN: CSN-hasim-models-240
+                  Mon May 19 23:37:36 UTC 2014
+
+
+Directory config/pm/hasim-models/private-caches
+ null-private-caches.apm   Locally Modified          239 
+ pseudorandom-private-caches.apm Locally Modified          239 
+ private-caches.apm        Locally Modified          239 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-arbiters/static-priority
+ l1-cache-arbiter-static-priority.bsv Locally Modified          239 
+
+Directory modules/hasim/timing-models/caches/private-caches
+ private-caches.awb        Locally Modified          239 
+ private-caches.bsv        Locally Modified          239 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          239 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-instruction-cache
+ l1-instruction-cache.bsv  Locally Modified          239 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence
+ no-coherence-protocol.awb Locally Added               0 
+ no-coherence-protocol.bsv Locally Added               0 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          239 
+
+Cache protocol components now communicate with each other using CACHE_PROTOCOL_MSG
+instead of MEMORY_REQ/MEMORY_RSP.  This was not strictly necessary in the
+no-coherence model, but these will serve as the template for coherent caches.
+They also share components, such as the L1 arbiter, that can now share a type
+across coherence protocol families.
+
+The no-coherence LLC still communicates using MEMORY_REQ/MEMORY_RSP.  This
+is because it may be used in coherence frameworks where the LLC is a simple
+distributed cache, outside of the coherent caches.

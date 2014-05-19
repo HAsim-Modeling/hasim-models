@@ -30,6 +30,7 @@
 //
 
 `include "awb/provides/hasim_common.bsh"
+`include "awb/provides/hasim_cache_protocol.bsh"
 `include "awb/provides/hasim_itlb.bsh"
 `include "awb/provides/hasim_dtlb.bsh"
 `include "awb/provides/hasim_l1_icache.bsh"

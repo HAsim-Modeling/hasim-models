@@ -2,6 +2,7 @@
 %desc Split L1 caches (Instruction and Data)
 
 %provides hasim_private_caches
+%requires hasim_cache_protocol
 %requires hasim_itlb
 %requires hasim_l1_icache
 %requires hasim_dtlb

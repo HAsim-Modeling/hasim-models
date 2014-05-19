@@ -25,6 +25,7 @@ l1_cache_base_types=L1 Cache Base Types
 hasim_l1_icache=L1 ICache
 hasim_miss_tracker=Unified Cache Miss Tracker
 hasim_l2_cache=Unpipelined L2 Cache
+hasim_cache_protocol=No-Coherence Protocol
 
 [Split (Instruction and Data)]
 File=modules/hasim/timing-models/caches/private-caches/private-caches.awb
@@ -82,3 +83,7 @@ Packagehint=hasim-models
 
 [Unpipelined L2 Cache/Requires]
 hasim_l2_cache_alg=Set Associative L2 Cache Alg
+
+[No-Coherence Protocol]
+File=modules/hasim/timing-models/caches/protocol/no-coherence/no-coherence-protocol.awb
+Packagehint=hasim-models
