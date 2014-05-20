@@ -135,7 +135,7 @@ endfunction
 function CACHE_PROTOCOL_MSG cacheMsgFromMemReq(MEMORY_REQ mreq);
     return CACHE_PROTOCOL_MSG
     {
-        linePAddr: mreq.physicalAddress,
+        linePAddr: mreq.linePAddr,
         opaque: mreq.opaque,
         kind: (mreq.isStore ? tagged REQ_STORE : tagged REQ_LOAD)
     };
@@ -148,7 +148,7 @@ endfunction
 function CACHE_PROTOCOL_MSG cacheMsgFromMemRsp(MEMORY_RSP mrsp);
     return CACHE_PROTOCOL_MSG
     {
-        linePAddr: mrsp.physicalAddress,
+        linePAddr: mrsp.linePAddr,
         opaque: mrsp.opaque,
         kind: tagged RSP_LOAD
     };

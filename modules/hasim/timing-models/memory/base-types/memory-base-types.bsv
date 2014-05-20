@@ -56,7 +56,7 @@ typedef Bit#(MEM_OPAQUE_SIZE) MEM_OPAQUE;
 
 typedef struct
 {
-    LINE_ADDRESS physicalAddress;
+    LINE_ADDRESS linePAddr;
     Bool isStore;
     MEM_OPAQUE opaque;
 }
@@ -65,7 +65,7 @@ MEMORY_REQ deriving (Eq, Bits);
 function MEMORY_REQ initMemLoad(LINE_ADDRESS addr);
     return MEMORY_REQ
     {
-        physicalAddress: addr,
+        linePAddr: addr,
         isStore: False,
         opaque: 0
     };
@@ -74,7 +74,7 @@ endfunction
 function MEMORY_REQ initMemStore(LINE_ADDRESS addr);
     return MEMORY_REQ
     {
-        physicalAddress: addr,
+        linePAddr: addr,
         isStore: True,
         opaque: 0
     };
@@ -83,7 +83,7 @@ endfunction
 
 typedef struct
 {
-    LINE_ADDRESS physicalAddress;
+    LINE_ADDRESS linePAddr;
     MEM_OPAQUE   opaque;
 }
 MEMORY_RSP deriving (Eq, Bits);
@@ -91,7 +91,7 @@ MEMORY_RSP deriving (Eq, Bits);
 function MEMORY_RSP initMemRspFromReq(MEMORY_REQ req);
     return MEMORY_RSP
     {
-        physicalAddress: req.physicalAddress,
+        linePAddr: req.linePAddr,
         opaque: req.opaque
     };
 endfunction
@@ -99,7 +99,7 @@ endfunction
 function MEMORY_RSP initMemRsp(LINE_ADDRESS addr, MEM_OPAQUE op);
     return MEMORY_RSP
     {
-        physicalAddress: addr,
+        linePAddr: addr,
         opaque: op
     };
 endfunction
@@ -144,12 +144,12 @@ instance FShow#(MEMORY_REQ);
     function Fmt fshow(MEMORY_REQ req);
         if (req.isStore)
         begin
-            return $format("STORE line=0x%x", req.physicalAddress);
+            return $format("STORE line=0x%x", req.linePAddr);
         end
         else
         begin
             return $format("LOAD line=0x%x, opaque=%0d",
-                           req.physicalAddress,
+                           req.linePAddr,
                            req.opaque);
         end
     endfunction
@@ -158,7 +158,7 @@ endinstance
 instance FShow#(MEMORY_RSP);
     function Fmt fshow(MEMORY_RSP rsp);
         return $format("RSP line=0x%x, opaque=%0d",
-                       rsp.physicalAddress,
+                       rsp.linePAddr,
                        rsp.opaque);
     endfunction
 endinstance

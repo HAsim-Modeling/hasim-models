@@ -446,7 +446,7 @@ module [HASIM_MODULE] mkLastLevelCache();
         if (m_reqFromCore matches tagged Valid .req)
         begin
             // Which instance of the distributed cache is responsible?
-            let dst = getLLCDstForAddr(req.physicalAddress);
+            let dst = getLLCDstForAddr(req.linePAddr);
 
             if (dst == station_id)
             begin
@@ -668,7 +668,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 // someone else has it. Just record that we're using it so
                 // no one else will.
                 local_state.writePortUsed = True;
-                local_state.writePortData = fill.physicalAddress;
+                local_state.writePortData = fill.linePAddr;
                 local_state.writeDataDirty = False;
 
                 // Get the Miss ID.
@@ -696,13 +696,13 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
                 // See if our allocation will evict a dirty line for writeback.
                 // This check will be finished in the following stage.
-                llcAlg.evictionCheckReq(cpu_iid, fill.physicalAddress);
+                llcAlg.evictionCheckReq(cpu_iid, fill.linePAddr);
             end
             else
             begin
                 // Get the Miss ID.
                 LLC_MISS_TOKEN miss_tok = fromMemOpaque(rsp.opaque);
-                debugLog.record(cpu_iid, $format("1: MEM RSP RETRY: %0d, LINE: 0x%h", miss_tok.index, rsp.physicalAddress));
+                debugLog.record(cpu_iid, $format("1: MEM RSP RETRY: %0d, LINE: 0x%h", miss_tok.index, rsp.linePAddr));
             end
         end
         else
@@ -800,7 +800,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         if (m_core_req matches tagged Valid .req)
         begin
             // See if the cache algorithm hit or missed.
-            llcAlg.loadLookupReq(cpu_iid, req.lreq.physicalAddress);
+            llcAlg.loadLookupReq(cpu_iid, req.lreq.linePAddr);
             debugLog.record(cpu_iid, $format("2: REQ: ") + fshow(req));
 
             // Finish the request in the next stage.
@@ -875,12 +875,12 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     // one writeback to memory will occur.
 
                     local_state.writePortUsed = True;
-                    local_state.writePortData = req.lreq.physicalAddress;
+                    local_state.writePortData = req.lreq.linePAddr;
                     local_state.writeDataDirty = True;
 
                     // No response to a store. Don't change the coreQData in case there was a fill.
                     statWriteHit.incr(cpu_iid);
-                    evt_hit = tagged Valid resize({ req.lreq.physicalAddress, 1'b1 });
+                    evt_hit = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE HIT, ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -898,7 +898,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 local_state.coreQData = initLLCMemRspFromReq(req);
                 local_state.coreQUsed = True;
                 statReadHit.incr(cpu_iid);
-                evt_hit = tagged Valid resize({ req.lreq.physicalAddress, 1'b0 });
+                evt_hit = tagged Valid resize({ req.lreq.linePAddr, 1'b0 });
                 debugLog.record(cpu_iid, $format("3: LOAD HIT") + fshow(req));
                 reqFromCore.doDeq(cpu_iid);
             end
@@ -922,7 +922,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     //statWriteMiss.incr(cpu_iid);
-                    evt_miss = tagged Valid resize({ req.lreq.physicalAddress, 1'b1 });
+                    evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
                     debugLog.record(cpu_iid, $format("3: STORE MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -943,11 +943,11 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     // Allocate the next miss ID.
                     new_miss_tok_req = tagged Valid req;
                     outstandingMisses.allocateLoadReq(cpu_iid,
-                                                      req.lreq.physicalAddress);
+                                                      req.lreq.linePAddr);
 
                     // A miss, so no response. (Don't change the response in case there's an existing fill)
                     statReadMiss.incr(cpu_iid);
-                    evt_miss = tagged Valid resize({ req.lreq.physicalAddress, 1'b0 });
+                    evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b0 });
                     debugLog.record(cpu_iid, $format("3: LOAD MISS: ") + fshow(req));
                     reqFromCore.doDeq(cpu_iid);
                 end
@@ -979,7 +979,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
                 // Use the opaque bits to store the miss token.
                 // Note that we use a load to simulate getting exclusive access.
-                let mem_req = initMemLoad(req.lreq.physicalAddress);
+                let mem_req = initMemLoad(req.lreq.linePAddr);
                 mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
                 local_state.memQData = tagged Valid mem_req;
 
@@ -994,7 +994,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                                   tuple2(req.src, fromMemOpaque(req.lreq.opaque)));
 
                 // Use the opaque bits to store the miss token.
-                let mem_req = initMemLoad(req.lreq.physicalAddress);
+                let mem_req = initMemLoad(req.lreq.linePAddr);
                 mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
                 local_state.memQData = tagged Valid mem_req;
 
@@ -1006,7 +1006,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         if (local_state.memQData matches tagged Valid .req)
         begin
             // Which memory controller handles the request's address?
-            let dst = getMemCtrlDstForAddr(req.physicalAddress);
+            let dst = getMemCtrlDstForAddr(req.linePAddr);
 
             reqToMem.doEnq(cpu_iid, cvtToOCNFlits(dst, req));
             debugLog.record(cpu_iid, $format("4: Req to MEM %0d: ", dst) + fshow(req));

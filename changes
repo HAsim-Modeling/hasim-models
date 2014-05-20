@@ -7559,3 +7559,32 @@ across coherence protocol families.
 The no-coherence LLC still communicates using MEMORY_REQ/MEMORY_RSP.  This
 is because it may be used in coherence frameworks where the LLC is a simple
 distributed cache, outside of the coherent caches.
+
+----------
+mcadler     Date: Tue May 20 11:54:34 EDT 2014  CSN: CSN-hasim-models-241
+                  Tue May 20 15:54:34 UTC 2014
+
+
+Directory modules/hasim/timing-models/chip
+ single-core-chip.bsv      Locally Modified          240 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/last-level-cache/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          240 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence
+ no-coherence-protocol.bsv Locally Modified          240 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          240 
+
+Directory modules/hasim/timing-models/memory/base-types
+ memory-base-types.bsv     Locally Modified          240 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          240 
+
+- Drop the separate coherence module in the L2 cache controller.  Coherence will
+  be managed as part of the primary L2 pipeline.
+
+- Rename MEMORY_REQ/RSP physicalAddress to linePAddr for clarity and to match
+  coherence messages.

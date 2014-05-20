@@ -783,7 +783,7 @@ instance OCN_SEND_TYPE#(MEMORY_REQ);
                                         isStore: req.isStore };
 
         info.payload = zeroExtend(pack(tuple2(req.opaque,
-                                              req.physicalAddress)));
+                                              req.linePAddr)));
 
         return info;
     endfunction
@@ -817,7 +817,7 @@ instance OCN_SEND_TYPE#(MEMORY_RSP);
                                         isStore: False };
 
         info.payload = zeroExtend(pack(tuple2(rsp.opaque,
-                                              rsp.physicalAddress)));
+                                              rsp.linePAddr)));
 
         return info;
     endfunction

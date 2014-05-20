@@ -46,7 +46,7 @@ module [HASIM_MODULE] mkChip();
             else if (can_enq)
             begin
                 reqFromCore.doDeq(cpu_iid);
-                let rsp = initMemRsp(req.physicalAddress, req.opaque);
+                let rsp = initMemRsp(req.linePAddr, req.opaque);
                 rspToCore.doEnq(cpu_iid, rsp);
             end
             else

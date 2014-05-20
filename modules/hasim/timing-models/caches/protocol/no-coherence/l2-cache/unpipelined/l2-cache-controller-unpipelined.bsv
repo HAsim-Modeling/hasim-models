@@ -158,9 +158,6 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
     // ****** Submodels ******
 
-    // Make an interface to the cache coherence protocol.
-    let ccifc <- mkL2CacheCoherenceInterface(reqToMemoryName, rspFromMemoryName);
-
     // The cache algorithm which determines hits, misses, and evictions.
     CACHE_ALG#(MAX_NUM_CPUS, VOID) l2Alg <- mkL2CacheAlg();
 
@@ -180,32 +177,24 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         mkPortStallSend_Multiplexed(rspToL1Name);
     
     // Queues to/from coherence engine.
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, L2_CC_REQ) reqFromCC <-
-        mkPortStallRecv_Multiplexed("CC_to_L2_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToCC <-
-        mkPortStallSend_Multiplexed("L2_to_CC_req");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToUncore <-
+        mkPortStallSend_Multiplexed(reqToMemoryName);
     
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspFromCC <-
-        mkPortStallRecv_Multiplexed("CC_to_L2_rsp");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToCC <-
-        mkPortStallSend_Multiplexed("L2_to_CC_rsp");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromUncore <-
+        mkPortStallRecv_Multiplexed(rspFromMemoryName);
     
-    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     
     inctrls[0]  = reqFromCore.ctrl.in;
     inctrls[1]  = rspToCore.ctrl.in;
-    inctrls[2]  = reqFromCC.ctrl.in;
-    inctrls[3]  = reqToCC.ctrl.in;
-    inctrls[4]  = rspFromCC.ctrl.in;
-    inctrls[5]  = rspToCC.ctrl.in;
+    inctrls[2]  = reqToUncore.ctrl.in;
+    inctrls[3]  = rspFromUncore.ctrl.in;
 
     outctrls[0] = reqFromCore.ctrl.out;
     outctrls[1] = rspToCore.ctrl.out;
-    outctrls[2] = reqFromCC.ctrl.out;
-    outctrls[3] = reqToCC.ctrl.out;
-    outctrls[4] = rspFromCC.ctrl.out;
-    outctrls[5] = rspToCC.ctrl.out;
+    outctrls[2] = reqToUncore.ctrl.out;
+    outctrls[3] = rspFromUncore.ctrl.out;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L2 Cache", inctrls, outctrls);
 
@@ -268,39 +257,23 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         let local_state = initLocalState();
 
         // Check if the CC engine has room for any new requests.
-        let can_enq_cc_req <- reqToCC.canEnq(cpu_iid);
-        let can_enq_cc_rsp <- rspToCC.canEnq(cpu_iid);
+        let can_enq_uncore_req <- reqToUncore.canEnq(cpu_iid);
         let can_enq_core_rsp <- rspToCore.canEnq(cpu_iid);
-        local_state.memQNotFull = can_enq_cc_req;
+        local_state.memQNotFull = can_enq_uncore_req;
         local_state.coreQNotFull = can_enq_core_rsp;
         
         // Now check for responses from the cache coherence engine.
-        let m_cc_rsp <- rspFromCC.receive(cpu_iid);
-
-        // Also check for new requests from the cache coherence engine.
-        let m_cc_req <- reqFromCC.receive(cpu_iid);
-
-        // Unused by L2. Should be handling invalidation writebacks.
-        rspToCC.noEnq(cpu_iid);
-
-        // L2 drops invalidates at this point. 
-        // TODO: They should be passed on to L1C via SEPARATE fifos.
-        if (m_cc_req matches tagged Valid .req)
-        begin
-            reqFromCC.doDeq(cpu_iid);
-        end
-        else
-        begin
-            reqFromCC.noDeq(cpu_iid);
-        end
+        let m_uncore_rsp <- rspFromUncore.receive(cpu_iid);
 
         Bool read_opaques = False;
 
         //
         // Have a response from memory?
         //
-        if (m_cc_rsp matches tagged Valid .rsp)
+        if (m_uncore_rsp matches tagged Valid .mem_rsp)
         begin
+            let rsp = cacheMsgFromMemRsp(mem_rsp);
+
             assertRspOk(cacheMsg_IsRspLoad(rsp));
 
             // Yes.  Can it be sent up toward the core?
@@ -399,12 +372,12 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
-                    rspFromCC.doDeq(cpu_iid);
+                    rspFromUncore.doDeq(cpu_iid);
                 end
                 else
                 begin
                     // The queue is full, so retry the fill next cycle. No dequeue.
-                    rspFromCC.noDeq(cpu_iid);
+                    rspFromUncore.noDeq(cpu_iid);
                     
                     debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.physicalAddress));
 
@@ -421,7 +394,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                 // Dequeue the fill and free the miss.
                 debugLog.record(cpu_iid, $format("2: CLEAN EVICTION"));
                 outstandingMisses.free(cpu_iid, local_state.missTokToFree);
-                rspFromCC.doDeq(cpu_iid);
+                rspFromUncore.doDeq(cpu_iid);
             end
 
             // Note that the actual cache update will be done later, so that
@@ -430,7 +403,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         else
         begin
             // No fill received
-            rspFromCC.noDeq(cpu_iid);
+            rspFromUncore.noDeq(cpu_iid);
         end
 
         if (local_state.writePortUsed)
@@ -674,11 +647,16 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         // Take care of the memory queue.
         if (local_state.memQUsed)
         begin
-            reqToCC.doEnq(cpu_iid, local_state.memQData);
+            let req = local_state.memQData;
+            let mreq = MEMORY_REQ { linePAddr: req.linePAddr,
+                                    opaque: req.opaque,
+                                    isStore: cacheMsg_IsReqStore(req) };
+
+            reqToUncore.doEnq(cpu_iid, mreq);
         end
         else
         begin
-            reqToCC.noEnq(cpu_iid);
+            reqToUncore.noEnq(cpu_iid);
         end
 
         // Take care of the cache update.
@@ -702,134 +680,6 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
         // End of model cycle. (Path 1)
         debugLog.record(cpu_iid, $format("4: END CYCLE"));
-        localCtrl.endModelCycle(cpu_iid, 1); 
-    endrule
-endmodule
-
-
-//
-// mkL2CacheCoherenceInterface --
-//   Coherence engine, interposed between the L2 cache and the uncore.
-//
-module [HASIM_MODULE] mkL2CacheCoherenceInterface#(String reqToMemoryName,
-                                                   String rspFromMemoryName)
-    // Interface:
-    ();
-
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l2_coherence.out");
-
-    // Requests from / responses to L2
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqFromL2 <-
-        mkPortStallRecv_Multiplexed("L2_to_CC_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToL2 <-
-        mkPortStallSend_Multiplexed("CC_to_L2_rsp");
-
-    // Coherence traffic to L2
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, L2_CC_REQ) reqToL2 <-
-        mkPortStallSend_Multiplexed("CC_to_L2_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspFromL2 <-
-        mkPortStallRecv_Multiplexed("L2_to_CC_rsp");
-    
-    // Requests to / responses from uncore (L3).  In the no-coherence model,
-    // the LLC communicates with MEMORY_REQ/MEMORY_RSP.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToUncore <-
-        mkPortStallSend_Multiplexed(reqToMemoryName);
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromUncore <-
-        mkPortStallRecv_Multiplexed(rspFromMemoryName);
-
-    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
-
-    inctrls[0]  = reqToL2.ctrl.in;
-    inctrls[1]  = reqFromL2.ctrl.in;
-    inctrls[2]  = rspFromL2.ctrl.in;
-    inctrls[3]  = rspToL2.ctrl.in;
-    inctrls[4]  = reqToUncore.ctrl.in;
-    inctrls[5]  = rspFromUncore.ctrl.in;
-
-    outctrls[0] = reqToL2.ctrl.out;
-    outctrls[1] = reqFromL2.ctrl.out;
-    outctrls[2] = rspFromL2.ctrl.out;
-    outctrls[3] = rspToL2.ctrl.out;
-    outctrls[4] = reqToUncore.ctrl.out;
-    outctrls[5] = rspFromUncore.ctrl.out;
-
-    LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L2 Coherence", inctrls, outctrls);
-
-    rule stage1 (True);
-        // Start a new model cycle
-        let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
-
-        //
-        // No coherence implemented.
-        //
-        let can_enq_l2_req <- reqToL2.canEnq(cpu_iid);
-        reqToL2.noEnq(cpu_iid);
-
-        let m_l2_rsp <- rspFromL2.receive(cpu_iid);
-        if (m_l2_rsp matches tagged Valid .rsp)
-        begin
-            rspFromL2.doDeq(cpu_iid);
-        end
-        else
-        begin
-            rspFromL2.noDeq(cpu_iid);
-        end
-
-
-        //
-        // Forward L2 requests to uncore.
-        //
-        let can_enq_uncore_req <- reqToUncore.canEnq(cpu_iid);
-        let m_l2_req <- reqFromL2.receive(cpu_iid);
-        if (can_enq_uncore_req &&& m_l2_req matches tagged Valid .req)
-        begin
-            let mreq = MEMORY_REQ { physicalAddress: req.linePAddr,
-                                    opaque: req.opaque,
-                                    isStore: cacheMsg_IsReqStore(req) };
-
-            reqToUncore.doEnq(cpu_iid, mreq);
-            reqFromL2.doDeq(cpu_iid);
-            debugLog.record_next_cycle(cpu_iid, $format("1: FWD L2 Req"));
-        end
-        else
-        begin
-            reqToUncore.noEnq(cpu_iid);
-            reqFromL2.noDeq(cpu_iid);
-
-            if (isValid(m_l2_req))
-            begin
-                debugLog.record_next_cycle(cpu_iid, $format("1: RETRY L2 Req"));
-            end
-        end
-
-
-        //
-        // Forward uncore responses to L2.
-        //
-        let can_enq_l2_rsp <- rspToL2.canEnq(cpu_iid);
-        let m_uncore_rsp <- rspFromUncore.receive(cpu_iid);
-        if (can_enq_l2_rsp &&& m_uncore_rsp matches tagged Valid .rsp)
-        begin
-            rspToL2.doEnq(cpu_iid, cacheMsgFromMemRsp(rsp));
-            rspFromUncore.doDeq(cpu_iid);
-            debugLog.record_next_cycle(cpu_iid, $format("1: FWD Uncore Rsp"));
-        end
-        else
-        begin
-            rspToL2.noEnq(cpu_iid);
-            rspFromUncore.noDeq(cpu_iid);
-
-            if (isValid(m_uncore_rsp))
-            begin
-                debugLog.record_next_cycle(cpu_iid, $format("1: RETRY Uncore Rsp"));
-            end
-        end
-
-        debugLog.record_next_cycle(cpu_iid, $format("1: Done"));
-
-        // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1); 
     endrule
 endmodule
