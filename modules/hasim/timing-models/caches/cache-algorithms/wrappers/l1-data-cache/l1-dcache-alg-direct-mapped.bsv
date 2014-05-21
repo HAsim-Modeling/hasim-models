@@ -34,23 +34,19 @@
 
 typedef `L1_DCACHE_ALG_INDEX_SIZE IDX_SIZE;
 
+typedef CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, IDX_SIZE, 1)
+    L1_DCACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
+
+typedef CACHE_ENTRY#(t_OPAQUE, IDX_SIZE, 1)
+    L1_DCACHE_ENTRY#(type t_OPAQUE);
+
 module [HASIM_MODULE] mkL1DCacheAlg
     // interface:
-        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
+    (L1_DCACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE))
     provisos
-        (Bits#(t_OPAQUE, t_OPAQUE_SZ),
-         Add#(t_OPAQUE_SZ, t_TMP, 8),
-         Add#(IDX_SIZE, t_TMP2, LINE_ADDRESS_SIZE),
-         // The following is brought to you courtesy of proviso hell:
-         Add#(t_TMP3, TAdd#(TSub#(TAdd#(TLog#(MAX_NUM_CPUS), IDX_SIZE), TLog#(TDiv#(64,
-         TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2)))))))),
-         TLog#(TDiv#(TExp#(TLog#(TAdd#(1, TAdd#(1, TAdd#(t_OPAQUE_SZ, t_TMP2))))),
-         64))), 32));
+        (Bits#(t_OPAQUE, t_OPAQUE_SZ));
 
-    CACHE_ALG_INDEXED#(MAX_NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_DCACHE_ALG_SCRATCHPAD,
-                                                                                   `L1_DCACHE_ALG_TAGS_USE_SCRATCHPAD != 0);
-
-    return toCacheAlg(alg);
-        
+    let _alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_DCACHE_ALG_SCRATCHPAD,
+                                       `L1_DCACHE_ALG_TAGS_USE_SCRATCHPAD != 0);
+    return _alg;
 endmodule
-

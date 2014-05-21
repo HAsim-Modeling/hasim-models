@@ -29,24 +29,24 @@
 
 // Instantiate a pseudo-random algorithm using our dynamic parameters.
 
+typedef CACHE_ALG#(t_NUM_INSTANCES, void, 0, 1)
+    L1_ICACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
+
+typedef CACHE_ENTRY#(void, 0, 1)
+    L1_ICACHE_ENTRY#(type t_OPAQUE);
+
 module [HASIM_MODULE] mkL1ICacheAlg
     // interface:
-        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
-    provisos
-        (Bits#(t_OPAQUE, t_OPAQUE_SZ),
-         Add#(t_OPAQUE_SZ, t_TMP, 8));
-
+    (L1_ICACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE));
 
     // ****** Dynamic Parameters ******
 
     PARAMETER_NODE paramNode <- mkDynamicParameterNode();
-
-    Param#(8) seedParam     <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_L1I_SEED, paramNode);
-    
-    Param#(8) missChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_L1I_MISS_CHANCE, paramNode);
+    Param#(8) seedParam <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_L1I_SEED, paramNode);
+    Param#(8) missChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L1_ICACHE_ALG_L1I_MISS_CHANCE, paramNode);
 
     // All unused parameters are set to zero.
-    CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom
+    let _alg <- mkCacheAlgPseudoRandom
     (
         seedParam,
         0,
@@ -57,7 +57,6 @@ module [HASIM_MODULE] mkL1ICacheAlg
         0
     );
 
-    return alg;
-        
+    return _alg;
 endmodule
 

@@ -110,7 +110,7 @@ module [HASIM_MODULE] mkL1ICache ();
     // ****** Submodules ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    CACHE_ALG#(MAX_NUM_CPUS, VOID) iCacheAlg <- mkL1ICacheAlg();
+    L1_ICACHE_ALG#(MAX_NUM_CPUS, void) iCacheAlg <- mkL1ICacheAlg();
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, ICACHE_MISS_ID_SIZE) outstandingMisses <- mkCoalescingCacheMissTracker();
@@ -403,7 +403,7 @@ module [HASIM_MODULE] mkL1ICache ();
             else
             begin
                 // Send the fill request to memory, using the opaque bits for the miss id.
-                let mem_req = cacheMsg_LoadReq(line_addr, toMemOpaque(miss_tok));
+                let mem_req = cacheMsg_ReqLoad(line_addr, toMemOpaque(miss_tok));
                 reqToMemQ.doEnq(cpu_iid, mem_req);
 
                 // Tell the CPU their load missed, but we're handling it.

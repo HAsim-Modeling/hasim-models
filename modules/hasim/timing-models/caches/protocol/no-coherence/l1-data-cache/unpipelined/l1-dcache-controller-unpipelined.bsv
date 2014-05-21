@@ -129,7 +129,7 @@ module [HASIM_MODULE] mkL1DCache ();
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    CACHE_ALG#(MAX_NUM_CPUS, VOID) dCacheAlg <- mkL1DCacheAlg();
+    L1_DCACHE_ALG#(MAX_NUM_CPUS, void) dCacheAlg <- mkL1DCacheAlg();
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, DCACHE_MISS_ID_SIZE) outstandingMisses <- mkCoalescingCacheMissTracker();
@@ -342,16 +342,16 @@ module [HASIM_MODULE] mkL1DCache ();
             let m_evict <- dCacheAlg.evictionCheckRsp(cpu_iid);
 
             // If our fill evicted a dirty line we must write it back.
-            if (m_evict matches tagged Valid .evict &&& evict.dirty)
+            if (m_evict matches tagged Valid .evict &&& evict.state.dirty)
             begin
                 // Is there any room in the toL2Q?
                 if (toL2QAvailable(local_state))
                 begin
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.state.linePAddr));
 
                     // Record that we're using the toL2Q.
                     local_state.toL2QUsed = True;
-                    local_state.toL2QData = cacheMsg_StoreReq(evict.physicalAddress, ?);
+                    local_state.toL2QData = cacheMsg_ReqStore(evict.state.linePAddr, ?);
                 
                     // Acknowledge the fill.
                     fillFromMemory.doDeq(cpu_iid);
@@ -361,7 +361,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     // The queue is full, so retry the fill next cycle. No dequeue.
                     fillFromMemory.noDeq(cpu_iid);
                     
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.state.linePAddr));
 
                     // Yield the writePort to lower-priority users.
                     // The fill update will not happen this model cycle.
@@ -558,7 +558,7 @@ module [HASIM_MODULE] mkL1DCache ();
             else
             begin
                 // Use the opaque bits to store the miss token.
-                let l2_req = cacheMsg_LoadReq(toLineAddress(req.physicalAddress),
+                let l2_req = cacheMsg_ReqLoad(toLineAddress(req.physicalAddress),
                                               toMemOpaque(miss_tok));
                 local_state.toL2QData = l2_req;
 
@@ -669,7 +669,7 @@ module [HASIM_MODULE] mkL1DCache ();
 
                             // Record that we are using the toL2Q (since we're writethrough).
                             local_state.toL2QUsed = True;
-                            local_state.toL2QData = cacheMsg_StoreReq(line_addr, ?);
+                            local_state.toL2QData = cacheMsg_ReqStore(line_addr, ?);
 
                             // Tell the CPU that the store succeeded.
                             store_rsp_imm = tagged Valid initDCacheStoreOk();
@@ -759,7 +759,7 @@ module [HASIM_MODULE] mkL1DCache ();
             let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
 
             // Use the opaque bits to store the miss token.
-            let l2_req = cacheMsg_LoadReq(toLineAddress(req.physicalAddress),
+            let l2_req = cacheMsg_ReqLoad(toLineAddress(req.physicalAddress),
                                           toMemOpaque(miss_tok));
             local_state.toL2QData = l2_req;
 
@@ -783,7 +783,7 @@ module [HASIM_MODULE] mkL1DCache ();
         // Take care of the cache update.
         if (local_state.writePortUsed)
         begin
-            dCacheAlg.allocate(cpu_iid, local_state.writePortData, local_state.writeDataDirty, 0);
+            dCacheAlg.allocate(cpu_iid, local_state.writePortData, local_state.writeDataDirty, ?);
         end
         
         // Free at the end so we don't reuse token accidentally.

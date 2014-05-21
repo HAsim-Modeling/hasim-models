@@ -48,17 +48,17 @@ import DefaultValue::*;
 
 module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_NUM_INSTANCES) debugLog,
                                                 Integer opaque_name,
-                                                Bool storeTagsInScratchpad,
-                                                NumTypeParam#(t_NUM_WAYS) dummy)
+                                                Bool storeTagsInScratchpad)
     // interface:
-        (CACHE_ALG_INDEXED#(t_NUM_INSTANCES, t_OPAQUE, t_IDX_SIZE))
+    (CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, t_IDX_SIZE, t_NUM_WAYS))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SIZE),
          Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
-         Alias#(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY));
+         Alias#(t_ENTRY, CACHE_ENTRY#(t_OPAQUE, t_IDX_SIZE, t_NUM_WAYS)),
+         Alias#(CACHE_ENTRY_STATE_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY));
 
     let buffering = 2;
-    Integer numWays = valueof(t_NUM_WAYS);
+    Integer numWays = valueOf(t_NUM_WAYS);
 
     FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);
     //FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);
@@ -93,7 +93,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
     //     Check whether a single entry's valid bit is set and whether its
     //     address matches a request.
     //
-    function Maybe#(CACHE_ENTRY#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr, Bool valid, t_INTERNAL_ENTRY entry);
+    function Maybe#(CACHE_ENTRY_STATE#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr,
+                                                                Bool valid,
+                                                                t_INTERNAL_ENTRY entry);
         if (valid)
         begin
             // Check if the tags match.
@@ -104,7 +106,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
             if (existing_tag == target_tag)
             begin
                 // A hit!
-                return tagged Valid toCacheEntry(entry, idx);
+                return tagged Valid toCacheEntryState(entry, idx);
             end
             else
             begin
@@ -155,11 +157,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
         tagStoreBanks.write(iid, idx, new_entry);
 
         debugLog.record_simple_ctx(iid, $format("Alloc idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, winner, entry, pack(new_accessed), pack(new_valid)));
-
     endrule
 
     method Action loadLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr) if (!allocQ.notEmpty());
-
         // Look up the index in the tag store.
         let idx = getCacheIndex(addr);
         tagStoreBanks.readPorts[`PORT_LOAD].readReq(iid, idx);
@@ -168,10 +168,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
 
         // Pass the request on to the next stage.
         loadLookupQ.enq(addr);
-    
     endmethod
     
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid) if (!allocQ.notEmpty());
+    method ActionValue#(Maybe#(t_ENTRY)) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid) if (!allocQ.notEmpty());
         let addr = loadLookupQ.first();
         loadLookupQ.deq();
         Bit#(t_IDX_SIZE) idx = getCacheIndex(addr);
@@ -182,7 +181,8 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
 
         let entryAddr = entryTagCheck(addr);
              
-        Vector#(t_NUM_WAYS, Maybe#(CACHE_ENTRY#(t_OPAQUE))) res = zipWith(entryAddr, validsvec, entryvec);
+        Vector#(t_NUM_WAYS, Maybe#(CACHE_ENTRY_STATE#(t_OPAQUE))) res =
+            zipWith(entryAddr, validsvec, entryvec);
   
         if (findIndex(isValid, res) matches tagged Valid .way)
         begin
@@ -194,7 +194,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
 
             debugLog.record_simple_ctx(iid, $format("LD lookup HIT PA 0x%0h idx %d: hit way %d, accessed 0x%0h", addr, idx, way, pack(new_accessed)));
 
-            return res[way];
+            let entry_idx = CACHE_ENTRY_IDX { set: idx, way: pack(way) };
+            return tagged Valid CACHE_ENTRY { idx: entry_idx,
+                                              state: validValue(res[way]) };
         end
         else
         begin
@@ -202,7 +204,6 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
 
             return tagged Invalid;
         end
-
     endmethod
     
 
@@ -221,7 +222,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
         noAction;
     endmethod
     
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) storeLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    method ActionValue#(Maybe#(t_ENTRY)) storeLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         /*
         LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) accessed = accessedPool.getRAMWithWritePort(iid, `PORT_STORE);
         LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) valids   = validsPool.getRAM(iid);
@@ -230,7 +231,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
         storeLookupQ.deq();
         let idx = getCacheIndex(addr);
 
-        Maybe#(CACHE_ENTRY#(t_OPAQUE)) res = tagged Invalid;
+        Maybe#(t_ENTRY) res = tagged Invalid;
         let validsvec = valids.sub(idx);
 
         Maybe#(Bit#(TLog#(t_NUM_WAYS))) winner = tagged Invalid;
@@ -261,7 +262,6 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
     endmethod
 
     method Action evictionCheckReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr) if (!allocQ.notEmpty());
-
         // Look up the index in the tag store.
         let idx = getCacheIndex(addr);
         tagStoreBanks.readPorts[`PORT_EVICT].readReq(iid, idx);
@@ -270,11 +270,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
 
         // Pass the request on to the next stage.
         evictionQ.enq(idx);
-    
     endmethod
     
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-
+    method ActionValue#(Maybe#(t_ENTRY)) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         Bit#(t_IDX_SIZE) idx = evictionQ.first();
         evictionQ.deq();
 
@@ -302,22 +300,21 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
         else
         begin
             // Everyone's valid, so figure out which was (pseudo) LRU.
+            let lru = 0;
             if (findElem(False, accessedvec) matches tagged Valid .x)
             begin
-                debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, x, entryvec[x], pack(accessedvec), pack(validsvec)));
-                return tagged Valid toCacheEntry(entryvec[x], idx);
+                lru = x;
             end
-            else
-            begin
-                debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, 0, entryvec[0], pack(accessedvec), pack(validsvec)));
-                return tagged Valid toCacheEntry(entryvec[0], idx);
-            end
-        end
 
+            debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, lru, entryvec[lru], pack(accessedvec), pack(validsvec)));
+
+            let entry_idx = CACHE_ENTRY_IDX { set: idx, way: pack(lru) };
+            return tagged Valid CACHE_ENTRY { idx: entry_idx,
+                                              state: toCacheEntryState(entryvec[lru], idx) };
+        end
     endmethod
-    
+
     method Action allocate(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr, Bool dirty, t_OPAQUE opaque);
-    
         let entry = dirty ? initInternalCacheEntryDirty(addr) : initInternalCacheEntryClean(addr);
         entry.opaque = opaque;
         let idx = getCacheIndex(addr);
@@ -325,7 +322,6 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
         accessedPool.readPorts[`PORT_ALLOC].readReq(iid, idx);
         validsPool.readPorts[`PORT_ALLOC].readReq(iid, idx);
         allocQ.enq(tuple3(iid, idx, entry));
-        
     endmethod
-    
+
 endmodule

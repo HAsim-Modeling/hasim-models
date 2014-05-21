@@ -1,10 +1,10 @@
 
 [Global]
 SaveParameters=0
-Description=Direct Mapped, Writethrough Private Caches
+Description=No Coherence, Direct Mapped, Writethrough Private Caches
 File=private-caches
 Version=2.2
-Name=Direct Mapped, Writethrough Private Caches
+Name=No Coherence, Direct Mapped, Writethrough Private Caches
 Type=HAsim
 Class=Asim::Model
 DefaultBenchmark=

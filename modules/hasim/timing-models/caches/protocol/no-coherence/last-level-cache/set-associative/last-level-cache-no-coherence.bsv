@@ -542,7 +542,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    CACHE_ALG#(MAX_NUM_CPUS, VOID) llcAlg <- mkLastLevelCacheAlg();
+    LLC_CACHE_ALG#(MAX_NUM_CPUS, void) llcAlg <- mkLastLevelCacheAlg();
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, LLC_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
@@ -586,7 +586,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(LLC_LOCAL_STATE, Bool)) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, LLC_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(LLC_LOCAL_STATE, Maybe#(ROUTED_LLC_REQ))) stage4Ctrl <- mkStageController();
-    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, ROUTED_LLC_REQ, Maybe#(CACHE_ENTRY#(VOID)), LLC_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
+    Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID, ROUTED_LLC_REQ, Maybe#(LLC_CACHE_ENTRY#(void)), LLC_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid); //XXX TMP
 
     //
     // Physical addresses are assigned to memory controllers during setup
@@ -749,15 +749,15 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
             let m_evict <- llcAlg.evictionCheckRsp(cpu_iid);
 
             // If our fill evicted a dirty line we must write it back.
-            if (m_evict matches tagged Valid .evict &&& evict.dirty)
+            if (m_evict matches tagged Valid .evict &&& evict.state.dirty)
             begin
                 // Is there any room in the memQ?
                 if (memQAvailable(local_state))
                 begin
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.state.linePAddr));
 
                     // Record that we're using the memQ.
-                    local_state.memQData = tagged Valid initMemStore(evict.physicalAddress);
+                    local_state.memQData = tagged Valid initMemStore(evict.state.linePAddr);
                     outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
@@ -768,7 +768,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                     // The queue is full, so retry the fill next cycle. No dequeue.
                     rspFromMem.noDeq(cpu_iid);
                     
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.state.linePAddr));
 
                     // Yield the writePort and rspPort to lower-priority users.
                     // The fill update will not happen this model cycle.
@@ -1019,7 +1019,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         // Take care of the cache update.
         if (local_state.writePortUsed)
         begin
-            llcAlg.allocate(cpu_iid, local_state.writePortData, local_state.writeDataDirty, 0);
+            llcAlg.allocate(cpu_iid, local_state.writePortData, local_state.writeDataDirty, ?);
         end
         
         // Take care of CPU rsp

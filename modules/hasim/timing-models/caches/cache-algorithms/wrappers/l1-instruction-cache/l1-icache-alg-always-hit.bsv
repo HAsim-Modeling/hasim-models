@@ -26,16 +26,17 @@
 
 // Instantiate an always-hit algorithm. This module is brain-dead simple.
 
+typedef CACHE_ALG#(t_NUM_INSTANCES, void, 0, 1)
+    L1_ICACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
+
+typedef CACHE_ENTRY#(void, 0, 1)
+    L1_ICACHE_ENTRY#(type t_OPAQUE);
+
 module [HASIM_MODULE] mkL1ICacheAlg
     // interface:
-        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
-    provisos
-        (Bits#(t_OPAQUE, t_OPAQUE_SZ),
-         Add#(t_OPAQUE_SZ, t_TMP, 8));
+    (L1_ICACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE));
 
-    CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgAlwaysHit();
-
-    return alg;
-        
+    let _alg <- mkCacheAlgAlwaysHit();
+    return _alg;
 endmodule
 

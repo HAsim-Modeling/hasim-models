@@ -159,7 +159,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    CACHE_ALG#(MAX_NUM_CPUS, VOID) l2Alg <- mkL2CacheAlg();
+    L2_CACHE_ALG#(MAX_NUM_CPUS, void) l2Alg <- mkL2CacheAlg();
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, L2_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
@@ -206,7 +206,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
     Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID,
                         CACHE_PROTOCOL_MSG,
-                        Maybe#(CACHE_ENTRY#(VOID)),
+                        Maybe#(L2_CACHE_ENTRY#(void)),
                         L2_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid);
 
 
@@ -359,16 +359,16 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             let m_evict <- l2Alg.evictionCheckRsp(cpu_iid);
 
             // If our fill evicted a dirty line we must write it back.
-            if (m_evict matches tagged Valid .evict &&& evict.dirty)
+            if (m_evict matches tagged Valid .evict &&& evict.state.dirty)
             begin
                 // Is there any room in the memQ?
                 if (memQAvailable(local_state))
                 begin
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.state.linePAddr));
 
                     // Record that we're using the memQ.
                     local_state.memQUsed = True;
-                    local_state.memQData = cacheMsg_StoreReq(evict.physicalAddress, ?);
+                    local_state.memQData = cacheMsg_ReqStore(evict.state.linePAddr, ?);
                     outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
@@ -379,7 +379,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     // The queue is full, so retry the fill next cycle. No dequeue.
                     rspFromUncore.noDeq(cpu_iid);
                     
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.physicalAddress));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.state.linePAddr));
 
                     // Yield the writePort and rspPort to lower-priority users.
                     // The fill update will not happen this model cycle.
@@ -524,7 +524,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             begin
                 // A load hit, so give the data back. We won't need the
                 // memory queue.
-                local_state.coreQData = cacheMsg_LoadRsp(req.linePAddr, req.opaque);
+                local_state.coreQData = cacheMsg_RspLoad(req.linePAddr, req.opaque);
                 local_state.coreQUsed = True;
                 statReadHit.incr(cpu_iid);
                 evt_hit = tagged Valid resize({ req.linePAddr, 1'b0 });
@@ -621,7 +621,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
                 // Use the opaque bits to store the miss token.
                 // Note that we use a load to simulate getting exclusive access.
-                let mem_req = cacheMsg_LoadReq(req.linePAddr,
+                let mem_req = cacheMsg_ReqLoad(req.linePAddr,
                                                updateMemOpaque(req.opaque, miss_tok));
                 local_state.memQData = mem_req;
 
@@ -636,7 +636,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                                   fromMemOpaque(req.opaque));
 
                 // Use the opaque bits to store the miss token.
-                let mem_req = cacheMsg_LoadReq(req.linePAddr,
+                let mem_req = cacheMsg_ReqLoad(req.linePAddr,
                                                updateMemOpaque(req.opaque, miss_tok));
                 local_state.memQData = mem_req;
 
@@ -665,7 +665,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             l2Alg.allocate(cpu_iid,
                            local_state.writePortData,
                            local_state.writeDataDirty,
-                           0);
+                           ?);
         end
 
         // Take care of CPU rsp

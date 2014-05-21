@@ -34,12 +34,15 @@
 // the entries returned to the controller must have some tag data.
 // We arbitrarily choose 7 bits for this tag size.
 
+typedef CACHE_ALG#(t_NUM_INSTANCES, void, 0, 1)
+    L2_CACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
+
+typedef CACHE_ENTRY#(void, 0, 1)
+    L2_CACHE_ENTRY#(type t_OPAQUE);
+
 module [HASIM_MODULE] mkL2CacheAlg
     // interface:
-        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
-    provisos
-        (Bits#(t_OPAQUE, t_OPAQUE_SZ),
-         Add#(t_OPAQUE_SZ, t_TMP, 8));
+    (L2_CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE));
 
     // ****** Dynamic Parameters ******
 
@@ -54,7 +57,7 @@ module [HASIM_MODULE] mkL2CacheAlg
     Param#(8) cleanEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_CLEAN_EVICT_CHANCE, paramNode);
     Param#(8) dirtyEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_DIRTY_EVICT_CHANCE, paramNode);
 
-    CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE) alg <- mkCacheAlgPseudoRandom
+    let _alg <- mkCacheAlgPseudoRandom
     (
         loadSeedParam,
         storeSeedParam,
@@ -65,7 +68,5 @@ module [HASIM_MODULE] mkL2CacheAlg
         dirtyEvictChanceParam
     );
 
-    return alg;
-        
+    return _alg;
 endmodule
-

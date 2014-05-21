@@ -85,10 +85,10 @@ endfunction
 
 
 //
-// cacheMsg_LoadReq --
+// cacheMsg_ReqLoad --
 //   Generate a load request CACHE_PROTOCOL_MSG.
 //
-function CACHE_PROTOCOL_MSG cacheMsg_LoadReq(LINE_ADDRESS linePAddr,
+function CACHE_PROTOCOL_MSG cacheMsg_ReqLoad(LINE_ADDRESS linePAddr,
                                              MEM_OPAQUE opaque);
     return CACHE_PROTOCOL_MSG
     {
@@ -99,10 +99,10 @@ function CACHE_PROTOCOL_MSG cacheMsg_LoadReq(LINE_ADDRESS linePAddr,
 endfunction
 
 //
-// cacheMsg_StoreReq --
+// cacheMsg_ReqStore --
 //   Generate a store request CACHE_PROTOCOL_MSG.
 //
-function CACHE_PROTOCOL_MSG cacheMsg_StoreReq(LINE_ADDRESS linePAddr,
+function CACHE_PROTOCOL_MSG cacheMsg_ReqStore(LINE_ADDRESS linePAddr,
                                               MEM_OPAQUE opaque);
     return CACHE_PROTOCOL_MSG
     {
@@ -114,10 +114,10 @@ endfunction
 
 
 //
-// cacheMsg_LoadRsp --
+// cacheMsg_RspLoad --
 //   Generate a load response CACHE_PROTOCOL_MSG.
 //
-function CACHE_PROTOCOL_MSG cacheMsg_LoadRsp(LINE_ADDRESS linePAddr,
+function CACHE_PROTOCOL_MSG cacheMsg_RspLoad(LINE_ADDRESS linePAddr,
                                              MEM_OPAQUE opaque);
     return CACHE_PROTOCOL_MSG
     {
@@ -174,17 +174,17 @@ instance FShow#(CACHE_PROTOCOL_MSG_KIND);
         case (kind) matches
             tagged REQ_LOAD:
             begin
-                fs = $format("REQ LOAD");
+                fs = $format("REQ_LOAD");
             end
 
             tagged REQ_STORE:
             begin
-                fs = $format("REQ STORE");
+                fs = $format("REQ_STORE");
             end
 
             tagged RSP_LOAD:
             begin
-                fs = $format("RSP LOAD");
+                fs = $format("RSP_LOAD");
             end
         endcase
 

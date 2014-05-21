@@ -35,25 +35,25 @@
 
 typedef `L2_ALG_INDEX_SIZE IDX_SIZE;
 
+typedef CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, IDX_SIZE, `L2_ALG_NUM_WAYS)
+    L2_CACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
+
+typedef CACHE_ENTRY#(t_OPAQUE, IDX_SIZE, `L2_ALG_NUM_WAYS)
+    L2_CACHE_ENTRY#(type t_OPAQUE);
+
 module [HASIM_MODULE] mkL2CacheAlg
     // interface:
-        (CACHE_ALG#(MAX_NUM_CPUS, t_OPAQUE))
+    (L2_CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ),
          Add#(IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
 
-    TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l2_alg.out");
+    TIMEP_DEBUG_FILE_MULTIPLEXED#(t_NUM_INSTANCES) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l2_alg.out");
 
-    // NUM_WAYS is passed as a pseudo-numeric parameter.
-    NumTypeParam#(`L2_ALG_NUM_WAYS) numWays = ?;
-
-    CACHE_ALG_INDEXED#(MAX_NUM_CPUS, t_OPAQUE, IDX_SIZE) alg <-
+    let _alg <-
         mkCacheAlgSetAssociative(debugLog,
                                  `VDEV_SCRATCH_HASIM_L2_CACHE_ALG_SCRATCHPAD,
-                                 `L2_ALG_TAGS_USE_SCRATCHPAD != 0,
-                                 numWays);
-
-    return toCacheAlg(alg);
-        
+                                 `L2_ALG_TAGS_USE_SCRATCHPAD != 0);
+    return _alg;
 endmodule
 

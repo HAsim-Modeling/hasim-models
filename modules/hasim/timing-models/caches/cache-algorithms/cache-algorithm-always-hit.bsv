@@ -2,9 +2,9 @@
 
 module [HASIM_MODULE] mkCacheAlgAlwaysHit
     // interface:
-        (CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE))
+    (CACHE_ALG#(t_NUM_INSTANCES, void, 0, 1))
     provisos
-        (Bits#(t_OPAQUE, t_OPAQUE_SIZE));
+        (Alias#(t_ENTRY, CACHE_ENTRY#(void, 0, 1)));
 
     let buffering = 2;
 
@@ -13,53 +13,41 @@ module [HASIM_MODULE] mkCacheAlgAlwaysHit
     FIFO#(LINE_ADDRESS) evictionQ <- mkSizedFIFO(buffering);
 
     method Action loadLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-    
         loadLookupQ.enq(addr);
-    
     endmethod
     
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    
+    method ActionValue#(Maybe#(t_ENTRY)) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         let addr = loadLookupQ.first();
         loadLookupQ.deq();
         
         // Always hit.
-        return tagged Valid initCacheEntryClean(addr);
-    
+        return tagged Valid CACHE_ENTRY { idx: defaultValue,
+                                          state: initCacheEntryClean(addr) };
     endmethod
     
     method Action storeLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-    
         storeLookupQ.enq(addr);
-    
     endmethod
     
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) storeLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    
+    method ActionValue#(Maybe#(t_ENTRY)) storeLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         let addr = storeLookupQ.first();
         storeLookupQ.deq();
         
-        return tagged Valid initCacheEntryClean(addr);
-    
+        return tagged Valid CACHE_ENTRY { idx: defaultValue,
+                                          state: initCacheEntryClean(addr) };
     endmethod
 
     method Action evictionCheckReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-    
         evictionQ.enq(?);
-    
     endmethod
     
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    
+    method ActionValue#(Maybe#(t_ENTRY)) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         evictionQ.deq();
         return tagged Invalid;
-
     endmethod
     
-    method Action allocate(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr, Bool dirty, t_OPAQUE sc);
-    
+    method Action allocate(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr, Bool dirty, void sc);
         noAction;
-    
     endmethod
     
 endmodule

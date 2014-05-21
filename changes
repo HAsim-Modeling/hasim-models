@@ -7588,3 +7588,60 @@ Directory modules/hasim/timing-models/uncore/interconnects/common
 
 - Rename MEMORY_REQ/RSP physicalAddress to linePAddr for clarity and to match
   coherence messages.
+
+----------
+mcadler     Date: Wed May 21 18:47:19 EDT 2014  CSN: CSN-hasim-models-242
+                  Wed May 21 22:47:19 UTC 2014
+
+
+Directory config/pm/hasim-models/private-caches
+ private-caches.apm        Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/last-level-cache/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-instruction-cache
+ l1-instruction-cache.bsv  Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence
+ no-coherence-protocol.bsv Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-ifc.bsv   Locally Added               0 
+ cache-algorithm-always-hit.bsv Locally Modified          241 
+ cache-algorithm-set-associative.bsv Locally Modified          241 
+ cache-algorithms.awb      Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-data-cache
+ l1-dcache-alg-direct-mapped.bsv Locally Modified          241 
+ l1-dcache-alg-pseudorandom.bsv Locally Modified          241 
+ l1-dcache-alg-always-hit.bsv Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/last-level-cache
+ llc-set-associative.bsv   Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-instruction-cache
+ l1-icache-alg-always-hit.bsv Locally Modified          241 
+ l1-icache-alg-direct-mapped.bsv Locally Modified          241 
+ l1-icache-alg-pseudorandom.bsv Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l2-cache
+ l2-alg-pseudorandom.bsv   Locally Modified          241 
+ l2-alg-always-hit.bsv     Locally Modified          241 
+ l2-alg-set-associative.bsv Locally Modified          241 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-direct-mapped.bsv Locally Modified          241 
+ cache-algorithm-pseudorandom.bsv Locally Modified          241 
+ cache-algorithm-utils.bsv Locally Modified          241 
+
+- Cache algorithm lookup methods now return the set and way of a hit.  Lots of
+  interface/type changes to support this.
+
+- Cache protocol constructors now have consistent naming.

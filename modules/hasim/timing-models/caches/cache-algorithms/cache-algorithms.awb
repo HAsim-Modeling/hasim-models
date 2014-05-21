@@ -4,6 +4,7 @@
 
 %attributes hasim model caches
 
+%public cache-algorithm-ifc.bsv
 %public cache-algorithm-utils.bsv
 %public cache-algorithm-always-hit.bsv
 %public cache-algorithm-pseudorandom.bsv
