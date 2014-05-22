@@ -342,16 +342,18 @@ module [HASIM_MODULE] mkL1DCache ();
             let m_evict <- dCacheAlg.evictionCheckRsp(cpu_iid);
 
             // If our fill evicted a dirty line we must write it back.
-            if (m_evict matches tagged Valid .evict &&& evict.state.dirty)
+            if (m_evict matches tagged Valid .evict &&&
+                evict.state matches tagged Valid .state &&&
+                state.dirty)
             begin
                 // Is there any room in the toL2Q?
                 if (toL2QAvailable(local_state))
                 begin
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.state.linePAddr));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", state.linePAddr));
 
                     // Record that we're using the toL2Q.
                     local_state.toL2QUsed = True;
-                    local_state.toL2QData = cacheMsg_ReqStore(evict.state.linePAddr, ?);
+                    local_state.toL2QData = cacheMsg_ReqStore(state.linePAddr, ?);
                 
                     // Acknowledge the fill.
                     fillFromMemory.doDeq(cpu_iid);
@@ -361,7 +363,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     // The queue is full, so retry the fill next cycle. No dequeue.
                     fillFromMemory.noDeq(cpu_iid);
                     
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.state.linePAddr));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", state.linePAddr));
 
                     // Yield the writePort to lower-priority users.
                     // The fill update will not happen this model cycle.

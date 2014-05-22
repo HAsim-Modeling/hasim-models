@@ -21,8 +21,9 @@ module [HASIM_MODULE] mkCacheAlgAlwaysHit
         loadLookupQ.deq();
         
         // Always hit.
-        return tagged Valid CACHE_ENTRY { idx: defaultValue,
-                                          state: initCacheEntryClean(addr) };
+        return tagged Valid
+            CACHE_ENTRY { idx: defaultValue,
+                          state: tagged Valid initCacheEntryClean(addr) };
     endmethod
     
     method Action storeLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
@@ -33,8 +34,9 @@ module [HASIM_MODULE] mkCacheAlgAlwaysHit
         let addr = storeLookupQ.first();
         storeLookupQ.deq();
         
-        return tagged Valid CACHE_ENTRY { idx: defaultValue,
-                                          state: initCacheEntryClean(addr) };
+        return tagged Valid
+            CACHE_ENTRY { idx: defaultValue,
+                          state: tagged Valid initCacheEntryClean(addr) };
     endmethod
 
     method Action evictionCheckReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);

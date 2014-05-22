@@ -359,16 +359,18 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             let m_evict <- l2Alg.evictionCheckRsp(cpu_iid);
 
             // If our fill evicted a dirty line we must write it back.
-            if (m_evict matches tagged Valid .evict &&& evict.state.dirty)
+            if (m_evict matches tagged Valid .evict &&&
+                evict.state matches tagged Valid .state &&&
+                state.dirty)
             begin
                 // Is there any room in the memQ?
                 if (memQAvailable(local_state))
                 begin
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", evict.state.linePAddr));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION: 0x%h", state.linePAddr));
 
                     // Record that we're using the memQ.
                     local_state.memQUsed = True;
-                    local_state.memQData = cacheMsg_ReqStore(evict.state.linePAddr, ?);
+                    local_state.memQData = cacheMsg_ReqStore(state.linePAddr, ?);
                     outstandingMisses.free(cpu_iid, local_state.missTokToFree);
                 
                     // Acknowledge the fill.
@@ -379,7 +381,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     // The queue is full, so retry the fill next cycle. No dequeue.
                     rspFromUncore.noDeq(cpu_iid);
                     
-                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", evict.state.linePAddr));
+                    debugLog.record(cpu_iid, $format("2: DIRTY EVICTION RETRY: 0x%h", state.linePAddr));
 
                     // Yield the writePort and rspPort to lower-priority users.
                     // The fill update will not happen this model cycle.

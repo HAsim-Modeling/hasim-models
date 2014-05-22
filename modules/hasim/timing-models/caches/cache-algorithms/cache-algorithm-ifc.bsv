@@ -91,12 +91,13 @@ endinterface
 
 
 //
-// CACHE_ENTRY is a combination of the set/way and the state.
+// CACHE_ENTRY is a combination of the set/way and the state.  A
+// tagged Invalid state indicates the entry is currently invalid.
 //
 typedef struct
 {
     CACHE_ENTRY_IDX#(t_IDX_SIZE, t_NUM_WAYS) idx;
-    CACHE_ENTRY_STATE#(t_OPAQUE) state;
+    Maybe#(CACHE_ENTRY_STATE#(t_OPAQUE)) state;
 }
 CACHE_ENTRY#(type t_OPAQUE, numeric type t_IDX_SIZE, numeric type t_NUM_WAYS)
     deriving (Eq, Bits);

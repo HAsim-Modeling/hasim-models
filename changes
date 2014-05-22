@@ -7645,3 +7645,27 @@ Directory modules/hasim/timing-models/caches/cache-algorithms
   interface/type changes to support this.
 
 - Cache protocol constructors now have consistent naming.
+
+----------
+mcadler     Date: Wed May 21 21:40:21 EDT 2014  CSN: CSN-hasim-models-243
+                  Thu May 22 01:40:21 UTC 2014
+
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          242 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/last-level-cache/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          242 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          242 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-ifc.bsv   Locally Modified          242 
+ cache-algorithm-always-hit.bsv Locally Modified          242 
+ cache-algorithm-set-associative.bsv Locally Modified          242 
+ cache-algorithm-direct-mapped.bsv Locally Modified          242 
+ cache-algorithm-pseudorandom.bsv Locally Modified          242 
+
+Add a bit to CACHE_ENTRY to allow methods to indicate an index for cache entries
+that are currently invalid.

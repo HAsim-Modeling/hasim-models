@@ -66,8 +66,9 @@ module [HASIM_MODULE] mkCacheAlgPseudoRandom
         else
         begin
             // A hit!
-            return tagged Valid CACHE_ENTRY { idx: defaultValue,
-                                              state: initCacheEntryClean(addr) };
+            return tagged Valid
+                CACHE_ENTRY { idx: defaultValue,
+                              state: tagged Valid initCacheEntryClean(addr) };
         end
     endmethod
     
@@ -93,8 +94,9 @@ module [HASIM_MODULE] mkCacheAlgPseudoRandom
         else
         begin
             // A hit!
-            return tagged Valid CACHE_ENTRY { idx: defaultValue,
-                                              state: initCacheEntryClean(addr) };
+            return tagged Valid
+                CACHE_ENTRY { idx: defaultValue,
+                              state: tagged Valid initCacheEntryClean(addr) };
         end
     endmethod
 
@@ -114,14 +116,16 @@ module [HASIM_MODULE] mkCacheAlgPseudoRandom
         if (rnd < cleanEvictionChance)
         begin
             // A clean line to be evicted.
-            return tagged Valid CACHE_ENTRY { idx: defaultValue,
-                                              state: initCacheEntryClean(addr) };
+            return tagged Valid
+                CACHE_ENTRY { idx: defaultValue,
+                              state: tagged Valid initCacheEntryClean(addr) };
         end
         else if (rnd < dirtyEvictionChance)
         begin
             // A dirty line to be evicted.
-            return tagged Valid CACHE_ENTRY { idx: defaultValue,
-                                              state: initCacheEntryDirty(addr) };
+            return tagged Valid
+                CACHE_ENTRY { idx: defaultValue,
+                              state: tagged Valid initCacheEntryDirty(addr) };
         end
         else
         begin

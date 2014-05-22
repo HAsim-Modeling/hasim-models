@@ -195,8 +195,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
             debugLog.record_simple_ctx(iid, $format("LD lookup HIT PA 0x%0h idx %d: hit way %d, accessed 0x%0h", addr, idx, way, pack(new_accessed)));
 
             let entry_idx = CACHE_ENTRY_IDX { set: idx, way: pack(way) };
-            return tagged Valid CACHE_ENTRY { idx: entry_idx,
-                                              state: validValue(res[way]) };
+            return tagged Valid
+                CACHE_ENTRY { idx: entry_idx,
+                              state: res[way] };
         end
         else
         begin
@@ -309,8 +310,9 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_
             debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, lru, entryvec[lru], pack(accessedvec), pack(validsvec)));
 
             let entry_idx = CACHE_ENTRY_IDX { set: idx, way: pack(lru) };
-            return tagged Valid CACHE_ENTRY { idx: entry_idx,
-                                              state: toCacheEntryState(entryvec[lru], idx) };
+            return tagged Valid
+                CACHE_ENTRY { idx: entry_idx,
+                              state: tagged Valid toCacheEntryState(entryvec[lru], idx) };
         end
     endmethod
 

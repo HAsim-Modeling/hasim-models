@@ -80,8 +80,9 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name,
             begin
                 // A hit!
                 let entry_idx = CACHE_ENTRY_IDX { set: idx, way: 0 };
-                return tagged Valid CACHE_ENTRY { idx: entry_idx,
-                                                  state: toCacheEntryState(entry, idx) };
+                return tagged Valid
+                    CACHE_ENTRY { idx: entry_idx,
+                                  state: tagged Valid toCacheEntryState(entry, idx) };
             end
             else
             begin
@@ -151,8 +152,9 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name,
         if (m_entry matches tagged Valid .entry)
         begin
             let entry_idx = CACHE_ENTRY_IDX { set: idx, way: 0 };
-            return tagged Valid CACHE_ENTRY { idx: entry_idx,
-                                              state: toCacheEntryState(entry, idx) };
+            return tagged Valid
+                CACHE_ENTRY { idx: entry_idx,
+                              state: tagged Valid toCacheEntryState(entry, idx) };
         end
         else
         begin
