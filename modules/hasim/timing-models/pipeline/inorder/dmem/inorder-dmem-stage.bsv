@@ -39,21 +39,22 @@ import FIFO::*;
 
 // ****** Project imports ******
 
-`include "asim/provides/hasim_common.bsh"
-`include "asim/provides/soft_connections.bsh"
-`include "asim/provides/hasim_modellib.bsh"
-`include "asim/provides/hasim_isa.bsh"
-`include "asim/provides/chip_base_types.bsh"
-`include "asim/provides/pipeline_base_types.bsh"
-`include "asim/provides/hasim_model_services.bsh"
-`include "asim/provides/funcp_interface.bsh"
-`include "asim/provides/l1_cache_base_types.bsh"
+`include "awb/provides/common_services.bsh"
+`include "awb/provides/hasim_common.bsh"
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/hasim_modellib.bsh"
+`include "awb/provides/hasim_isa.bsh"
+`include "awb/provides/chip_base_types.bsh"
+`include "awb/provides/pipeline_base_types.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/funcp_interface.bsh"
+`include "awb/provides/l1_cache_base_types.bsh"
 
 import FIFOF::*;
-`include "asim/provides/fpga_components.bsh"
+`include "awb/provides/fpga_components.bsh"
 // ****** Generated files ******
 
-`include "asim/dict/EVENTS_DMEM.bsh"
+`include "awb/dict/EVENTS_DMEM.bsh"
 
 
 // mkDMem
@@ -147,6 +148,12 @@ module [HASIM_MODULE] mkDMem ();
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventMem <- mkEventRecorder_Multiplexed(`EVENTS_DMEM_INSTRUCTION_MEM);
 
     
+    // ****** Assertions ******
+
+    let assertRspOk <- mkAssertionSimOnly("inorder-dmem-stage.bsv: Illegal DCache response!",
+                                          ASSERT_ERROR);
+
+
     // ****** Rules ******
 
 
@@ -248,7 +255,6 @@ module [HASIM_MODULE] mkDMem ();
             stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
 
         end
-
     endrule
 
 
@@ -359,10 +365,8 @@ module [HASIM_MODULE] mkDMem ();
                 let tok = rsp.bundle.token;
 
                 case (rsp.rspType) matches
-
                     tagged DCACHE_hit:
                     begin
-
                         // Well, the cache found it.
                         debugLog.record(cpu_iid, fshow("2: SB/WB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
@@ -382,7 +386,6 @@ module [HASIM_MODULE] mkDMem ();
 
                     tagged DCACHE_miss .miss_id:
                     begin
-
                         // The cache missed, but is handling it. 
                         debugLog.record(cpu_iid, fshow("2: SB/WB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
@@ -395,12 +398,10 @@ module [HASIM_MODULE] mkDMem ();
 
                         // Tell the next stage it was a miss:
                         stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(bundle, tagged Valid miss_id));
-
                     end
 
                     tagged DCACHE_retry:
                     begin
-
                         // The SB/WB Missed, and the cache needs us to retry.
                         debugLog.record(cpu_iid, fshow("2: SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
@@ -408,15 +409,21 @@ module [HASIM_MODULE] mkDMem ();
                         writebackToDec.send(cpu_iid, tagged Invalid);
 
                         stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
-
                     end
 
+                    default:
+                    begin
+                        debugLog.record(cpu_iid, fshow("2: Illegal DCache response!"));
+                        assertRspOk(False);
+                    end
                 endcase
-
             end
-
+            else
+            begin
+                debugLog.record(cpu_iid, fshow("2: Expected a DCache response!"));
+                assertRspOk(False);
+            end
         end
-        
     endrule
     
     // stage3_fpRsp
@@ -434,6 +441,8 @@ module [HASIM_MODULE] mkDMem ();
     rule stage3_loadRsp (True);
     
         match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
+        
+        debugLog.record(cpu_iid, fshow("3: Done"));
         
         if (state matches tagged STAGE3_bubble)
         begin

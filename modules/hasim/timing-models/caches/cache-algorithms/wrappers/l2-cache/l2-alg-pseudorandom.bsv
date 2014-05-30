@@ -37,10 +37,13 @@
 typedef CACHE_ALG#(t_NUM_INSTANCES, void, 0, 1)
     L2_CACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
 
-typedef CACHE_ENTRY#(void, 0, 1)
-    L2_CACHE_ENTRY#(type t_OPAQUE);
+typedef CACHE_ENTRY_IDX#(0, 1)
+    L2_CACHE_IDX;
 
-module [HASIM_MODULE] mkL2CacheAlg
+typedef CACHE_LOOKUP_RSP#(void, 0, 1)
+    L2_CACHE_LOOKUP_RSP#(type t_OPAQUE);
+
+module [HASIM_MODULE] mkL2CacheAlg#(function Bool mayEvict(void opaque))
     // interface:
     (L2_CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE));
 
@@ -48,22 +51,16 @@ module [HASIM_MODULE] mkL2CacheAlg
 
     PARAMETER_NODE paramNode <- mkDynamicParameterNode();
 
-    Param#(8) loadSeedParam     <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_LOAD_SEED, paramNode);
-    Param#(8) storeSeedParam    <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_STORE_SEED, paramNode);
-    Param#(8) evictionSeedParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_EVICT_SEED, paramNode);
-    
-    Param#(8) loadMissChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_LOAD_MISS_CHANCE, paramNode);
-    Param#(8) storeMissChanceParam  <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_STORE_MISS_CHANCE, paramNode);
+    Param#(8) seedParam     <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_SEED, paramNode);
+    Param#(8) missChanceParam   <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_MISS_CHANCE, paramNode);
     Param#(8) cleanEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_CLEAN_EVICT_CHANCE, paramNode);
     Param#(8) dirtyEvictChanceParam <- mkDynamicParameter(`PARAMS_HASIM_L2_CACHE_ALG_L2_DIRTY_EVICT_CHANCE, paramNode);
 
     let _alg <- mkCacheAlgPseudoRandom
     (
-        loadSeedParam,
-        storeSeedParam,
-        evictionSeedParam,
-        loadMissChanceParam,
-        storeMissChanceParam,
+        mayEvict,
+        seedParam,
+        missChanceParam,
         cleanEvictChanceParam,
         dirtyEvictChanceParam
     );

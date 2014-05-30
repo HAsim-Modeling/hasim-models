@@ -94,8 +94,8 @@ typedef struct
     CACHE_PROTOCOL_MSG memQData;
     
     Bool writePortUsed;
-    Bool writeDataDirty;
-    LINE_ADDRESS writePortData;
+    L2_CACHE_IDX writePortIdx;
+    CACHE_ENTRY_STATE#(void) writePortData;
     
     Bool coreQNotFull;
     Bool coreQUsed;
@@ -121,8 +121,8 @@ function L2_LOCAL_STATE initLocalState();
             coreQUsed: False,
             coreQData: ?,
             writePortUsed: False,
-            writeDataDirty: False,
-            writePortData: 0,
+            writePortIdx: ?,
+            writePortData: ?,
             req: tagged Invalid
         };
 endfunction
@@ -159,13 +159,15 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    L2_CACHE_ALG#(MAX_NUM_CPUS, void) l2Alg <- mkL2CacheAlg();
+    function Bool alwaysTrue(t_DUMMY d) = True;
+    L2_CACHE_ALG#(MAX_NUM_CPUS, void) l2Alg <- mkL2CacheAlg(alwaysTrue);
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, L2_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
 
     // A RAM To map our miss IDs into the original opaques, that we return to higher levels.
-    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, L2_MISS_ID, L2_MISS_TOKEN) opaquesPool <-
+    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS, L2_MISS_ID,
+                            Tuple2#(L2_MISS_TOKEN, L2_CACHE_IDX)) opaquesPool <-
         mkMemory_Multiplexed(mkBRAM);
 
     // ****** Ports ******
@@ -198,16 +200,18 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L2 Cache", inctrls, outctrls);
 
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L2_LOCAL_STATE, Bool)) stage2Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, L2_LOCAL_STATE) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, L2_LOCAL_STATE) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L2_LOCAL_STATE,
-                                            Maybe#(CACHE_PROTOCOL_MSG))) stage4Ctrl <-
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, L2_LOCAL_STATE) stage4Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(L2_LOCAL_STATE,
+                                            Maybe#(CACHE_PROTOCOL_MSG),
+                                            L2_CACHE_IDX)) stage5Ctrl <-
         mkStageController();
 
     Reg#(Maybe#(Tuple4#(CPU_INSTANCE_ID,
                         CACHE_PROTOCOL_MSG,
-                        Maybe#(L2_CACHE_ENTRY#(void)),
-                        L2_LOCAL_STATE))) stage3Stall <- mkReg(tagged Invalid);
+                        L2_CACHE_LOOKUP_RSP#(void),
+                        L2_LOCAL_STATE))) stage4Stall <- mkReg(tagged Invalid);
 
 
     // ****** Stats ******
@@ -287,8 +291,9 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                 // someone else has it. Just record that we're using it so
                 // no one else will.
                 local_state.writePortUsed = True;
-                local_state.writePortData = fill.linePAddr;
-                local_state.writeDataDirty = False;
+                local_state.writePortData = initCacheEntryState(fill.linePAddr,
+                                                                False,
+                                                                ?);
 
                 // Get the Miss ID.
                 L2_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
@@ -299,20 +304,15 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                 // Return the fill to higher levels.
                 debugLog.record_next_cycle(cpu_iid, $format("1: MEM RSP: %0d, LINE: 0x%h", miss_tok.index, fill.linePAddr));
 
+                // Read the meta-data from the fill request
+                opaquesPool.readReq(cpu_iid, missTokIndex(miss_tok));
+
                 // Only respond to loads.
                 if (missTokIsLoad(miss_tok))
                 begin
                     local_state.coreQUsed = True;
                     local_state.coreQData = fill;
-
-                    // Replace the opaque with the one for higher levels.
-                    opaquesPool.readReq(cpu_iid, missTokIndex(miss_tok));
-                    read_opaques = True;
                 end
-
-                // See if our allocation will evict a dirty line for writeback.
-                // This check will be finished in the following stage.
-                l2Alg.evictionCheckReq(cpu_iid, fill.linePAddr);
             end
             else
             begin
@@ -328,39 +328,58 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             debugLog.record_next_cycle(cpu_iid, $format("1: NO MEM RSP"));
         end
 
-        stage2Ctrl.ready(cpu_iid, tuple2(local_state, read_opaques));
+        stage2Ctrl.ready(cpu_iid, local_state);
     endrule
 
 
     //
-    // stage2_evictAndCPUReq --
-    //   Finish fill evictions and request lookups for any load/stores.
+    // stage2_victimIdx --
+    //   Learn the index of the victim and check the victim line's current state.
     //
-    rule stage2_evictAndCPUReq (True);
+    rule stage2_victimIdx (True);
+        match {.cpu_iid, .local_state} <- stage2Ctrl.nextReadyInstance();
 
-        match {.cpu_iid, .local_state, .read_opaques} <- stage2Ctrl.nextReadyInstance();
-
-        if (read_opaques)
+        if (local_state.writePortUsed)
         begin
+            match {.prev_opaque, .fill_idx} <- opaquesPool.readRsp(cpu_iid);
+
+            // Record the cache fill index
+            local_state.writePortIdx = fill_idx;
+
             //
             // Restore the opaque to the context that sent the request to this
             // cache.  This cache modified only the bits required for a local
             // miss token.  Merge the unmodified bits (still in the opaque)
             // and the preserved, overwritten bits (stored in opaquesPool).
             //
-            let prev_opaque <- opaquesPool.readRsp(cpu_iid);
-            local_state.coreQData.opaque = updateMemOpaque(local_state.coreQData.opaque,
-                                                           prev_opaque);
+            if (local_state.coreQUsed)
+            begin
+                local_state.coreQData.opaque = updateMemOpaque(local_state.coreQData.opaque,
+                                                               prev_opaque);
+            end
+
+            // Does the current entry that will be evicted need writeback?
+            l2Alg.lookupByIndexReq(cpu_iid, fill_idx);
         end
+
+        stage3Ctrl.ready(cpu_iid, local_state);
+    endrule
+
+
+    //
+    // stage3_evictAndCPUReq --
+    //   Finish fill evictions and request lookups for any load/stores.
+    //
+    rule stage3_evictAndCPUReq (True);
+        match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
 
         // See if we started an eviction in the previous stage.
         if (local_state.writePortUsed)
         begin
-            let m_evict <- l2Alg.evictionCheckRsp(cpu_iid);
+            let m_evict <- l2Alg.lookupByIndexRsp(cpu_iid);
 
             // If our fill evicted a dirty line we must write it back.
-            if (m_evict matches tagged Valid .evict &&&
-                evict.state matches tagged Valid .state &&&
+            if (m_evict matches tagged Valid .state &&&
                 state.dirty)
             begin
                 // Is there any room in the memQ?
@@ -411,7 +430,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         if (local_state.writePortUsed)
         begin
             eventFill.recordEvent(cpu_iid,
-                                  tagged Valid resize({ local_state.writePortData, 1'b0 }));
+                                  tagged Valid resize({ local_state.writePortData.linePAddr, 1'b0 }));
         end
         else
         begin
@@ -428,7 +447,10 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             assertReqOk(cacheMsg_IsReqLoad(req) || cacheMsg_IsReqStore(req));
 
             // See if the cache algorithm hit or missed.
-            l2Alg.loadLookupReq(cpu_iid, req.linePAddr);
+            l2Alg.lookupByAddrReq(cpu_iid,
+                                  req.linePAddr,
+                                  True,
+                                  local_state.coreQUsed);
             debugLog.record(cpu_iid, $format("2: REQ: LINE: 0x%h", req.linePAddr));
 
             // Finish the request in the next stage.
@@ -440,25 +462,25 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         end
         
         // Pass our information to the next stage.
-        stage3Ctrl.ready(cpu_iid, local_state);
+        stage4Ctrl.ready(cpu_iid, local_state);
     endrule
     
     
     //
-    // stage3_cpuRspStoreReq --
+    // stage4_cpuRspStoreReq --
     //   Finish up any load/stores to see if they hit or miss.
     //   Begin handling any store requests.
     //    
-    rule stage3_cpuRspCCReq (!isValid(stage3Stall));
+    rule stage4_cpuRspCCReq (!isValid(stage4Stall));
         // Get the local state from the previous stage.
-        match {.cpu_iid, .local_state} <- stage3Ctrl.nextReadyInstance();
+        match {.cpu_iid, .local_state} <- stage4Ctrl.nextReadyInstance();
 
         // See if we need to finish any cpu responses.
         if (local_state.req matches tagged Valid .req)
         begin
             // Get the lookup response.
-            let m_entry <- l2Alg.loadLookupRsp(cpu_iid);
-            stage3Stall <= tagged Valid tuple4(cpu_iid, req, m_entry, local_state);
+            let entry <- l2Alg.lookupByAddrRsp(cpu_iid);
+            stage4Stall <= tagged Valid tuple4(cpu_iid, req, entry, local_state);
         end
         else
         begin
@@ -466,15 +488,15 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             reqFromCore.noDeq(cpu_iid);
             eventHit.recordEvent(cpu_iid, tagged Invalid);
             eventMiss.recordEvent(cpu_iid, tagged Invalid);
-            stage4Ctrl.ready(cpu_iid, tuple2(local_state, tagged Invalid));
+            stage5Ctrl.ready(cpu_iid, tuple3(local_state, tagged Invalid, ?));
         end
     endrule
     
 
     (* conservative_implicit_conditions *)
-    rule stage3_STALL (stage3Stall matches tagged Valid {.cpu_iid,
+    rule stage4_STALL (stage4Stall matches tagged Valid {.cpu_iid,
                                                          .req,
-                                                         .m_entry,
+                                                         .entry,
                                                          .ls});
         let local_state = ls;
 
@@ -490,7 +512,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         //
         // Is the line already in the cache?
         //
-        if (m_entry matches tagged Valid .entry)
+        if (entry.state matches tagged Valid .state)
         begin
             // Yes:  hit
             if (cacheMsg_IsReqStore(req))
@@ -503,8 +525,10 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     // In other words, the writes will be coalesced and only
                     // one writeback to memory will occur.
                     local_state.writePortUsed = True;
-                    local_state.writePortData = req.linePAddr;
-                    local_state.writeDataDirty = True;
+                    local_state.writePortIdx = entry.idx;
+                    local_state.writePortData = initCacheEntryState(req.linePAddr,
+                                                                    True,
+                                                                    ?);
 
                     // No response to a store. Don't change the coreQData in
                     // case there was a fill.
@@ -547,7 +571,15 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             //
             // Miss path.
             //
-            if (cacheMsg_IsReqStore(req))
+            if (entry.state matches tagged Blocked)
+            begin
+                // The request must stall because no line can currently be
+                // evicted.
+                statReadRetry.incr(cpu_iid);
+                debugLog.record(cpu_iid, $format("3: EVICT BLOCKED RETRY"));
+                reqFromCore.noDeq(cpu_iid);
+            end
+            else if (cacheMsg_IsReqStore(req))
             begin
                 if (outstandingMisses.canAllocateStore(cpu_iid) &&
                     memQAvailable(local_state))
@@ -607,19 +639,25 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         eventHit.recordEvent(cpu_iid, evt_hit);
         eventMiss.recordEvent(cpu_iid, evt_miss);
 
-        stage3Stall <= tagged Invalid;
-        stage4Ctrl.ready(cpu_iid, tuple2(local_state, new_miss_tok_req));
+        stage4Stall <= tagged Invalid;
+        stage5Ctrl.ready(cpu_iid, tuple3(local_state, new_miss_tok_req, entry.idx));
     endrule
     
 
-    rule stage4_end (True);
-        match {.cpu_iid, {.local_state, .new_miss_tok_req}} <- stage4Ctrl.nextReadyInstance();
+    rule stage5_end (True);
+        match {.cpu_iid, {.local_state,
+                          .new_miss_tok_req,
+                          .fill_idx}} <- stage5Ctrl.nextReadyInstance();
 
         if (new_miss_tok_req matches tagged Valid .req)
         begin
             if (cacheMsg_IsReqStore(req))
             begin
                 let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
+
+                // Record the cache index to which the fill will be written
+                opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
+                                  tuple2(?, fill_idx));
 
                 // Use the opaque bits to store the miss token.
                 // Note that we use a load to simulate getting exclusive access.
@@ -633,9 +671,10 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             begin
                 let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
 
-                // Record the original opaque for returning.
+                // Record the state of the outstanding fill, including the
+                // L1 opaque.
                 opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
-                                  fromMemOpaque(req.opaque));
+                                  tuple2(fromMemOpaque(req.opaque), fill_idx));
 
                 // Use the opaque bits to store the miss token.
                 let mem_req = cacheMsg_ReqLoad(req.linePAddr,
@@ -664,10 +703,21 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         // Take care of the cache update.
         if (local_state.writePortUsed)
         begin
-            l2Alg.allocate(cpu_iid,
-                           local_state.writePortData,
-                           local_state.writeDataDirty,
-                           ?);
+            if (! local_state.writePortData.dirty)
+            begin
+                // Fill -- must be an allocation
+                l2Alg.allocate(cpu_iid,
+                               local_state.writePortIdx,
+                               local_state.writePortData,
+                               CACHE_ALLOC_FILL);
+            end
+            else
+            begin
+                // Store.  In this controller, the line was already present.
+                l2Alg.update(cpu_iid,
+                             local_state.writePortIdx,
+                             local_state.writePortData);
+            end
         end
 
         // Take care of CPU rsp

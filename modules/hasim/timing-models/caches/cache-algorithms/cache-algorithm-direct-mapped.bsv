@@ -39,134 +39,134 @@ import DefaultValue::*;
 `include "asim/provides/common_services.bsh"
 `include "asim/provides/scratchpad_memory_common.bsh"
 
-`define PORT_LOAD 0
-`define PORT_STORE 1
-`define PORT_EVICT 2
+`define PORT_ADDR 0
+`define PORT_IDX  1
 
-module [HASIM_MODULE] mkCacheAlgDirectMapped#(Integer opaque_name,
+module [HASIM_MODULE] mkCacheAlgDirectMapped#(function Bool mayEvict(t_OPAQUE opaque),
+                                              Integer opaque_name,
                                               Bool storeTagsInScratchpad)
     // interface:
-    (CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, t_IDX_SIZE, 1))
+    (CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, t_SET_SIZE, 1))
     provisos
-        (Bits#(t_OPAQUE, t_OPAQUE_SIZE),
-         Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
-         Alias#(t_ENTRY, CACHE_ENTRY#(t_OPAQUE, t_IDX_SIZE, 1)),
-         Alias#(CACHE_ENTRY_STATE_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY));
+        (Alias#(t_IID, INSTANCE_ID#(t_NUM_INSTANCES)),
+         Bits#(t_OPAQUE, t_OPAQUE_SIZE),
+         Add#(t_SET_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
+         Alias#(t_INTERNAL_ENTRY, CACHE_ENTRY_STATE_INTERNAL#(t_OPAQUE, t_TAG_SIZE)),
+         NumAlias#(t_NUM_WAYS, 1));
 
     let buffering = valueof(t_NUM_INSTANCES) + 1;
 
-    FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);
-    FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);
-    FIFO#(Bit#(t_IDX_SIZE)) evictionQ <- mkSizedFIFO(buffering);
+    FIFO#(Tuple2#(Bit#(t_SET_SIZE), Bit#(t_TAG_SIZE))) lookupByAddrQ <- mkSizedFIFO(buffering);
+    FIFO#(CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS)) lookupByIdxQ <- mkSizedFIFO(buffering);
+
+    let assertIdxOk <- mkAssertionSimOnly("cache-algorithm-direct-mapped.bsv: Incorrect ADDR for IDX!",
+                                          ASSERT_ERROR);
 
     // Initialize a opaque memory to store our tags in.   
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
-                                       3,
-                                       Bit#(t_IDX_SIZE),
+                                       2,
+                                       Bit#(t_SET_SIZE),
                                        Maybe#(t_INTERNAL_ENTRY))
         tagStore <- (storeTagsInScratchpad ?
                          mkMultiReadScratchpad_Multiplexed(opaque_name, defaultValue) :
                          mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, tagged Invalid)));
 
-    function Maybe#(t_ENTRY) entryTagCheck(LINE_ADDRESS addr, Maybe#(t_INTERNAL_ENTRY) m_entry);
+
+    method Action lookupByAddrReq(t_IID iid,
+                                  LINE_ADDRESS addr,
+                                  Bool updateReplacement,
+                                  Bool isLoad);
+        // Look up the set in the tag store.
+        let set = getCacheSet(addr);
+        tagStore.readPorts[`PORT_ADDR].readReq(iid, set);
+
+        // Pass the request on to the next stage.
+        lookupByAddrQ.enq(tuple2(set, getCacheTag(addr)));
+    endmethod
+    
+    method ActionValue#(CACHE_LOOKUP_RSP#(t_OPAQUE,
+                                          t_SET_SIZE,
+                                          t_NUM_WAYS)) lookupByAddrRsp(t_IID iid);
+        match {.set, .target_tag} = lookupByAddrQ.first();
+        lookupByAddrQ.deq();
+        
+        let m_entry <- tagStore.readPorts[`PORT_ADDR].readRsp(iid);
+
+        let entry_idx = CACHE_ENTRY_IDX { set: set, way: 0 };
+
         if (m_entry matches tagged Valid .entry)
         begin
             // Check if the tags match.
-            let existing_tag = entry.tag;
-            let idx = getCacheIndex(addr);
-            let target_tag = getCacheTag(addr);
-
-            if (existing_tag == target_tag)
+            if (entry.tag == target_tag)
             begin
                 // A hit!
-                let entry_idx = CACHE_ENTRY_IDX { set: idx, way: 0 };
-                return tagged Valid
-                    CACHE_ENTRY { idx: entry_idx,
-                                  state: tagged Valid toCacheEntryState(entry, idx) };
+                return
+                    CACHE_LOOKUP_RSP { idx: entry_idx,
+                                       state: tagged Valid toCacheEntryState(entry, set) };
+            end
+            else if (mayEvict(entry.opaque))
+            begin
+                // A miss and the current entry may be evicted.
+                return
+                    CACHE_LOOKUP_RSP { idx: entry_idx,
+                                       state: tagged MustEvict toCacheEntryState(entry, set) };
             end
             else
             begin
-                // A miss.
-                return tagged Invalid;
+                // A miss and the current entry may NOT be evicted.
+                return CACHE_LOOKUP_RSP { idx: entry_idx, state: tagged Blocked };
             end
         end
         else
         begin
             // No line at this entry.
-            return tagged Invalid;
+            return CACHE_LOOKUP_RSP { idx: entry_idx, state: tagged Invalid };
         end
-    endfunction
+    endmethod
 
-    method Action loadLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
+    
+    method Action lookupByIndexReq(t_IID iid,
+                                   CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
         // Look up the index in the tag store.
-        let idx = getCacheIndex(addr);
-        tagStore.readPorts[`PORT_LOAD].readReq(iid, idx);
+        tagStore.readPorts[`PORT_IDX].readReq(iid, idx.set);
 
-        // Pass the request on to the next stage.
-        loadLookupQ.enq(addr);
-    endmethod
-    
-    method ActionValue#(Maybe#(t_ENTRY)) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        let addr = loadLookupQ.first();
-        loadLookupQ.deq();
-        
-        let m_entry <- tagStore.readPorts[`PORT_LOAD].readRsp(iid);
-        
-        return entryTagCheck(addr, m_entry);
-    endmethod
-    
-    method Action storeLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-        // Look up the index in the tag store.    
-        let idx = getCacheIndex(addr);
-        tagStore.readPorts[`PORT_STORE].readReq(iid, idx);
-
-        // Pass the request on to the next stage.
-        storeLookupQ.enq(addr);
-    endmethod
-    
-    method ActionValue#(Maybe#(t_ENTRY)) storeLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        let addr = storeLookupQ.first();
-        storeLookupQ.deq();
-
-        let m_entry <- tagStore.readPorts[`PORT_STORE].readRsp(iid);
-        
-        return entryTagCheck(addr, m_entry);
+        lookupByIdxQ.enq(idx);
     endmethod
 
-    method Action evictionCheckReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-        // Look up the index in the tag store.    
-        let idx = getCacheIndex(addr);
-        tagStore.readPorts[`PORT_EVICT].readReq(iid, idx);
-        evictionQ.enq(idx);
-    endmethod
-
-    
-    method ActionValue#(Maybe#(t_ENTRY)) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        // Since we're direct-mapped this is the same as a lookup.
-        // A set-associative cache would do something here to see which way it should use.
-        let m_entry <- tagStore.readPorts[`PORT_EVICT].readRsp(iid);
+    method ActionValue#(Maybe#(CACHE_ENTRY_STATE#(t_OPAQUE))) lookupByIndexRsp(t_IID iid);
+        let idx = lookupByIdxQ.first();
+        lookupByIdxQ.deq();
         
-        let idx = evictionQ.first();
-        evictionQ.deq();
-        
+        let m_entry <- tagStore.readPorts[`PORT_IDX].readRsp(iid);
         if (m_entry matches tagged Valid .entry)
         begin
-            let entry_idx = CACHE_ENTRY_IDX { set: idx, way: 0 };
-            return tagged Valid
-                CACHE_ENTRY { idx: entry_idx,
-                              state: tagged Valid toCacheEntryState(entry, idx) };
+            return tagged Valid toCacheEntryState(entry, idx.set);
         end
         else
         begin
             return tagged Invalid;
         end
     endmethod
-    
-    method Action allocate(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr, Bool dirty, t_OPAQUE opaque);
-        let entry = dirty ? initInternalCacheEntryDirty(addr) : initInternalCacheEntryClean(addr);
-        entry.opaque = opaque;
-        let idx = getCacheIndex(addr);
-        tagStore.write(iid, idx, tagged Valid entry);
-    endmethod
 
+
+    method Action allocate(t_IID iid,
+                           CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx,
+                           CACHE_ENTRY_STATE#(t_OPAQUE) state,
+                           CACHE_ALLOC_SOURCE source);
+
+        assertIdxOk(idx.set == getCacheSet(state.linePAddr));
+
+        let entry = initInternalCacheEntryFromState(state);
+        tagStore.write(iid, idx.set, tagged Valid entry);
+    endmethod
+    
+    method Action update(t_IID iid,
+                         CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx,
+                         CACHE_ENTRY_STATE#(t_OPAQUE) state);
+
+        assertIdxOk(idx.set == getCacheSet(state.linePAddr));
+
+        let entry = initInternalCacheEntryFromState(state);
+        tagStore.write(iid, idx.set, tagged Valid entry);
+    endmethod
 endmodule

@@ -38,10 +38,13 @@ typedef `LLC_ALG_INDEX_SIZE IDX_SIZE;
 typedef CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, IDX_SIZE, `LLC_ALG_NUM_WAYS)
     LLC_CACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
 
-typedef CACHE_ENTRY#(t_OPAQUE, IDX_SIZE, `LLC_ALG_NUM_WAYS)
-    LLC_CACHE_ENTRY#(type t_OPAQUE);
+typedef CACHE_ENTRY_IDX#(IDX_SIZE, `LLC_ALG_NUM_WAYS)
+    LLC_CACHE_IDX;
 
-module [HASIM_MODULE] mkLastLevelCacheAlg
+typedef CACHE_LOOKUP_RSP#(t_OPAQUE, IDX_SIZE, `LLC_ALG_NUM_WAYS)
+    LLC_CACHE_LOOKUP_RSP#(type t_OPAQUE);
+
+module [HASIM_MODULE] mkLastLevelCacheAlg#(function Bool mayEvict(t_OPAQUE opaque))
     // interface:
     (LLC_CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE))
     provisos
@@ -50,7 +53,8 @@ module [HASIM_MODULE] mkLastLevelCacheAlg
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(t_NUM_INSTANCES) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc_alg.out");
 
-    let _alg <- mkCacheAlgSetAssociative(debugLog,
+    let _alg <- mkCacheAlgSetAssociative(mayEvict,
+                                         debugLog,
                                          `VDEV_SCRATCH_HASIM_LAST_LEVEL_CACHE_ALG_SCRATCHPAD,
                                          `LLC_ALG_TAGS_USE_SCRATCHPAD != 0);
     return _alg;

@@ -28,6 +28,7 @@
 // ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
+import FShow::*;
 import DefaultValue::*;
 
 
@@ -50,75 +51,130 @@ import DefaultValue::*;
 //
 interface CACHE_ALG#(numeric type t_NUM_INSTANCES,
                      type t_OPAQUE,
-                     numeric type t_IDX_SIZE,
+                     numeric type t_SET_SIZE,
                      numeric type t_NUM_WAYS);
 
-    method Action loadLookupReq(
-        INSTANCE_ID#(t_NUM_INSTANCES) iid,
-        LINE_ADDRESS addr);
+    //
+    // lookupByAddrReq/Rsp --
+    //   Is addr present in the cache?  Returns a Valid response if present.
+    //
+    //   If updateReplacement is True then the replacement policy state is
+    //   updated.
+    //
+    //   isLoad is a hint to the replacement policy, which may or may not
+    //   be interested.  It has no effect on the dirty bit.
+    //
+    method Action lookupByAddrReq(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                                  LINE_ADDRESS addr,
+                                  Bool updateReplacement,
+                                  Bool isLoad);
 
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE,
-                                            t_IDX_SIZE,
-                                            t_NUM_WAYS))) loadLookupRsp(
+    method ActionValue#(CACHE_LOOKUP_RSP#(t_OPAQUE,
+                                          t_SET_SIZE,
+                                          t_NUM_WAYS)) lookupByAddrRsp(
         INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
 
-    method Action storeLookupReq(
-        INSTANCE_ID#(t_NUM_INSTANCES) iid,
-        LINE_ADDRESS addr);
+    //
+    // lookupByIndex --
+    //   Return the current state of a cache entry.  No state is updated,
+    //   including replacement policy state.
+    //
+    method Action lookupByIndexReq(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                                   CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
 
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE,
-                                            t_IDX_SIZE,
-                                            t_NUM_WAYS))) storeLookupRsp(
+    method ActionValue#(Maybe#(CACHE_ENTRY_STATE#(t_OPAQUE))) lookupByIndexRsp(
         INSTANCE_ID#(t_NUM_INSTANCES) iid);
 
 
-    method Action evictionCheckReq(
-        INSTANCE_ID#(t_NUM_INSTANCES) iid,
-        LINE_ADDRESS addr);
-
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE,
-                                            t_IDX_SIZE,
-                                            t_NUM_WAYS))) evictionCheckRsp(
-        INSTANCE_ID#(t_NUM_INSTANCES) iid);
-
-
+    //
+    // allocate --
+    //   Write a new line to the cache at entry idx, overwriting whatever
+    //   was there.
+    //
     method Action allocate(INSTANCE_ID#(t_NUM_INSTANCES) iid,
-                           LINE_ADDRESS addr,
-                           Bool dirty,
-                           t_OPAQUE sc);
+                           CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx,
+                           CACHE_ENTRY_STATE#(t_OPAQUE) state,
+                           CACHE_ALLOC_SOURCE source);
+
+    //
+    // update --
+    //   Similar to allocate(), but updates an existing entry for a line
+    //   already present in the cache.  No update to the replacement policy.
+    //
+    method Action update(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                         CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx,
+                         CACHE_ENTRY_STATE#(t_OPAQUE) state);
 endinterface
 
 
 //
-// CACHE_ENTRY is a combination of the set/way and the state.  A
-// tagged Invalid state indicates the entry is currently invalid.
+// CACHE_LOOKUP_RSP is a combination of the set/way and the state.
 //
 typedef struct
 {
-    CACHE_ENTRY_IDX#(t_IDX_SIZE, t_NUM_WAYS) idx;
-    Maybe#(CACHE_ENTRY_STATE#(t_OPAQUE)) state;
+    CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx;
+    CACHE_LOOKUP_STATE#(t_OPAQUE) state;
 }
-CACHE_ENTRY#(type t_OPAQUE, numeric type t_IDX_SIZE, numeric type t_NUM_WAYS)
+CACHE_LOOKUP_RSP#(type t_OPAQUE, numeric type t_SET_SIZE, numeric type t_NUM_WAYS)
     deriving (Eq, Bits);
+
+//
+// CACHE_LOOKUP_STATE is returned as part of a lookupRsp().
+//
+//   Invalid:
+//     Line not present and the cache entry is currently invalid.
+//   Valid:
+//     Line present.
+//   MustEvict:
+//     Line not present.  In order to add the new line, the returned entry
+//     must be evicted.
+//   Blocked:
+//     Line not present.  Current entries are in transition and none may be
+//     evicted.
+//
+typedef union tagged
+{
+    void                         Invalid;
+    CACHE_ENTRY_STATE#(t_OPAQUE) Valid;
+    CACHE_ENTRY_STATE#(t_OPAQUE) MustEvict;
+    void                         Blocked;
+}
+CACHE_LOOKUP_STATE#(type t_OPAQUE)
+    deriving (Eq, Bits);
+
 
 //
 // CACHE_ENTRY_IDX is the index of the cache bucket holding a line.
 //
 typedef struct
 {
-    Bit#(t_IDX_SIZE) set;
-    Bit#(TLog#(t_NUM_WAYS)) way;
+    Bit#(t_SET_SIZE) set;
+    UInt#(TLog#(t_NUM_WAYS)) way;
 }
-CACHE_ENTRY_IDX#(numeric type t_IDX_SIZE, numeric type t_NUM_WAYS)
+CACHE_ENTRY_IDX#(numeric type t_SET_SIZE, numeric type t_NUM_WAYS)
     deriving (Eq, Bits);
 
-instance DefaultValue#(CACHE_ENTRY_IDX#(t_IDX_SIZE, t_NUM_WAYS));
+instance DefaultValue#(CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS));
     defaultValue = CACHE_ENTRY_IDX { set: 0, way: 0 };
 endinstance
 
+function CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) initCacheEntryIdx(
+                                                       Bit#(t_SET_SIZE) set,
+                                                       UInt#(TLog#(t_NUM_WAYS)) way);
+    return CACHE_ENTRY_IDX { set: set, way: way };
+endfunction
+                                                                     
+
+instance FShow#(CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS));
+    function Fmt fshow(CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
+        return $format("set 0x%h, way %0d", idx.set, idx.way);
+    endfunction
+endinstance
+
+
 //
-// CACHEN_ENTRY_STATE is the cache state of a single entry.
+// CACHE_ENTRY_STATE is the cache state of a single entry.
 //
 typedef struct
 {
@@ -132,3 +188,31 @@ CACHE_ENTRY_STATE#(type t_OPAQUE)
 instance DefaultValue#(CACHE_ENTRY_STATE#(t_OPAQUE));
     defaultValue = CACHE_ENTRY_STATE { dirty: False, opaque: ?, linePAddr: 0 };
 endinstance
+
+function CACHE_ENTRY_STATE#(t_OPAQUE) initCacheEntryState(LINE_ADDRESS linePAddr,
+                                                          Bool dirty,
+                                                          t_OPAQUE opaque);
+    return CACHE_ENTRY_STATE { dirty: dirty,
+                               opaque: opaque,
+                               linePAddr: linePAddr };
+endfunction
+
+instance FShow#(CACHE_ENTRY_STATE#(t_OPAQUE)) provisos (Bits#(t_OPAQUE, t_OPAQUE_SZ));
+    function Fmt fshow(CACHE_ENTRY_STATE#(t_OPAQUE) state);
+        return $format("line 0x%h, dirty %0d, opaque 0x%h",
+                       state.linePAddr, state.dirty, pack(state.opaque));
+    endfunction
+endinstance
+
+
+//
+// CACHE_ALLOC_SOURCE --
+//   Source of the allocated line.
+//
+typedef enum
+{
+    CACHE_ALLOC_FILL,
+    CACHE_ALLOC_STORE
+}
+CACHE_ALLOC_SOURCE
+    deriving (Eq, Bits);

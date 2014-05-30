@@ -38,10 +38,13 @@ typedef `L2_ALG_INDEX_SIZE IDX_SIZE;
 typedef CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, IDX_SIZE, `L2_ALG_NUM_WAYS)
     L2_CACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
 
-typedef CACHE_ENTRY#(t_OPAQUE, IDX_SIZE, `L2_ALG_NUM_WAYS)
-    L2_CACHE_ENTRY#(type t_OPAQUE);
+typedef CACHE_ENTRY_IDX#(IDX_SIZE, `L2_ALG_NUM_WAYS)
+    L2_CACHE_IDX;
 
-module [HASIM_MODULE] mkL2CacheAlg
+typedef CACHE_LOOKUP_RSP#(t_OPAQUE, IDX_SIZE, `L2_ALG_NUM_WAYS)
+    L2_CACHE_LOOKUP_RSP#(type t_OPAQUE);
+
+module [HASIM_MODULE] mkL2CacheAlg#(function Bool mayEvict(t_OPAQUE opaque))
     // interface:
     (L2_CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE))
     provisos
@@ -51,7 +54,8 @@ module [HASIM_MODULE] mkL2CacheAlg
     TIMEP_DEBUG_FILE_MULTIPLEXED#(t_NUM_INSTANCES) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l2_alg.out");
 
     let _alg <-
-        mkCacheAlgSetAssociative(debugLog,
+        mkCacheAlgSetAssociative(mayEvict,
+                                 debugLog,
                                  `VDEV_SCRATCH_HASIM_L2_CACHE_ALG_SCRATCHPAD,
                                  `L2_ALG_TAGS_USE_SCRATCHPAD != 0);
     return _alg;

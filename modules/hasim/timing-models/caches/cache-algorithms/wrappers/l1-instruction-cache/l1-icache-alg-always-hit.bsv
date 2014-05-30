@@ -29,14 +29,17 @@
 typedef CACHE_ALG#(t_NUM_INSTANCES, void, 0, 1)
     L1_ICACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
 
-typedef CACHE_ENTRY#(void, 0, 1)
-    L1_ICACHE_ENTRY#(type t_OPAQUE);
+typedef CACHE_ENTRY_IDX#(0, 1)
+    L1_ICACHE_IDX;
 
-module [HASIM_MODULE] mkL1ICacheAlg
+typedef CACHE_LOOKUP_RSP#(void, 0, 1)
+    L1_ICACHE_LOOKUP_RSP#(type t_OPAQUE);
+
+module [HASIM_MODULE] mkL1ICacheAlg#(function Bool mayEvict(void opaque))
     // interface:
     (L1_ICACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE));
 
-    let _alg <- mkCacheAlgAlwaysHit();
+    let _alg <- mkCacheAlgAlwaysHit(mayEvict);
     return _alg;
 endmodule
 

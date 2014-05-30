@@ -45,9 +45,9 @@
 // 
 // ========================================================================
 
-function Bit#(t_IDX_SIZE) getCacheIndex(LINE_ADDRESS addr)
+function Bit#(t_SET_SIZE) getCacheSet(LINE_ADDRESS addr)
     provisos 
-        (Add#(t_IDX_SIZE, t_TMP, LINE_ADDRESS_SIZE));
+        (Add#(t_SET_SIZE, t_TMP, LINE_ADDRESS_SIZE));
 
     // Purposely use the inverse hash as the hash, and the hash as the inverse.
     // this should help keep things different from the actual scratchpad.
@@ -64,11 +64,11 @@ function Bit#(t_TAG_SIZE) getCacheTag(LINE_ADDRESS addr)
     return truncateLSB(h);
 endfunction
 
-function LINE_ADDRESS unhashAddress(Bit#(t_IDX_SIZE) idx, Bit#(t_TAG_SIZE) tag)
+function LINE_ADDRESS unhashAddress(Bit#(t_SET_SIZE) set, Bit#(t_TAG_SIZE) tag)
     provisos
-        (Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
+        (Add#(t_SET_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
 
-    LINE_ADDRESS hashed_addr = {tag, idx};
+    LINE_ADDRESS hashed_addr = {tag, set};
     return hashBits(hashed_addr);
 endfunction
 
@@ -87,34 +87,31 @@ CACHE_ENTRY_STATE_INTERNAL#(type t_OPAQUE, numeric type t_TAG_SIZE)
 
 
 function CACHE_ENTRY_STATE_INTERNAL#(t_OPAQUE,
-                                     t_TAG_SIZE) initInternalCacheEntryClean(
-                                                     LINE_ADDRESS addr)
+                                     t_TAG_SIZE) initInternalCacheEntry(
+                                                     LINE_ADDRESS addr,
+                                                     Bool dirty,
+                                                     t_OPAQUE opaque)
     provisos
-    (Add#(t_TAG_SIZE, t_TMP, LINE_ADDRESS_SIZE));
+        (Add#(t_TAG_SIZE, t_TMP, LINE_ADDRESS_SIZE));
 
     return 
         CACHE_ENTRY_STATE_INTERNAL
         {
-            dirty: False,
-            opaque: ?,
+            dirty: dirty,
+            opaque: opaque,
             tag: getCacheTag(addr)
         };
 endfunction
 
 function CACHE_ENTRY_STATE_INTERNAL#(t_OPAQUE,
-                                     t_TAG_SIZE) initInternalCacheEntryDirty(
-                                                     LINE_ADDRESS addr)
+                                     t_TAG_SIZE)
+    initInternalCacheEntryFromState(CACHE_ENTRY_STATE#(t_OPAQUE) state)
     provisos
-    (Add#(t_TAG_SIZE, t_TMP, LINE_ADDRESS_SIZE));
+        (Add#(t_TAG_SIZE, t_TMP, LINE_ADDRESS_SIZE));
 
-    return 
-        CACHE_ENTRY_STATE_INTERNAL
-        {
-            dirty: True,
-            opaque: ?,
-            tag: getCacheTag(addr)
-        };
+    return initInternalCacheEntry(state.linePAddr, state.dirty, state.opaque);
 endfunction
+
 
 function CACHE_ENTRY_STATE#(t_OPAQUE) initCacheEntryClean(LINE_ADDRESS addr);
     return
@@ -143,11 +140,11 @@ endfunction
 //
 function CACHE_ENTRY_STATE#(t_OPAQUE) toCacheEntryState(
             CACHE_ENTRY_STATE_INTERNAL#(t_OPAQUE, t_TAG_SIZE) entry,
-            Bit#(t_IDX_SIZE) idx)
+            Bit#(t_SET_SIZE) set)
     provisos
-    (Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
+    (Add#(t_SET_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE));
 
-    let phys_addr = unhashAddress(idx, entry.tag);
+    let phys_addr = unhashAddress(set, entry.tag);
 
     return CACHE_ENTRY_STATE
     {

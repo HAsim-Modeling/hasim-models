@@ -40,16 +40,20 @@ typedef `L1_ICACHE_ALG_INDEX_SIZE IDX_SIZE;
 typedef CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, IDX_SIZE, 1)
     L1_ICACHE_ALG#(numeric type t_NUM_INSTANCES, type t_OPAQUE);
 
-typedef CACHE_ENTRY#(void, IDX_SIZE, 1)
-    L1_ICACHE_ENTRY#(type t_OPAQUE);
+typedef CACHE_ENTRY_IDX#(IDX_SIZE, 1)
+    L1_ICACHE_IDX;
 
-module [HASIM_MODULE] mkL1ICacheAlg
+typedef CACHE_LOOKUP_RSP#(void, IDX_SIZE, 1)
+    L1_ICACHE_LOOKUP_RSP#(type t_OPAQUE);
+
+module [HASIM_MODULE] mkL1ICacheAlg#(function Bool mayEvict(t_OPAQUE opaque))
     // interface:
     (L1_ICACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE))
     provisos
         (Bits#(t_OPAQUE, t_OPAQUE_SZ));
 
-    let _alg <- mkCacheAlgDirectMapped(`VDEV_SCRATCH_HASIM_L1_ICACHE_ALG_SCRATCHPAD,
+    let _alg <- mkCacheAlgDirectMapped(mayEvict,
+                                       `VDEV_SCRATCH_HASIM_L1_ICACHE_ALG_SCRATCHPAD,
                                        `L1_ICACHE_ALG_TAGS_USE_SCRATCHPAD != 0);
     return _alg;
 endmodule

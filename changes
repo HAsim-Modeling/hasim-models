@@ -7669,3 +7669,69 @@ Directory modules/hasim/timing-models/caches/cache-algorithms
 
 Add a bit to CACHE_ENTRY to allow methods to indicate an index for cache entries
 that are currently invalid.
+
+----------
+mcadler     Date: Fri May 30 18:45:29 EDT 2014  CSN: CSN-hasim-models-244
+                  Fri May 30 22:45:29 UTC 2014
+
+
+Directory config/pm/hasim-models/private-caches
+ MESI-private-caches.apm   Locally Added               0 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/last-level-cache/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-instruction-cache
+ l1-instruction-cache.bsv  Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-ifc.bsv   Locally Modified          243 
+ cache-algorithm-always-hit.bsv Locally Modified          243 
+ cache-algorithm-set-associative.bsv Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-data-cache
+ l1-dcache-alg-direct-mapped.bsv Locally Modified          243 
+ l1-dcache-alg-pseudorandom.awb Locally Modified          243 
+ l1-dcache-alg-pseudorandom.bsv Locally Modified          243 
+ l1-dcache-alg-always-hit.bsv Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/last-level-cache
+ llc-set-associative.bsv   Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-instruction-cache
+ l1-icache-alg-always-hit.bsv Locally Modified          243 
+ l1-icache-alg-direct-mapped.bsv Locally Modified          243 
+ l1-icache-alg-pseudorandom.bsv Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms/wrappers/l2-cache
+ l2-alg-pseudorandom.awb   Locally Modified          243 
+ l2-alg-pseudorandom.bsv   Locally Modified          243 
+ l2-alg-always-hit.bsv     Locally Modified          243 
+ l2-alg-set-associative.bsv Locally Modified          243 
+
+Directory modules/hasim/timing-models/caches/cache-algorithms
+ cache-algorithm-direct-mapped.bsv Locally Modified          243 
+ cache-algorithm-pseudorandom.bsv Locally Modified          243 
+ cache-algorithm-utils.bsv Locally Modified          243 
+
+Major restructuring of cache algorithm interface and protocol pipelines.
+
+- Algorithms now just have lookup interfaces that are not part of load/store
+  pipelines.
+
+- The algorithm interface allows clients to update/replace entries by index.
+
+- Restructure the no-coherence protocol modules to operate on a single
+  request in a given model cycle.  This major restructuring of the FPGA
+  and target machine pipeline will map better to the MESI model.  The MESI
+  protocol modules can now be based on the no-coherence versions.  (L2 still
+  needs work.)
