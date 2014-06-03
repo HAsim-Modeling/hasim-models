@@ -7746,3 +7746,17 @@ Directory modules/hasim/timing-models/chip/topology/std
 
 
 Fixed formatting of topology logfile.
+
+----------
+mcadler     Date: Mon Jun  2 20:57:45 EDT 2014  CSN: CSN-hasim-models-246
+                  Tue Jun  3 00:57:45 UTC 2014
+
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/last-level-cache/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          245 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          245 
+
+- Convert L2 cache controller to new style.
+- Split core message handling pipeline into separate message types in LLC.

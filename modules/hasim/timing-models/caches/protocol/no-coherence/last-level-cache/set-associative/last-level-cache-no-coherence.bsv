@@ -474,7 +474,8 @@ endmodule
 typedef union tagged
 {
     Tuple2#(STATION_ID, LLC_RSP) FILL_RSP;
-    ROUTED_LLC_REQ               CORE_REQ;
+    ROUTED_LLC_REQ               LOAD_REQ;
+    ROUTED_LLC_REQ               STORE_REQ;
     void Invalid;
 }
 LLC_OPER
@@ -690,8 +691,16 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
             //
             // New request from core received.
             //
-            oper = tagged CORE_REQ req;
-            debugLog.record(cpu_iid, $format("1: CORE REQ: ") + fshow(req));
+            if (req.lreq.isStore)
+            begin
+                oper = tagged STORE_REQ req;
+                debugLog.record(cpu_iid, $format("1: STORE REQ: ") + fshow(req));
+            end
+            else
+            begin
+                oper = tagged LOAD_REQ req;
+                debugLog.record(cpu_iid, $format("1: LOAD REQ: ") + fshow(req));
+            end
         end
         else
         begin
@@ -748,11 +757,18 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                                        missTokIsLoad(miss_tok));
             end
 
-            tagged CORE_REQ .req:
+            tagged LOAD_REQ .req:
             begin
                 // Look up the address in the cache.
                 llcAlg.lookupByAddrReq(cpu_iid, req.lreq.linePAddr, True, True);
-                debugLog.record(cpu_iid, $format("2: CORE REQ: ") + fshow(req));
+                debugLog.record(cpu_iid, $format("2: LOAD REQ: ") + fshow(req));
+            end
+
+            tagged STORE_REQ .req:
+            begin
+                // Look up the address in the cache.
+                llcAlg.lookupByAddrReq(cpu_iid, req.lreq.linePAddr, True, False);
+                debugLog.record(cpu_iid, $format("2: STORE REQ: ") + fshow(req));
             end
 
             default:
@@ -840,30 +856,14 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 end
             end
 
-            tagged CORE_REQ .req:
+            tagged LOAD_REQ .req:
             begin
                 let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
 
-                local_state.writePortIdx = entry.idx;
-
                 if (entry.state matches tagged Valid .state)
                 begin
-                    //
                     // Hit!
-                    //
-                    if (req.lreq.isStore)
-                    begin
-                        // Store sets the dirty bit.
-                        local_state.writePortUsed = True;
-                        local_state.writePortData = req.lreq.linePAddr;
-                        local_state.writeDataDirty = True;
-
-                        statWriteHit.incr(cpu_iid);
-                        evt_hit = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
-
-                        debugLog.record(cpu_iid, $format("3: STORE HIT: ") + fshow(req) + $format(", ") + fshow(entry.idx));
-                    end
-                    else if (local_state.coreQNotFull)
+                    if (local_state.coreQNotFull)
                     begin
                         // Load response indicates data present.
                         local_state.coreQUsed = True;
@@ -886,58 +886,72 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 end
                 else
                 begin
-                    //
                     // Miss.  Fill the line from memory.
-                    //
-                    if (req.lreq.isStore)
+                    if (outstandingMisses.canAllocateLoad(cpu_iid) &&
+                        local_state.memQNotFull)
                     begin
-                        if (outstandingMisses.canAllocateStore(cpu_iid) &&
-                            local_state.memQNotFull)
-                        begin
-                            // Allocate the next miss ID
-                            local_state.memQUsed = True;
-                            outstandingMisses.allocateStoreReq(cpu_iid);
+                        // Allocate the next miss ID.
+                        local_state.memQUsed = True;
+                        outstandingMisses.allocateLoadReq(cpu_iid,
+                                                          req.lreq.linePAddr);
 
-                            statWriteMiss.incr(cpu_iid);
-                            evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
+                        statReadMiss.incr(cpu_iid);
+                        evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b0 });
 
-                            debugLog.record(cpu_iid, $format("3: STORE MISS: ") + fshow(req));
-                        end
-                        else
-                        begin
-                            // Memory request queue if busy.  The request must stall.
-                            statWriteRetry.incr(cpu_iid);
-                            debugLog.record(cpu_iid, $format("3: STORE MISS RETRY: ") + fshow(req));
-
-                            oper = newLLCOper(tagged Invalid);
-                            local_state = defaultValue;
-                        end
+                        debugLog.record(cpu_iid, $format("3: LOAD MISS: ") + fshow(req));
                     end
                     else
                     begin
-                        // A load miss.
-                        if (outstandingMisses.canAllocateLoad(cpu_iid) &&
-                            local_state.memQNotFull)
-                        begin
-                            // Allocate the next miss ID.
-                            local_state.memQUsed = True;
-                            outstandingMisses.allocateLoadReq(cpu_iid,
-                                                              req.lreq.linePAddr);
+                        // The request must stall.
+                        statReadRetry.incr(cpu_iid);
+                        debugLog.record(cpu_iid, $format("3: LOAD MISS RETRY"));
 
-                            statReadMiss.incr(cpu_iid);
-                            evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b0 });
+                        oper = newLLCOper(tagged Invalid);
+                        local_state = defaultValue;
+                    end
+                end
+            end
 
-                            debugLog.record(cpu_iid, $format("3: LOAD MISS: ") + fshow(req));
-                        end
-                        else
-                        begin
-                            // The request must stall.
-                            statReadRetry.incr(cpu_iid);
-                            debugLog.record(cpu_iid, $format("3: LOAD MISS RETRY"));
+            tagged STORE_REQ .req:
+            begin
+                let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
 
-                            oper = newLLCOper(tagged Invalid);
-                            local_state = defaultValue;
-                        end
+                if (entry.state matches tagged Valid .state)
+                begin
+                    // Hit!  Store sets the dirty bit.
+                    local_state.writePortUsed = True;
+                    local_state.writePortData = req.lreq.linePAddr;
+                    local_state.writePortIdx = entry.idx;
+                    local_state.writeDataDirty = True;
+
+                    statWriteHit.incr(cpu_iid);
+                    evt_hit = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
+
+                    debugLog.record(cpu_iid, $format("3: STORE HIT: ") + fshow(req) + $format(", ") + fshow(entry.idx));
+                end
+                else
+                begin
+                    // Miss.  Fill the line from memory.
+                    if (outstandingMisses.canAllocateStore(cpu_iid) &&
+                        local_state.memQNotFull)
+                    begin
+                        // Allocate the next miss ID
+                        local_state.memQUsed = True;
+                        outstandingMisses.allocateStoreReq(cpu_iid);
+
+                        statWriteMiss.incr(cpu_iid);
+                        evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
+
+                        debugLog.record(cpu_iid, $format("3: STORE MISS: ") + fshow(req));
+                    end
+                    else
+                    begin
+                        // Memory request queue if busy.  The request must stall.
+                        statWriteRetry.incr(cpu_iid);
+                        debugLog.record(cpu_iid, $format("3: STORE MISS RETRY: ") + fshow(req));
+
+                        oper = newLLCOper(tagged Invalid);
+                        local_state = defaultValue;
                     end
                 end
             end
@@ -964,40 +978,43 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                 debugLog.record(cpu_iid, $format("4: FILL RSP Bubble"));
             end
 
-            tagged CORE_REQ .req:
+            tagged LOAD_REQ .req:
             begin
                 if (local_state.memQUsed)
                 begin
                     // A fill request is being sent to memory.  Complete the
                     // request details.
-                   if (req.lreq.isStore)
-                   begin
-                       let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
+                    let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
 
-                       // Use the opaque bits to store the miss token.
-                       // We use a load to simulate getting exclusive access.
-                       let mem_req = initMemLoad(req.lreq.linePAddr);
-                       mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
-                       local_state.memQData = mem_req;
+                    // Record the source core of the request and the original
+                    // opaque.
+                    opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
+                                      tuple2(req.src, fromMemOpaque(req.lreq.opaque)));
 
-                       debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
-                   end
-                   else
-                   begin
-                       let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
+                    // Use the opaque bits to store the miss token.
+                    let mem_req = initMemLoad(req.lreq.linePAddr);
+                    mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
+                    local_state.memQData = mem_req;
 
-                       // Record the source core of the request and the original
-                       // opaque.
-                       opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
-                                         tuple2(req.src, fromMemOpaque(req.lreq.opaque)));
+                    debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));
+                end
+            end
 
-                       // Use the opaque bits to store the miss token.
-                       let mem_req = initMemLoad(req.lreq.linePAddr);
-                       mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
-                       local_state.memQData = mem_req;
+            tagged STORE_REQ .req:
+            begin
+                if (local_state.memQUsed)
+                begin
+                    // A fill request is being sent to memory.  Complete the
+                    // request details.
+                    let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
 
-                       debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));
-                   end
+                    // Use the opaque bits to store the miss token.
+                    // We use a load to simulate getting exclusive access.
+                    let mem_req = initMemLoad(req.lreq.linePAddr);
+                    mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
+                    local_state.memQData = mem_req;
+
+                    debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
                 end
             end
 
@@ -1029,7 +1046,11 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         end
 
 
-        if (oper matches tagged CORE_REQ .req)
+        if (oper matches tagged LOAD_REQ .req)
+        begin
+            reqFromCore.doDeq(cpu_iid);
+        end
+        else if (oper matches tagged STORE_REQ .req)
         begin
             reqFromCore.doDeq(cpu_iid);
         end
