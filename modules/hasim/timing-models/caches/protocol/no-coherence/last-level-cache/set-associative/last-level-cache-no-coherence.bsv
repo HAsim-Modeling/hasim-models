@@ -264,7 +264,6 @@ module [HASIM_MODULE] mkLastLevelCache();
     (* conservative_implicit_conditions *)
     rule stage1_routing (True);
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         let station_id = coreToStationMap.sub(cpu_iid);
 
@@ -461,6 +460,7 @@ module [HASIM_MODULE] mkLastLevelCache();
         end
 
         localCtrl.endModelCycle(cpu_iid, 0);
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 endmodule
 
@@ -654,7 +654,6 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
         // Start a new model cycle
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Make a conglomeration of local information to pass from stage to stage.
         let local_state = defaultValue;
@@ -1129,6 +1128,7 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
         // End of model cycle.
         localCtrl.endModelCycle(cpu_iid, 1); 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

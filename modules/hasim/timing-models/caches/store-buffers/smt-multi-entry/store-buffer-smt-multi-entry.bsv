@@ -138,7 +138,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
     
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current context.
         Reg#(MULTITHREADED#(SB_INDEX)) nextFreeSlot = nextFreeSlotPool[cpu_iid];
@@ -177,7 +176,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         function Bool hasCredits(SB_INDEX newfree, SB_INDEX oldest) = !hasNoCredits(newfree, oldest);
             
         MULTITHREADED#(Bool) credits = zipWith(hasCredits, new_free, oldestCommitted);
-        debugLog.record_next_cycle(cpu_iid, fshow("SEND CREDIT: ") + fshow(credits));
+        debugLog.record(cpu_iid, fshow("SEND CREDIT: ") + fshow(credits));
         creditToDecode.send(cpu_iid, tagged Valid credits);
         
         // Update the tail.        
@@ -441,7 +440,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         headThread <= headThread+1;
         
         localCtrl.endModelCycle(cpu_iid, 1);
-
+        debugLog.nextModelCycle(cpu_iid);
     endrule
     
     (* conservative_implicit_conditions *)

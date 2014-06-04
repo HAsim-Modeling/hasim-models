@@ -492,7 +492,6 @@ module [HASIM_MODULE] mkInterconnect
     rule stage1_updateCreditsIn (state == RUNNING);
         // Get the next IID to simulate.
         let iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(iid);
         
         debugLog.record(iid, $format("1: Begin."));
 
@@ -1283,6 +1282,7 @@ module [HASIM_MODULE] mkInterconnect
 
         // End of model cycle
         localCtrl.endModelCycle(iid, 0);
+        debugLog.nextModelCycle(iid);
     endrule
 endmodule
 

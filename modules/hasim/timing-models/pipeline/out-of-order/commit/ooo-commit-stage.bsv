@@ -159,7 +159,6 @@ module [HASIM_MODULE] mkCommit ();
     
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         
         // Get our local state from the context.
         Reg#(TOKEN_FAULT_EPOCH) faultEpoch = faultEpochPool[cpu_iid];
@@ -180,7 +179,7 @@ module [HASIM_MODULE] mkCommit ();
             begin
             
                 // Normal commit flow for a good instruction.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                debugLog.record(cpu_iid, fshow("1: COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
 
                 // Have the functional partition commit its local results,
                 // and handle any faults that might have occurred.
@@ -195,7 +194,7 @@ module [HASIM_MODULE] mkCommit ();
 
                 // This token followed a branch mispredict or fault. It was actually already rewound.
                 // Therefore we just silently drop it.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: RECLAIM DUMMY: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                debugLog.record(cpu_iid, fshow("1: RECLAIM DUMMY: ") + fshow(tok) + fshow(" ") + fshow(bundle));
 
                 // The response will be handled by the next stage.
                 stage2Ctrl.ready(cpu_iid, tagged STAGE2_dummyRsp tuple2(tok, bundle.isStore));
@@ -207,7 +206,7 @@ module [HASIM_MODULE] mkCommit ();
         begin
         
             // The queue is empty. A bubble.
-            debugLog.record_next_cycle(cpu_iid, $format("1: BUBBLE"));
+            debugLog.record(cpu_iid, $format("1: BUBBLE"));
 
             // No dequeue.
             bundleFromRetireQ.noDeq(cpu_iid);
@@ -367,6 +366,7 @@ module [HASIM_MODULE] mkCommit ();
         
         end
 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

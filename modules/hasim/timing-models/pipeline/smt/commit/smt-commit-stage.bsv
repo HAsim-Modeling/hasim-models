@@ -163,7 +163,6 @@ module [HASIM_MODULE] mkCommit ();
     
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         
         // Get our local state from the context.
         Reg#(MULTITHREADED#(TOKEN_FAULT_EPOCH)) faultEpochs = faultEpochsPool.getReg(cpu_iid);
@@ -184,7 +183,7 @@ module [HASIM_MODULE] mkCommit ();
             begin
 
                 // Normal commit flow for a good instruction.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                debugLog.record(cpu_iid, fshow("1: COMMIT: ") + fshow(tok) + fshow(" ") + fshow(bundle));
 
                 // Have the functional partition commit its local results,
                 // and handle any faults that might have occurred.
@@ -200,7 +199,7 @@ module [HASIM_MODULE] mkCommit ();
                 // This token followed a branch mispredict or fault. We just need to undo its effects
                 // and reclaim its registers. This looks like a normal commit req, but is handled
                 // differently by the functional partition.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: RECLAIM DUMMY: ") + fshow(tok) + fshow(" ") + fshow(bundle));
+                debugLog.record(cpu_iid, fshow("1: RECLAIM DUMMY: ") + fshow(tok) + fshow(" ") + fshow(bundle));
                 //tok.dummy = True;
                 //commitResults.makeReq(initFuncpReqCommitResults(tok));
 
@@ -214,7 +213,7 @@ module [HASIM_MODULE] mkCommit ();
         begin
         
             // The queue is empty. A bubble.
-            debugLog.record_next_cycle(cpu_iid, $format("1: BUBBLE"));
+            debugLog.record(cpu_iid, $format("1: BUBBLE"));
 
             // No dequeue.
             deqToCommitQ.send(cpu_iid, tagged Invalid);
@@ -389,6 +388,7 @@ module [HASIM_MODULE] mkCommit ();
         
         end
 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

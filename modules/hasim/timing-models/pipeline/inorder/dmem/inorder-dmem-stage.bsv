@@ -180,7 +180,6 @@ module [HASIM_MODULE] mkDMem ();
     
         // Begin a model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
     
         // Let's see if we have room in our output buffers.
         let m_credit <- creditFromCommitQ.receive(cpu_iid);
@@ -197,7 +196,7 @@ module [HASIM_MODULE] mkDMem ();
             begin
 
                 // It's a load which did not page fault.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                debugLog.record(cpu_iid, fshow("1: LOAD REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                 // Check if the the load result is either in the cache or the store buffer or the write buffer.
                 reqToSB.send(cpu_iid, tagged Valid initSBSearch(bundle));
@@ -212,7 +211,7 @@ module [HASIM_MODULE] mkDMem ();
             begin
                 
                 // A store which did not page fault.
-                debugLog.record_next_cycle(cpu_iid, fshow("1: STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
+                debugLog.record(cpu_iid, fshow("1: STORE REQ ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
                 // Tell the store buffer about this new store.
                 reqToSB.send(cpu_iid, tagged Valid initSBComplete(bundle));
@@ -229,7 +228,7 @@ module [HASIM_MODULE] mkDMem ();
             begin
 
                 // Not a memory operation. (Or a faulted memory operation.)
-                debugLog.record_next_cycle(cpu_iid, fshow("1: NO-MEMORY ") + fshow(tok));
+                debugLog.record(cpu_iid, fshow("1: NO-MEMORY ") + fshow(tok));
 
                 // Don't tell the cache/SB/WB about it.
                 reqToSB.send(cpu_iid, tagged Invalid);
@@ -245,7 +244,7 @@ module [HASIM_MODULE] mkDMem ();
         begin
 
             // A bubble.
-            debugLog.record_next_cycle(cpu_iid, fshow("1: BUBBLE"));
+            debugLog.record(cpu_iid, fshow("1: BUBBLE"));
 
             // No requests for the store buffer or dcache.
             reqToSB.send(cpu_iid, tagged Invalid);
@@ -488,7 +487,8 @@ module [HASIM_MODULE] mkDMem ();
             localCtrl.endModelCycle(cpu_iid, 3);
 
         end
-    
+
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

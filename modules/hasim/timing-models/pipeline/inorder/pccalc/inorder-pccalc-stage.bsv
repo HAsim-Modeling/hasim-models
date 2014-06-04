@@ -145,7 +145,6 @@ module [HASIM_MODULE] mkPCCalc
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Get our state from the instance.
         Reg#(IMEM_EPOCH) epochReg = epochPool.getReg(cpu_iid);
@@ -172,7 +171,7 @@ module [HASIM_MODULE] mkPCCalc
         begin
             // A fault occurred. Redirect to the given handler address.
             // (If there's no handler this will just be the faulting instruction.
-            debugLog.record_next_cycle(cpu_iid, fshow("1: FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+            debugLog.record(cpu_iid, fshow("1: FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             //rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             epoch.fault = epoch.fault + 1;
 
@@ -186,7 +185,7 @@ module [HASIM_MODULE] mkPCCalc
 
             // A branch misprediction occured.
             // Epoch check ensures we haven't already redirected from a fault.
-            debugLog.record_next_cycle(cpu_iid, fshow("1: REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+            debugLog.record(cpu_iid, fshow("1: REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             //rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             epoch.branch = epoch.branch + 1;
 
@@ -196,7 +195,7 @@ module [HASIM_MODULE] mkPCCalc
         else
         begin
 
-            debugLog.record_next_cycle(cpu_iid, fshow("1: NO FAULT/REWIND"));
+            debugLog.record(cpu_iid, fshow("1: NO FAULT/REWIND"));
         
         end
 
@@ -225,21 +224,21 @@ module [HASIM_MODULE] mkPCCalc
             begin
                 // Epoch is wrong. No need to redirect.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("1: WRONG EPOCH"));
+                debugLog.record(cpu_iid, $format("1: WRONG EPOCH"));
             end
             else if (imem_rsp.response matches tagged IMEM_bad_epoch)
             begin
                 // This was dropped by an earlier stage for some reason.
                 // Reclaim the credit from the instruction queue.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("1 WRONG EPOCH (PREVIOUSLY DROPPED)"));
+                debugLog.record(cpu_iid, $format("1 WRONG EPOCH (PREVIOUSLY DROPPED)"));
             end
             else if (imem_rsp.response matches tagged IMEM_itlb_fault)
             begin
                 // An ITLB fault occured. Increment the itlb epoch, redirect
                 // pc to the handler address.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("1: ITLB FAULT"));
+                debugLog.record(cpu_iid, $format("1: ITLB FAULT"));
         
                 // For now we just go to whatever address we were trying to
                 // execute. This will likely have to change in the future.
@@ -252,14 +251,14 @@ module [HASIM_MODULE] mkPCCalc
                 // ICACHE Retry. We need to increment the iCache epoch,
                 // redirect the PC.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("1: ICACHE RETRY"));
+                debugLog.record(cpu_iid, $format("1: ICACHE RETRY"));
 
                 redirect = tagged Valid imem_rsp.bundle.virtualAddress;
                 epoch.iCache = epoch.iCache + 1;
             end
             else
             begin
-                debugLog.record_next_cycle(cpu_iid, $format("1: NO REDIRECT"));
+                debugLog.record(cpu_iid, $format("1: NO REDIRECT"));
                 // Normal flow. Everything's happy. Enqueue the bundle.
                 enqueue = True;
             end
@@ -285,11 +284,11 @@ module [HASIM_MODULE] mkPCCalc
                     inst: imem_rsp.bundle.instruction,
                     branchAttr: attr
                 };
-                debugLog.record_next_cycle(cpu_iid, $format("1: ENQ PC: 0x%h inst: 0x%h", imem_rsp.bundle.virtualAddress, imem_rsp.bundle.instruction));
+                debugLog.record(cpu_iid, $format("1: ENQ PC: 0x%h inst: 0x%h", imem_rsp.bundle.virtualAddress, imem_rsp.bundle.instruction));
             end
             else
             begin
-                debugLog.record_next_cycle(cpu_iid, $format("1: RECLAIM CREDIT"));
+                debugLog.record(cpu_iid, $format("1: RECLAIM CREDIT"));
             end
 
             let instq_enq = INSTQ_ENQUEUE {
@@ -302,7 +301,7 @@ module [HASIM_MODULE] mkPCCalc
         else
         begin
             // There's a bubble from the front end.
-            debugLog.record_next_cycle(cpu_iid, $format("1: BUBBLE"));
+            debugLog.record(cpu_iid, $format("1: BUBBLE"));
             enqToInstQ.send(cpu_iid, Invalid);
         end
 
@@ -358,7 +357,7 @@ module [HASIM_MODULE] mkPCCalc
 
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
-
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

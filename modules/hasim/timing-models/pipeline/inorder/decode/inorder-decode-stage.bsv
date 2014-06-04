@@ -317,7 +317,6 @@ module [HASIM_MODULE] mkDecode ();
     rule stage1 (True);
         // Begin model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         
         // Extract local state from the cpu instance.
         let local_state <- statePool.extractState(cpu_iid);
@@ -863,6 +862,7 @@ module [HASIM_MODULE] mkDecode ();
         end
 
         localCtrl.endModelCycle(cpu_iid, 1);
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

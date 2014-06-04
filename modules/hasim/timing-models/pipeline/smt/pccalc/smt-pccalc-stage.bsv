@@ -151,7 +151,6 @@ module [HASIM_MODULE] mkPCCalc
 
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Get our state from the instance.
         Reg#(MULTITHREADED#(IMEM_EPOCH)) epochsReg = epochsPool[cpu_iid];
@@ -178,13 +177,13 @@ module [HASIM_MODULE] mkPCCalc
             // A fault occurred. Redirect to the given handler address.
             // (If there's no handler this will just be the faulting instruction.
             THREAD_ID thread = tokThreadId(tok);
-            debugLog.record_next_cycle(cpu_iid, fshow("FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+            debugLog.record(cpu_iid, fshow("FAULT: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             epochs[thread].fault = epochs[thread].fault + 1;
 
             if (isValid(redirects[thread]))
             begin
                 // TODO: handle this case!
-                debugLog.record_next_cycle(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
+                debugLog.record(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
             end
             redirects[thread] = tagged Valid PCC_REDIRECT { addr: addr, rewind: tagged Valid tok };
 
@@ -197,13 +196,13 @@ module [HASIM_MODULE] mkPCCalc
             // A branch misprediction occured.
             // Epoch check ensures we haven't already redirected from a fault.
             THREAD_ID thread = tokThreadId(tok);
-            debugLog.record_next_cycle(cpu_iid, fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
+            debugLog.record(cpu_iid, fshow("REWIND: ") + fshow(tok) + $format(" ADDR:0x%h", addr));
             epochs[thread].branch = epochs[thread].branch + 1;
 
             if (isValid(redirects[thread]))
             begin
                 // TODO: handle this case!
-                debugLog.record_next_cycle(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
+                debugLog.record(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
             end
             redirects[thread] = tagged Valid PCC_REDIRECT { addr: addr, rewind: tagged Valid tok};
         end
@@ -226,21 +225,21 @@ module [HASIM_MODULE] mkPCCalc
             begin
                 // Epoch is wrong. No need to redirect.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("WRONG EPOCH"));
+                debugLog.record(cpu_iid, $format("WRONG EPOCH"));
             end
             else if (imem_rsp.response matches tagged IMEM_itlb_fault)
             begin
                 // An ITLB fault occured. Increment the itlb epoch, redirect
                 // pc to the handler address.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("ITLB FAULT"));
+                debugLog.record(cpu_iid, $format("ITLB FAULT"));
         
                 // For now we just go to whatever address we were trying to
                 // execute. This will likely have to change in the future.
                 if (isValid(redirects[thread]))
                 begin
                     // TODO: handle this case!
-                    debugLog.record_next_cycle(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
+                    debugLog.record(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
                 end
                 redirects[thread] = tagged Valid PCC_REDIRECT{ addr: imem_rsp.bundle.virtualAddress, rewind: Invalid};
                 epochs[thread].iTLB = epochs[thread].iTLB + 1;
@@ -251,12 +250,12 @@ module [HASIM_MODULE] mkPCCalc
                 // ICACHE Retry. We need to increment the iCache epoch,
                 // redirect the PC.
                 enqueue = False;
-                debugLog.record_next_cycle(cpu_iid, $format("ICACHE RETRY"));
+                debugLog.record(cpu_iid, $format("ICACHE RETRY"));
 
                 if (isValid(redirects[thread]))
                 begin
                     // TODO: handle this case!
-                    debugLog.record_next_cycle(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
+                    debugLog.record(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
                 end
                 redirects[thread] = tagged Valid PCC_REDIRECT { addr: imem_rsp.bundle.virtualAddress, rewind: Invalid};
                 epochs[thread].iCache = epochs[thread].iCache + 1;
@@ -271,12 +270,12 @@ module [HASIM_MODULE] mkPCCalc
                 // INSTQ.
                 enqueue = True;
                 statLpBpMismatches.incr(cpu_iid);
-                debugLog.record_next_cycle(cpu_iid, $format("LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
+                debugLog.record(cpu_iid, $format("LP BP Mismatch.  LP: 0x%0h, BP: 0x%0h", imem_rsp.bundle.linePrediction, pred_pc));
 
                 if (isValid(redirects[thread]))
                 begin
                     // TODO: handle this case!
-                    debugLog.record_next_cycle(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
+                    debugLog.record(cpu_iid, fshow("WARNING: redirect collision in pccalc"));
                 end
                 redirects[thread] = tagged Valid PCC_REDIRECT { addr: pred_pc, rewind: Invalid};
                 epochs[thread].iCache = epochs[thread].iCache+1;
@@ -285,7 +284,7 @@ module [HASIM_MODULE] mkPCCalc
             begin
                 // Normal flow. Everything's happy. Enqueue the bundle.
                 enqueue = True;
-                debugLog.record_next_cycle(cpu_iid, fshow("HAPPY"));
+                debugLog.record(cpu_iid, fshow("HAPPY"));
             end
 
             // Check for icache miss. This is independant of anything we've
@@ -324,7 +323,7 @@ module [HASIM_MODULE] mkPCCalc
         begin
             // There's a bubble from the front end.
             enqToInstQ.send(cpu_iid, Invalid);
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
+            debugLog.record(cpu_iid, fshow("BUBBLE"));
         end
 
         stage2Ctrl.ready(cpu_iid);
@@ -396,7 +395,7 @@ module [HASIM_MODULE] mkPCCalc
 
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
-
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

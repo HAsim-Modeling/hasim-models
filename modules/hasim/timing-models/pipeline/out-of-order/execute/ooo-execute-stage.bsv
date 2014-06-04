@@ -220,7 +220,6 @@ module [HASIM_MODULE] mkExecute ();
     
         // Get our local state from the context.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         let oldest_branch_info <- statePool.extractState(cpu_iid);
 
         // Do we have an instruction to execute, and a place to put it?
@@ -248,7 +247,7 @@ module [HASIM_MODULE] mkExecute ();
 
                         // This token is older than the oldest branch we've seen, 
                         // so we should execute it as normal. It may even be a branch itself.
-                        debugLog.record_next_cycle(cpu_iid, fshow("EXEC (NEW EPOCH): ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
+                        debugLog.record(cpu_iid, fshow("EXEC (NEW EPOCH): ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
 
                         // Have the functional partition execute it.
                         getResults.makeReq(initFuncpReqGetResults(tok));
@@ -261,7 +260,7 @@ module [HASIM_MODULE] mkExecute ();
                     begin
 
                         // It was sitting in the issue q after a mispredicted branch. Mark as dummy.
-                        debugLog.record_next_cycle(cpu_iid, fshow("MARK AS DUMMY: ") + fshow(tok));
+                        debugLog.record(cpu_iid, fshow("MARK AS DUMMY: ") + fshow(tok));
                         tok.dummy = True;
 
                         let dmem_bundle = initDMemBundle(tok, bundle.effAddr, bundle.faultEpoch, bundle.isLoad, bundle.isStore, bundle.isTerminate, bundle.dests);
@@ -275,7 +274,7 @@ module [HASIM_MODULE] mkExecute ();
                 begin
                     // This token is older than the oldest branch we've seen, 
                     // so we should execute it as normal. It may even be a branch itself.
-                    debugLog.record_next_cycle(cpu_iid, fshow("EXEC (OLDER): ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
+                    debugLog.record(cpu_iid, fshow("EXEC (OLDER): ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
 
                     // Have the functional partition execute it.
                     getResults.makeReq(initFuncpReqGetResults(tok));
@@ -289,7 +288,7 @@ module [HASIM_MODULE] mkExecute ();
             begin
             
                 // Execute as normal.         
-                debugLog.record_next_cycle(cpu_iid, fshow("EXEC: ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
+                debugLog.record(cpu_iid, fshow("EXEC: ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
 
                 // Have the functional partition execute it.
                 getResults.makeReq(initFuncpReqGetResults(tok));
@@ -304,7 +303,7 @@ module [HASIM_MODULE] mkExecute ();
         begin
 
             // A bubble. 
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
+            debugLog.record(cpu_iid, fshow("BUBBLE"));
             
             // Tell the next stage to propogate the bubble.
             stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_bubble, oldest_branch_info));
@@ -548,7 +547,7 @@ module [HASIM_MODULE] mkExecute ();
         end
         
         statePool.insertState(cpu_iid, oldest_branch_info);
-
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

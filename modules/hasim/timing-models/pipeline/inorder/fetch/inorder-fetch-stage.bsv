@@ -158,7 +158,6 @@ module [HASIM_MODULE] mkFetch ();
         // Start a new model cycle
         let cpu_iid <- localCtrl.startModelCycle();
         statCycles.incr(cpu_iid);
-        debugLog.nextModelCycle(cpu_iid);
         modelCycle.send(cpu_iid);
         
         // Get our local state using the instance.
@@ -174,7 +173,7 @@ module [HASIM_MODULE] mkFetch ();
         // Update the PC and front end epochs.
         if (m_pcFromPCCalc matches tagged Valid {.new_pc, .new_epoch})
         begin
-            debugLog.record_next_cycle(cpu_iid, $format("REDIRECT TO PC:0x%h", new_pc) + $format(" EPOCH:0x%0h", new_epoch));
+            debugLog.record(cpu_iid, $format("REDIRECT TO PC:0x%h", new_pc) + $format(" EPOCH:0x%0h", new_epoch));
 
             local_state.pc = new_pc;
             local_state.epoch = new_epoch;
@@ -264,7 +263,8 @@ module [HASIM_MODULE] mkFetch ();
         end
         
         statePool.insertState(cpu_iid, local_state);
-        
+
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

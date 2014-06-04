@@ -294,7 +294,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
+                    debugLog.record(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
                     prfScoreboard.wbExe[x].ready(pr);
                 end
 
@@ -321,7 +321,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
+                    debugLog.record(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
                     prfScoreboard.wbHit[x].ready(pr);
                 end
 
@@ -348,7 +348,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
+                    debugLog.record(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
                     prfScoreboard.wbMiss[x].ready(pr);
                 end
 
@@ -377,7 +377,6 @@ module [HASIM_MODULE] mkDecode ();
 
         // Begin model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         
         // Extract local state from the cpu instance.
         Reg#(Maybe#(Tuple2#(FETCH_BUNDLE, FUNCP_RSP_GET_DEPENDENCIES))) instToIssue = instToIssuePool.getRegWithWritePort(cpu_iid, 0);
@@ -393,7 +392,7 @@ module [HASIM_MODULE] mkDecode ();
         if (commit matches tagged Valid .commit_tok)
         begin
 
-            debugLog.record_next_cycle(cpu_iid, fshow(commit_tok) + $format(": Commit"));
+            debugLog.record(cpu_iid, fshow(commit_tok) + $format(": Commit"));
             numInstrsInFlight.down();
 
         end
@@ -403,7 +402,7 @@ module [HASIM_MODULE] mkDecode ();
             
             // A fault occurred.
             let thread = tokThreadId(tok);
-            debugLog.record_next_cycle(cpu_iid, $format("2: FAULT: THREAD %0d: ", thread) + fshow(tok));
+            debugLog.record(cpu_iid, $format("2: FAULT: THREAD %0d: ", thread) + fshow(tok));
             
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
 
@@ -422,7 +421,7 @@ module [HASIM_MODULE] mkDecode ();
 
             // A mispredict occurred.
             let thread = tokThreadId(tok);
-            debugLog.record_next_cycle(cpu_iid, fshow("2: MISPREDICT"));
+            debugLog.record(cpu_iid, fshow("2: MISPREDICT"));
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
 
             // Increment the epoch. Don't do anything with the queue. We'll start dropping instructions on the next cycle.
@@ -439,7 +438,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
         
             // We have an instruction to issue, tell the next stage to just proceed.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: Deps ready."));
+            debugLog.record(cpu_iid, fshow("2: Deps ready."));
 
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
@@ -459,7 +458,7 @@ module [HASIM_MODULE] mkDecode ();
             begin
 
                 // We need to retrieve dependencies from the functional partition.
-                debugLog.record_next_cycle(cpu_iid, fshow("2: Request Deps."));
+                debugLog.record(cpu_iid, fshow("2: Request Deps."));
                 getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
 
                 // Tell the next stage to get the response.
@@ -471,7 +470,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 // The instruction is from an old epoch, and we haven't gotten
                 // a token yet. Tell the following stages to drop it.
-                debugLog.record_next_cycle(cpu_iid, fshow("2: SILENT DROP"));
+                debugLog.record(cpu_iid, fshow("2: SILENT DROP"));
 
                 stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
             
@@ -484,7 +483,7 @@ module [HASIM_MODULE] mkDecode ();
             // There's a bubble. Just propogate it.
             // Don't dequeue the instQ.
             deqToInstQ.send(cpu_iid, tagged Invalid);
-            debugLog.record_next_cycle(cpu_iid, fshow("2: BUBBLE"));
+            debugLog.record(cpu_iid, fshow("2: BUBBLE"));
             stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
 
         end
@@ -732,6 +731,7 @@ module [HASIM_MODULE] mkDecode ();
 
         end
 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

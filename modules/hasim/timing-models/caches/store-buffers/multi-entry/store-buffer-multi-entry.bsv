@@ -151,7 +151,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
     
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         
         let local_state <- statePool.extractState(cpu_iid);
 
@@ -178,7 +177,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         begin
 
             // Tell decode we're full.
-            debugLog.record_next_cycle(cpu_iid, fshow("NO CREDIT"));
+            debugLog.record(cpu_iid, fshow("NO CREDIT"));
             creditToDecode.send(cpu_iid, tagged Invalid);
 
         end
@@ -186,7 +185,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         begin
 
             // Tell decode still have room.
-            debugLog.record_next_cycle(cpu_iid, fshow("SEND CREDIT"));
+            debugLog.record(cpu_iid, fshow("SEND CREDIT"));
             creditToDecode.send(cpu_iid, tagged Valid (?));
         
         end
@@ -450,6 +449,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         end
         
         localCtrl.endModelCycle(cpu_iid, 1);
+        debugLog.nextModelCycle(cpu_iid);
         statePool.insertState(cpu_iid, local_state);
 
     endrule

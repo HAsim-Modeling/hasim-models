@@ -193,7 +193,6 @@ module [HASIM_MODULE] mkMemoryController()
     (* conservative_implicit_conditions *)
     rule stage1_sendToOCN (True);
         let iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(iid);
         
         // Check credits for sending to the network
         let can_enq <- ocnSend.canEnq(iid);
@@ -332,6 +331,7 @@ module [HASIM_MODULE] mkMemoryController()
         end
 
         localCtrl.endModelCycle(iid, 0);
+        debugLog.nextModelCycle(iid);
     endrule
 
 endmodule

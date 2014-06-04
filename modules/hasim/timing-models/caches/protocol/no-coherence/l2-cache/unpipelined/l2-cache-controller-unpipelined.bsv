@@ -247,7 +247,6 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     rule stage1_pickOperation (True);
         // Start a new model cycle
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Make a conglomeration of local information to pass from stage to stage.
         let local_state = defaultValue;
@@ -727,6 +726,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
         // End of model cycle.
         localCtrl.endModelCycle(cpu_iid, 1); 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

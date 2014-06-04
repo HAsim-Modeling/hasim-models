@@ -185,7 +185,6 @@ module [HASIM_MODULE] mkInterconnect
     
         // Get the next IID to simulate.
         let iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(iid);
         
         // Get our state from the pools.
         Reg#(VC_STATE#(Bool)) outputCredits  = outputCreditsPool.getReg(iid);
@@ -223,7 +222,7 @@ module [HASIM_MODULE] mkInterconnect
   
         end
         
-        debugLog.record_next_cycle(iid, $format("1: Update input credits"));
+        debugLog.record(iid, $format("1: Update input credits"));
         
         // Do the actual update.
         outputCredits <= new_credits;
@@ -552,7 +551,7 @@ module [HASIM_MODULE] mkInterconnect
         
         // End of model cycle (path 1)
         localCtrl.endModelCycle(iid, 0);
-        
+        debugLog.nextModelCycle(iid);
     endrule
 
 endmodule

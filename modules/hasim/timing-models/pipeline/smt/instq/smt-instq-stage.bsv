@@ -178,7 +178,6 @@ module [HASIM_MODULE] mkInstructionQueue
                 
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current instance.
         Reg#(THREAD_ID) head_thread = headThreadPool[cpu_iid];
@@ -192,13 +191,13 @@ module [HASIM_MODULE] mkInstructionQueue
         if (!empty && first.complete)
         begin
             // It's ready to go.
-            debugLog.record_next_cycle(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", head_ptr, first.bundle.pc));
+            debugLog.record(cpu_iid, $format("SEND READY SLOT: 0x%0h, ADDR:0x%h", head_ptr, first.bundle.pc));
             bundleToDec.send(cpu_iid, tagged Valid first.bundle);
         end
         else
         begin
             // We're not ready to send anything to the decode.
-            debugLog.record_next_cycle(cpu_iid, $format("NO SEND: ")
+            debugLog.record(cpu_iid, $format("NO SEND: ")
                 + $format(empty ? "EMPTY" : "HEAD NOT COMPLETE"));
 
             bundleToDec.send(cpu_iid, tagged Invalid);
@@ -359,7 +358,7 @@ module [HASIM_MODULE] mkInstructionQueue
         
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
-        
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

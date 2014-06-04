@@ -222,7 +222,6 @@ module [HASIM_MODULE] mkExecute ();
     
         // Get our local state from the context.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         TOKEN_EPOCH epoch <- statePool.extractState(cpu_iid);
 
         // Do we have an instruction to execute, and a place to put it?
@@ -240,7 +239,7 @@ module [HASIM_MODULE] mkExecute ();
             begin
 
                 // Ignore NOP
-                debugLog.record_next_cycle(cpu_iid, fshow("DUMMY: ") + fshow(tok));
+                debugLog.record(cpu_iid, fshow("DUMMY: ") + fshow(tok));
 
                 let dmem_bundle = initDMemBundle(tok,
                                                  bundle.effAddr,
@@ -259,7 +258,7 @@ module [HASIM_MODULE] mkExecute ();
             begin
                 
                 // It's on the good path.            
-                debugLog.record_next_cycle(cpu_iid, fshow("EXEC: ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
+                debugLog.record(cpu_iid, fshow("EXEC: ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
 
                 // Have the functional partition execute it.
                 getResults.makeReq(initFuncpReqGetResults(tok));
@@ -273,7 +272,7 @@ module [HASIM_MODULE] mkExecute ();
             
                 // We've got to flush.
             
-                debugLog.record_next_cycle(cpu_iid, fshow("FLUSH: ") + fshow(tok));
+                debugLog.record(cpu_iid, fshow("FLUSH: ") + fshow(tok));
 
                 if (bundle.faultEpoch != epoch.fault)
                 begin
@@ -321,7 +320,7 @@ module [HASIM_MODULE] mkExecute ();
         begin
 
             // A bubble. 
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE") + $format(" (IQ: %d, MQ: %d)", isValid(m_bundle), can_enq));
+            debugLog.record(cpu_iid, fshow("BUBBLE") + $format(" (IQ: %d, MQ: %d)", isValid(m_bundle), can_enq));
             
             // Tell the next stage to propogate the bubble.
             stage2Ctrl.ready(cpu_iid, tuple2(tagged STAGE2_bubble, epoch));
@@ -550,6 +549,7 @@ module [HASIM_MODULE] mkExecute ();
 
         end
 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

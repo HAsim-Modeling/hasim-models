@@ -133,7 +133,6 @@ module [HASIM_MODULE] mkInterconnect
     
         // Get the next IID to simulate.
         let iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(iid);
         
         if (iid == 0)
         begin
@@ -197,7 +196,7 @@ module [HASIM_MODULE] mkInterconnect
             outputQs[iid][ln][vc].deq();
         end
         
-        debugLog.record_next_cycle(iid, $format("1: Update input credits"));
+        debugLog.record(iid, $format("1: Update input credits"));
         
         // Do the actual update.
         outputCredits <= new_credits;
@@ -372,6 +371,7 @@ module [HASIM_MODULE] mkInterconnect
         
         // End of model cycle (path 1)
         localCtrl.endModelCycle(iid, 0);
+        debugLog.nextModelCycle(iid);
         
     endrule
 

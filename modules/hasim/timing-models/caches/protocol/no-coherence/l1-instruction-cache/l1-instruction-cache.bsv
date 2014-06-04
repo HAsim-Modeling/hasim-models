@@ -235,7 +235,6 @@ module [HASIM_MODULE] mkL1ICache ();
     rule stage1_pickOperation (True);
         // Start a new model cycle
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Make a conglomeration of local information to pass from stage to stage.
         IC_LOCAL_STATE local_state = defaultValue;
@@ -567,6 +566,7 @@ module [HASIM_MODULE] mkL1ICache ();
 
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1); 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

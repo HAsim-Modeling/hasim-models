@@ -151,7 +151,6 @@ module [HASIM_MODULE] mkFetch (SMTFetch);
         // Start a new model cycle
         let cpu_iid <- localCtrl.startModelCycle();
         statCycles.incr(cpu_iid);
-        debugLog.nextModelCycle(cpu_iid);
         modelCycle.send(extend(cpu_iid));
         
         // Get our local state using the instance.
@@ -180,7 +179,7 @@ module [HASIM_MODULE] mkFetch (SMTFetch);
         // Update the PC and front end epochs.
         if (m_pcFromPCCalc matches tagged Valid {.thread, .new_pc, .new_epoch})
         begin
-            debugLog.record_next_cycle(cpu_iid, $format("REDIRECT TO PC:0x%h", new_pc) + $format(" THREAD:0x%0h", thread) + $format(" EPOCH:0x%0h", new_epoch));
+            debugLog.record(cpu_iid, $format("REDIRECT TO PC:0x%h", new_pc) + $format(" THREAD:0x%0h", thread) + $format(" EPOCH:0x%0h", new_epoch));
 
             pcs[thread] = new_pc;
             pcsReg <= pcs;
@@ -268,6 +267,7 @@ module [HASIM_MODULE] mkFetch (SMTFetch);
         // Round robin over the threads
         cur_thread <= (cur_thread == maxThreadId ? 0 : cur_thread + 1);
         
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
     method Action setNumThreadsPerCore(Bit#(32) numThreads);

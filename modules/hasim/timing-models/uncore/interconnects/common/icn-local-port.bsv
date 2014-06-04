@@ -951,7 +951,6 @@ module [HASIM_MODULE] mkOCNConnection#(
     (* conservative_implicit_conditions *)
     rule stage1_sendToOCN (True);
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Check credits for sending to the network
         let can_enq <- ocnSend.canEnq(cpu_iid);
@@ -1207,5 +1206,6 @@ module [HASIM_MODULE] mkOCNConnection#(
         end
 
         localCtrl.endModelCycle(cpu_iid, 0);
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 endmodule

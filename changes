@@ -7760,3 +7760,117 @@ Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpi
 
 - Convert L2 cache controller to new style.
 - Split core message handling pipeline into separate message types in LLC.
+
+----------
+mcadler     Date: Wed Jun  4 09:04:06 EDT 2014  CSN: CSN-hasim-models-247
+                  Wed Jun  4 13:04:06 UTC 2014
+
+
+Directory modules/hasim/timing-models/pipeline/inorder/line-predictor/nobranch
+ nobranch-line-predictor.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/dmem
+ inorder-dmem-stage.bsv    Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/decode
+ inorder-decode-stage.bsv  Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/pccalc
+ inorder-pccalc-stage.bsv  Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/branch-predictor
+ branch-predictor.bsv      Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commit
+ inorder-commit-stage.bsv  Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/fetch
+ inorder-fetch-stage.bsv   Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/instq
+ inorder-instq-stage.bsv   Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/execute
+ inorder-execute-stage.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/inorder/commitq
+ inorder-commitq-stage.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/execute
+ ooo-execute-stage.bsv     Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/decode
+ ooo-decode-stage-sequential.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/out-of-order/commit
+ ooo-commit-stage.bsv      Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/smt/execute
+ smt-execute-stage.bsv     Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/smt/decode
+ smt-decode-stage.bsv      Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/smt/pccalc
+ smt-pccalc-stage.bsv      Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/smt/commit
+ smt-commit-stage.bsv      Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/smt/fetch
+ smt-fetch-stage.bsv       Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/smt/instq
+ smt-instq-stage.bsv       Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/with-cache
+ unpipelined-pipeline-with-cache.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/pipeline/unpipelined/no-cache
+ unpipelined-pipeline.bsv  Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/write-buffers/blocking
+ write-buffer-blocking.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/store-buffers/single-entry
+ single-entry-store-buffer.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/store-buffers/multi-entry
+ store-buffer-multi-entry.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/store-buffers/smt-multi-entry
+ store-buffer-smt-multi-entry.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/private-caches/l1-arbiters/static-priority
+ l1-cache-arbiter-static-priority.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache/unpipelined
+ l1-dcache-controller-unpipelined.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/last-level-cache/set-associative
+ last-level-cache-no-coherence.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l1-instruction-cache
+ l1-instruction-cache.bsv  Locally Modified          246 
+
+Directory modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined
+ l2-cache-controller-unpipelined.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/uncore/memory-controller/latency-delay
+ memory-controller-latency-delay.bsv Locally Modified          246 
+
+Directory modules/hasim/timing-models/uncore/interconnects/ring
+ icn-ring.bsv              Locally Modified          246 
+
+Directory modules/hasim/timing-models/uncore/interconnects/common
+ icn-local-port.bsv        Locally Modified          246 
+
+Directory modules/hasim/timing-models/uncore/interconnects/torus
+ icn-mesh.bsv              Locally Modified          246 
+
+Directory modules/hasim/timing-models/uncore/interconnects/crossbar
+ icn-crossbar.bsv          Locally Modified          246 
+
+Update the debug log model cycle in the last pipeline stage instead of the first.
+This eliminates the need for complex inter-rule scheduling of the cycle counter
+that was needed to use the updated counter in the same rule as the update.
