@@ -4,9 +4,6 @@ import Vector::*;
 import FIFO::*;
 import FIFOF::*;
 
-// TEMPORARY:
-`include "asim/dict/RINGID.bsh"
-
 // ******* Project Imports *******
 
 `include "asim/provides/hasim_common.bsh"

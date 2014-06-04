@@ -7874,3 +7874,16 @@ Directory modules/hasim/timing-models/uncore/interconnects/crossbar
 Update the debug log model cycle in the last pipeline stage instead of the first.
 This eliminates the need for complex inter-rule scheduling of the cycle counter
 that was needed to use the updated counter in the same rule as the update.
+
+----------
+mcadler     Date: Wed Jun  4 18:17:08 EDT 2014  CSN: CSN-hasim-models-248
+                  Wed Jun  4 22:17:08 UTC 2014
+
+
+Directory modules/hasim/timing-models/uncore/interconnects/ring
+ icn-ring.bsv              Locally Modified          247 
+
+Directory modules/hasim/timing-models/uncore/interconnects/crossbar
+ icn-crossbar.bsv          Locally Modified          247 
+
+Remove references to deprecated RINGID dictionary entries.
