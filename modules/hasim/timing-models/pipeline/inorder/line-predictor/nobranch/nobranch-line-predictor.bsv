@@ -48,7 +48,6 @@ module [HASIM_MODULE] mkLinePredictor ();
     
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Check for a pc 
         let m_pc <- pcFromFet.receive(cpu_iid);
@@ -58,7 +57,7 @@ module [HASIM_MODULE] mkLinePredictor ();
 
             // Predict pc + 4
             let pred = pc + 4;
-            debugLog.record_next_cycle(cpu_iid, $format("LPRED: %h -> %h", pc, pred));
+            debugLog.record(cpu_iid, $format("LPRED: %h -> %h", pc, pred));
             predToFet.send(cpu_iid, tagged Valid pred);
 
             // End of model cycle. (Path 1)
@@ -68,13 +67,14 @@ module [HASIM_MODULE] mkLinePredictor ();
         begin
 
             // No prediction request. Propogate the bubble.
-            debugLog.record_next_cycle(cpu_iid, $format("BUBBLE"));
+            debugLog.record(cpu_iid, $format("BUBBLE"));
             predToFet.send(cpu_iid, tagged Invalid);
             
             // End of model cycle. (Path 2)
             localCtrl.endModelCycle(cpu_iid, 2);
         end
 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

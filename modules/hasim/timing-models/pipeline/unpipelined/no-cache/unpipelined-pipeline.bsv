@@ -189,7 +189,7 @@ module [HASIM_MODULE] mkPipeline
         
         // End the model cycle.
         localCtrl.endModelCycle(cpu_iid, 1);
-
+        debugLog.nextModelCycle(cpu_iid);
     endaction
     endfunction
 
@@ -207,8 +207,6 @@ module [HASIM_MODULE] mkPipeline
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         linkModelCycle.send(cpu_iid);
-        debugLog.nextModelCycle(cpu_iid);
-
 
         // Translate next pc.
         Reg#(ISA_ADDRESS) pc = pcPool[cpu_iid];

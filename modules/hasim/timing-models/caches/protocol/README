@@ -1,0 +1,3 @@
+This tree specifies the protocols and communication for cache hierarchies.
+All objects under a tree should share a protocol and be compatible with each
+other.

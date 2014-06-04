@@ -178,7 +178,6 @@ module [HASIM_MODULE] mkInstructionQueue
                 
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Get our local state based on the current instance.
         LUTRAM#(INSTQ_SLOT_ID, Bool) complete = completePool.getRAMWithWritePort(cpu_iid, 0);
@@ -193,13 +192,13 @@ module [HASIM_MODULE] mkInstructionQueue
         if (!empty && complete.sub(head_ptr))
         begin
             // It's ready to go.
-            debugLog.record_next_cycle(cpu_iid, $format("1: SLOT READY: 0x%0h", head_ptr));
+            debugLog.record(cpu_iid, $format("1: SLOT READY: 0x%0h", head_ptr));
             stage2Ctrl.ready(cpu_iid, True);
         end
         else
         begin
             // We're not ready to send anything to the decode.
-            debugLog.record_next_cycle(cpu_iid, $format("1: NO SEND: ")
+            debugLog.record(cpu_iid, $format("1: NO SEND: ")
                 + $format(empty ? "EMPTY" : "HEAD NOT COMPLETE"));
 
             stage2Ctrl.ready(cpu_iid, False);
@@ -225,7 +224,7 @@ module [HASIM_MODULE] mkInstructionQueue
         if (slot_ready)
         begin
             // It's ready to go.
-            debugLog.record_next_cycle(cpu_iid, $format("2: SEND READY SLOT: ADDR:0x%h", first.pc));
+            debugLog.record(cpu_iid, $format("2: SEND READY SLOT: ADDR:0x%h", first.pc));
             bundleToDec.send(cpu_iid, tagged Valid first);
         end
         else
@@ -363,7 +362,7 @@ module [HASIM_MODULE] mkInstructionQueue
         
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
-        
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

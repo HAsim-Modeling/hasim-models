@@ -1,7 +1,0 @@
-def EVENTS.LLC.HIT              "LLC: Hit";
-def EVENTS.LLC.MISS             "LLC: Miss";
-
-//
-// On-chip network lanes are enumerated by dictionary entries.
-//
-def OCN_LANES.LLC_REQ           "OCN Lane: LLC Request";

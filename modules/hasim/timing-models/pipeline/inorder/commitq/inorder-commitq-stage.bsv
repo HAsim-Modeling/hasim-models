@@ -146,7 +146,6 @@ module [HASIM_MODULE] mkCommitQueue
                 
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Get the local state for the current instance.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 0);
@@ -342,7 +341,7 @@ module [HASIM_MODULE] mkCommitQueue
         
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
-        
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

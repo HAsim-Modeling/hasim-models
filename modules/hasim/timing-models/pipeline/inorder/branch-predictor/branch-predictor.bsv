@@ -97,7 +97,6 @@ module [HASIM_MODULE] mkBranchPredictor ();
     rule stage1_predLookup (True);
         // Get the next active instance.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Let's see if there was a prediction request.
         let m_pc <- pcFromFet.receive(cpu_iid);
@@ -107,11 +106,11 @@ module [HASIM_MODULE] mkBranchPredictor ();
             // Query the branch predictor and BTB in parallel
             bpAlg.getPredReq(cpu_iid, addr);
             btbAlg.getPredReq(cpu_iid, addr);
-            debugLog.record_next_cycle(cpu_iid, $format("1: REQ: %h", addr));
+            debugLog.record(cpu_iid, $format("1: REQ: %h", addr));
         end
         else
         begin
-            debugLog.record_next_cycle(cpu_iid, $format("1: NO REQ"));
+            debugLog.record(cpu_iid, $format("1: NO REQ"));
         end
 
         stage2Ctrl.ready(cpu_iid, m_pc);
@@ -233,6 +232,7 @@ module [HASIM_MODULE] mkBranchPredictor ();
         
         // End of model cycle (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

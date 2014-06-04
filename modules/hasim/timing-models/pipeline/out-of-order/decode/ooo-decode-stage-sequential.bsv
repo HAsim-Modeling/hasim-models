@@ -423,7 +423,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
+                    debugLog.record(iid, fshow(msg.token) + $format(": PR %0d is ready -- EXE", pr));
                     prfScoreboard.wbExe[x].ready(pr);
                 end
 
@@ -450,7 +450,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
+                    debugLog.record(iid, fshow(msg.token) + $format(": PR %0d is ready -- HIT", pr));
                     prfScoreboard.wbHit[x].ready(pr);
                 end
 
@@ -477,7 +477,7 @@ module [HASIM_MODULE] mkDecode ();
             
                 if (msg.destRegs[x] matches tagged Valid .pr)
                 begin
-                    debugLog.record_next_cycle(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
+                    debugLog.record(iid, fshow(msg.token) + $format(": PR %0d is ready -- MISS", pr));
                     prfScoreboard.wbMiss[x].ready(pr);
                 end
 
@@ -508,7 +508,6 @@ module [HASIM_MODULE] mkDecode ();
 
         // Begin model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         // Extract local state from the cpu instance.
         let local_state <- statePool.extractState(cpu_iid);
@@ -549,7 +548,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
 
             // A fault occurred.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: FAULT: ") + fshow(fault_tok));
+            debugLog.record(cpu_iid, fshow("2: FAULT: ") + fshow(fault_tok));
             
             rewindToToken.makeReq(initFuncpReqRewindToToken(fault_tok));
             doing_rewind = True;
@@ -566,7 +565,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
         
             // A misprediction occurred.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: MISPREDICT: ") + fshow(tok));
+            debugLog.record(cpu_iid, fshow("2: MISPREDICT: ") + fshow(tok));
             
             rewindToToken.makeReq(initFuncpReqRewindToToken(tok));
             doing_rewind = True;
@@ -589,7 +588,7 @@ module [HASIM_MODULE] mkDecode ();
                 begin
                 
                     // We can silently drop it since no one else knows about it.
-                    debugLog.record_next_cycle(cpu_iid, fshow("2: SILENT DROP: ") + fshow(entry.deps.token));
+                    debugLog.record(cpu_iid, fshow("2: SILENT DROP: ") + fshow(entry.deps.token));
                     bundleToRetireQ.noEnq(cpu_iid);
                 
                 end
@@ -600,7 +599,7 @@ module [HASIM_MODULE] mkDecode ();
                     // Instead, mark it as a dummy and send it to commit.
                     let bundle = makeCommitBundle(entry);
                     bundle.token.dummy = True;
-                    debugLog.record_next_cycle(cpu_iid, fshow("2: COMMIT DROP AS DUMMY: ") + fshow(bundle.token));
+                    debugLog.record(cpu_iid, fshow("2: COMMIT DROP AS DUMMY: ") + fshow(bundle.token));
                     bundleToRetireQ.doEnq(cpu_iid, bundle);
                 
                 end
@@ -625,14 +624,14 @@ module [HASIM_MODULE] mkDecode ();
                 if (entry.mispredicted)
                 begin
                     // A mispredict. Commit it, but discard the rest of this epoch.
-                    debugLog.record_next_cycle(cpu_iid, fshow("2: COMMIT (MISPREDICTED): ") + fshow(entry.deps.token));
+                    debugLog.record(cpu_iid, fshow("2: COMMIT (MISPREDICTED): ") + fshow(entry.deps.token));
                     // Drain the rest of this epoch.
                     local_state.drainingEpoch = True;
                 end
                 else
                 begin
                     // A normal commit. The commit stage will report back if a fault occurred.
-                    debugLog.record_next_cycle(cpu_iid, fshow("2: COMMIT: ") + fshow(entry.deps.token));
+                    debugLog.record(cpu_iid, fshow("2: COMMIT: ") + fshow(entry.deps.token));
                     // If we were draining an epoch, we can stop.
                     local_state.drainingEpoch = False;
                 end
@@ -641,14 +640,14 @@ module [HASIM_MODULE] mkDecode ();
             else
             begin
                 // Entry is still in flight.
-                debugLog.record_next_cycle(cpu_iid, fshow("2: COMMIT STALL: ") + fshow(entry.deps.token));
+                debugLog.record(cpu_iid, fshow("2: COMMIT STALL: ") + fshow(entry.deps.token));
                 bundleToRetireQ.noEnq(cpu_iid);
             end
         end
         else
         begin
             // Oldest entry is invalid, ROB is empty.
-            debugLog.record_next_cycle(cpu_iid, fshow("2: NO COMMIT (EMPTY)"));
+            debugLog.record(cpu_iid, fshow("2: NO COMMIT (EMPTY)"));
             bundleToRetireQ.noEnq(cpu_iid);
         end
 
@@ -690,7 +689,7 @@ module [HASIM_MODULE] mkDecode ();
                     local_state.robOccupancy = local_state.robOccupancy + 1;
 
                     // We need to retrieve dependencies from the functional partition.
-                    debugLog.record_next_cycle(cpu_iid, $format("2: ENQ, REQUEST DEPS: PC=0x%0h, INST=0x%0h", bundle.pc, bundle.inst));
+                    debugLog.record(cpu_iid, $format("2: ENQ, REQUEST DEPS: PC=0x%0h, INST=0x%0h", bundle.pc, bundle.inst));
                     getDependencies.makeReq(initFuncpReqGetDependencies(getContextId(cpu_iid), bundle.inst, bundle.pc));
                     
                     // Possibly get a store buffer slot after we have the token.
@@ -703,7 +702,7 @@ module [HASIM_MODULE] mkDecode ();
                 begin
 
                    // ROB is full.
-                   debugLog.record_next_cycle(cpu_iid, $format("2: NO ENQ: ROB FULL"));
+                   debugLog.record(cpu_iid, $format("2: NO ENQ: ROB FULL"));
                    deqToInstQ.send(cpu_iid, tagged Invalid);
                    stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_bubble, local_state));
 
@@ -713,7 +712,7 @@ module [HASIM_MODULE] mkDecode ();
             begin
             
                 // Drop the instruction from a bad epoch.
-                debugLog.record_next_cycle(cpu_iid, $format("2: DROP WRONG EPOCH: PC=0x%0h, INST=0x%0h", bundle.pc, bundle.inst));            
+                debugLog.record(cpu_iid, $format("2: DROP WRONG EPOCH: PC=0x%0h, INST=0x%0h", bundle.pc, bundle.inst));            
                 deqToInstQ.send(cpu_iid, tagged Valid (?));
 
                 stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_bubble, local_state));
@@ -724,7 +723,7 @@ module [HASIM_MODULE] mkDecode ();
         begin
 
             // No enqueue to the ROB.
-            debugLog.record_next_cycle(cpu_iid, $format("2: NO ENQ: BUBBLE"));
+            debugLog.record(cpu_iid, $format("2: NO ENQ: BUBBLE"));
             deqToInstQ.send(cpu_iid, tagged Invalid);
             stage3Ctrl.ready(cpu_iid, tuple2(tagged STAGE3_bubble, local_state));
 
@@ -1047,6 +1046,7 @@ module [HASIM_MODULE] mkDecode ();
 
         statePool.insertState(cpu_iid, local_state);
         localCtrl.endModelCycle(cpu_iid, 1);
+        debugLog.nextModelCycle(cpu_iid);
 
     endrule
 

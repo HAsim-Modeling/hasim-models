@@ -42,290 +42,260 @@ import DefaultValue::*;
 `include "asim/provides/hasim_modellib.bsh"
 `include "asim/provides/fpga_components.bsh"
 
-`define PORT_LOAD 0
-`define PORT_EVICT 1
+`define PORT_ADDR  0
+`define PORT_IDX   1
 `define PORT_ALLOC 2
 
-module [HASIM_MODULE] mkCacheAlgSetAssociative#(TIMEP_DEBUG_FILE_MULTIPLEXED#(t_NUM_INSTANCES) debugLog,
+module [HASIM_MODULE] mkCacheAlgSetAssociative#(function Bool mayEvict(t_OPAQUE opaque),
+                                                TIMEP_DEBUG_FILE_MULTIPLEXED#(t_NUM_INSTANCES) debugLog,
                                                 Integer opaque_name,
-                                                Bool storeTagsInScratchpad,
-                                                NumTypeParam#(t_NUM_WAYS) dummy)
+                                                Bool storeTagsInScratchpad)
     // interface:
-        (CACHE_ALG_INDEXED#(t_NUM_INSTANCES, t_OPAQUE, t_IDX_SIZE))
+    (CACHE_ALG#(t_NUM_INSTANCES, t_OPAQUE, t_SET_SIZE, t_NUM_WAYS))
     provisos
-        (Bits#(t_OPAQUE, t_OPAQUE_SIZE),
-         Add#(t_IDX_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
-         Alias#(CACHE_ENTRY_INTERNAL#(t_OPAQUE, t_TAG_SIZE), t_INTERNAL_ENTRY));
+        (Alias#(t_IID, INSTANCE_ID#(t_NUM_INSTANCES)),
+         Bits#(t_OPAQUE, t_OPAQUE_SIZE),
+         Add#(t_SET_SIZE, t_TAG_SIZE, LINE_ADDRESS_SIZE),
+         Alias#(t_INTERNAL_ENTRY, CACHE_ENTRY_STATE_INTERNAL#(t_OPAQUE, t_TAG_SIZE)));
 
-    let buffering = 2;
-    Integer numWays = valueof(t_NUM_WAYS);
+    let assertIdxOk <- mkAssertionSimOnly("cache-algorithm-set-associative.bsv: Incorrect ADDR for IDX!",
+                                          ASSERT_ERROR);
 
-    FIFO#(LINE_ADDRESS) loadLookupQ <- mkSizedFIFO(buffering);
-    //FIFO#(LINE_ADDRESS) storeLookupQ <- mkSizedFIFO(buffering);
-    FIFO#(Bit#(t_IDX_SIZE)) evictionQ <- mkSizedFIFO(buffering);
-    FIFOF#(Tuple3#(INSTANCE_ID#(t_NUM_INSTANCES), Bit#(t_IDX_SIZE), t_INTERNAL_ENTRY)) allocQ <- mkSizedFIFOF(buffering);
+    let buffering = valueof(t_NUM_INSTANCES) + 1;
+    Integer numWays = valueOf(t_NUM_WAYS);
+
+    FIFO#(Tuple3#(Bit#(t_SET_SIZE), Bit#(t_TAG_SIZE), Bool)) lookupByAddrQ <- mkSizedFIFO(buffering);
+    FIFO#(CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS)) lookupByIdxQ <- mkSizedFIFO(buffering);
+    FIFOF#(Tuple4#(t_IID,
+                   CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS),
+                   t_INTERNAL_ENTRY,
+                   Bool)) updateQ <- mkSizedFIFOF(buffering);
 
     // Store tags in a scratchpad
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
                                        3,
-                                       Bit#(t_IDX_SIZE),
-                                       Vector#(t_NUM_WAYS, t_INTERNAL_ENTRY))
+                                       Bit#(t_SET_SIZE),
+                                       Vector#(t_NUM_WAYS, Maybe#(t_INTERNAL_ENTRY)))
         tagStoreBanks <- (storeTagsInScratchpad ?
                               mkMultiReadScratchpad_Multiplexed(opaque_name, defaultValue) :
-                              mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiRead(False)));
+                              mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, replicate(tagged Invalid))));
     
     // Smaller cache management meta-data fits in local BRAM
     MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
                                        3,
-                                       Bit#(t_IDX_SIZE),
+                                       Bit#(t_SET_SIZE),
                                        Vector#(t_NUM_WAYS, Bool))
         accessedPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, replicate(False)));
-
-    MEMORY_MULTI_READ_IFC_MULTIPLEXED#(t_NUM_INSTANCES,
-                                       3,
-                                       Bit#(t_IDX_SIZE),
-                                       Vector#(t_NUM_WAYS, Bool))
-        validsPool <- mkMemoryMultiRead_Multiplexed(mkBRAMBufferedPseudoMultiReadInitialized(False, replicate(False)));
 
 
     //
     // entryTagCheck --
-    //     Check whether a single entry's valid bit is set and whether its
-    //     address matches a request.
+    //   Check whether a single entry's valid bit is set and whether its
+    //   address matches a request.
     //
-    function Maybe#(CACHE_ENTRY#(t_OPAQUE)) entryTagCheck(LINE_ADDRESS addr, Bool valid, t_INTERNAL_ENTRY entry);
-        if (valid)
-        begin
-            // Check if the tags match.
-            let existing_tag = entry.tag;
-            let idx = getCacheIndex(addr);
-            let target_tag = getCacheTag(addr);
-
-            if (existing_tag == target_tag)
-            begin
-                // A hit!
-                return tagged Valid toCacheEntry(entry, idx);
-            end
-            else
-            begin
-                // A miss.
-                return tagged Invalid;
-            end
-        end
+    function Bool entryTagCheck(Bit#(t_TAG_SIZE) targetTag,
+                                Maybe#(t_INTERNAL_ENTRY) m_entry);
+        if (m_entry matches tagged Valid .entry)
+            return (entry.tag == targetTag);
         else
-        begin
-            // No line at this entry.
-            return tagged Invalid;
-        end
+            return False;
+    endfunction
+
+    //
+    // isLRUCandidate --
+    //   Is an entry a candidate for LRU eviction?  To be a candidate, the
+    //   pseudo-LRU accessed bit must be False and mayEvict must be True.
+    //
+    function Bool isLRUCandidate(Bool accessed,
+                                 Maybe#(t_INTERNAL_ENTRY) m_entry);
+        // Assume the entry is valid.  Invalid entries are already high priority
+        // candidates for eviction, and will be used with higher priority than
+        // the result of this function.
+        let entry = validValue(m_entry);
+        return mayEvict(entry.opaque) && ! accessed;
     endfunction
 
 
-    rule finishAllocate (True);
-    
-        match {.iid, .idx, .entry} = allocQ.first();
-        allocQ.deq();
+    //
+    // finishUpdate --
+    //   Complete alloc or update request.
+    //
+    rule finishUpdate (True);
+        match {.iid, .idx, .entry, .is_alloc} = updateQ.first();
+        updateQ.deq();
+
         let entryvec <- tagStoreBanks.readPorts[`PORT_ALLOC].readRsp(iid);
         let accessedvec <- accessedPool.readPorts[`PORT_ALLOC].readRsp(iid);
-        let validsvec <- validsPool.readPorts[`PORT_ALLOC].readRsp(iid);
 
-        UInt#(TLog#(t_NUM_WAYS)) winner = 0;
-
-        if (findElem(False, validsvec) matches tagged Valid .e)
-        begin
-            // Pick an invalid entry.
-            winner = e;
-        end
-        else if (findElem(False, accessedvec) matches tagged Valid .e)
-        begin
-            // Figure out which was (pseudo) LRU. Assert that at least one
-            // entry accessed == 0.
-            winner = e;
-        end
+        entryvec[idx.way] = tagged Valid entry;
+        tagStoreBanks.write(iid, idx.set, entryvec);
         
-        let new_accessed = accessedvec;
-        new_accessed[winner] = False;
-        accessedPool.write(iid, idx, new_accessed);
+        if (is_alloc)
+        begin
+            accessedvec[idx.way] = False;
+            accessedPool.write(iid, idx.set, accessedvec);
+        end
 
-        let new_valid = validsvec;
-        new_valid[winner] = True;
-        validsPool.write(iid, idx, new_valid);
-
-        let new_entry = entryvec;
-        new_entry[winner]= entry;
-        tagStoreBanks.write(iid, idx, new_entry);
-
-        debugLog.record_simple_ctx(iid, $format("Alloc idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, winner, entry, pack(new_accessed), pack(new_valid)));
-
+        debugLog.record_simple_ctx(iid, $format("Alloc set %0d: way %0d, tag 0x%0h, accessed 0x%0h", idx.set, idx.way, entry.tag, pack(accessedvec)));
     endrule
 
-    method Action loadLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr) if (!allocQ.notEmpty());
 
-        // Look up the index in the tag store.
-        let idx = getCacheIndex(addr);
-        tagStoreBanks.readPorts[`PORT_LOAD].readReq(iid, idx);
-        accessedPool.readPorts[`PORT_LOAD].readReq(iid, idx);
-        validsPool.readPorts[`PORT_LOAD].readReq(iid, idx);
+    method Action lookupByAddrReq(t_IID iid,
+                                  LINE_ADDRESS addr,
+                                  Bool updateReplacement,
+                                  Bool isLoad);
+        // Look up the set in the tag store.
+        Bit#(t_SET_SIZE) set = getCacheSet(addr);
+        Bit#(t_TAG_SIZE) tag = getCacheTag(addr);
+
+        tagStoreBanks.readPorts[`PORT_ADDR].readReq(iid, set);
+        accessedPool.readPorts[`PORT_ADDR].readReq(iid, set);
+
+        debugLog.record_simple_ctx(iid, $format("LD lookup req addr 0x%0h, tag 0x%0h, set %0d", addr, tag, set));
 
         // Pass the request on to the next stage.
-        loadLookupQ.enq(addr);
-    
+        lookupByAddrQ.enq(tuple3(set, tag, updateReplacement));
     endmethod
     
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) loadLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid) if (!allocQ.notEmpty());
-        let addr = loadLookupQ.first();
-        loadLookupQ.deq();
-        Bit#(t_IDX_SIZE) idx = getCacheIndex(addr);
+    method ActionValue#(CACHE_LOOKUP_RSP#(t_OPAQUE,
+                                          t_SET_SIZE,
+                                          t_NUM_WAYS)) lookupByAddrRsp(t_IID iid);
+        match {.set, .target_tag, .update_replacement} = lookupByAddrQ.first();
+        lookupByAddrQ.deq();
         
-        let entryvec <- tagStoreBanks.readPorts[`PORT_LOAD].readRsp(iid);
-        let accessedvec <- accessedPool.readPorts[`PORT_LOAD].readRsp(iid);
-        let validsvec <- validsPool.readPorts[`PORT_LOAD].readRsp(iid);
+        let entryvec <- tagStoreBanks.readPorts[`PORT_ADDR].readRsp(iid);
+        let accessedvec <- accessedPool.readPorts[`PORT_ADDR].readRsp(iid);
 
-        let entryAddr = entryTagCheck(addr);
-             
-        Vector#(t_NUM_WAYS, Maybe#(CACHE_ENTRY#(t_OPAQUE))) res = zipWith(entryAddr, validsvec, entryvec);
+        // Does a way match the target?
+        let m_match_way = findIndex(entryTagCheck(target_tag), entryvec);
   
-        if (findIndex(isValid, res) matches tagged Valid .way)
+        //
+        // Pick a victim in case no way matches the target.
+        //
+
+        // Generate a vector of only the valid bits for current ways
+        let valid_bits = map(isValid, entryvec);
+
+        // Is one of the ways currently invalid?
+        let m_invalid_way = findElem(False, valid_bits);
+
+        // Is a pseudo LRU entry still False?
+        let lru_candidates = zipWith(isLRUCandidate, accessedvec, entryvec);
+        let m_plru = findElem(True, lru_candidates);
+
+        //
+        // Compute the response.
+        //
+        if (m_match_way matches tagged Valid .way)
         begin
-            // Hit -- update the pseudo-LRU accessed bits.
+            // Hit!
+
+            // Update the pseudo-LRU accessed bits
             let new_accessed = accessedvec;
             new_accessed[way] = True;
+            // Reset when all bits are set (this is the "pseudo" part)
             new_accessed = all(id, new_accessed) ? replicate(False) : new_accessed;
-            accessedPool.write(iid, idx, new_accessed);
 
-            debugLog.record_simple_ctx(iid, $format("LD lookup HIT PA 0x%0h idx %d: hit way %d, accessed 0x%0h", addr, idx, way, pack(new_accessed)));
+            if (update_replacement)
+            begin
+                accessedPool.write(iid, set, new_accessed);
+            end
 
-            return res[way];
+            let entry_idx = CACHE_ENTRY_IDX { set: set, way: way };
+            let state = toCacheEntryState(validValue(entryvec[way]), set);
+
+            debugLog.record_simple_ctx(iid, $format("LD lookup HIT PA 0x%0h set %0d: hit way %0d, accessed 0x%0h", state.linePAddr, set, way, pack(new_accessed)));
+
+            return CACHE_LOOKUP_RSP { idx: entry_idx, state: tagged Valid state };
+        end
+        else if (m_invalid_way matches tagged Valid .way)
+        begin
+            // Miss and some way is currently invalid.  Indicate it as the way
+            // to store the new entry.
+            let entry_idx = CACHE_ENTRY_IDX { set: set, way: way };
+
+            debugLog.record_simple_ctx(iid, $format("LD lookup miss tag 0x%0h set %0d: evict invalid way %0d", target_tag, set, way));
+
+            return CACHE_LOOKUP_RSP { idx: entry_idx, state: tagged Invalid };
+        end
+        else if (m_plru matches tagged Valid .way)
+        begin
+            // Miss.  Indicate the LRU way as a victim.
+            let entry_idx = CACHE_ENTRY_IDX { set: set, way: way };
+            let state = toCacheEntryState(validValue(entryvec[way]), set);
+
+            debugLog.record_simple_ctx(iid, $format("LD lookup miss tag 0x%0h set %0d: evict LRU way %0d, addr 0x%0h, dirty %0d", target_tag, set, way, state.linePAddr, state.dirty));
+
+            return CACHE_LOOKUP_RSP { idx: entry_idx, state: tagged MustEvict state };
         end
         else
         begin
-            debugLog.record_simple_ctx(iid, $format("LD lookup MISS PA 0x%0h idx %d", addr, idx));
+            // Miss and all ways are in transitional states and may not be
+            // evicted.
+            let entry_idx = CACHE_ENTRY_IDX { set: set, way: ? };
 
-            return tagged Invalid;
+            debugLog.record_simple_ctx(iid, $format("LD lookup miss tag 0x%0h set %0d: BLOCKED", target_tag, set));
+
+            return CACHE_LOOKUP_RSP { idx: entry_idx, state: tagged Blocked };
         end
-
     endmethod
-    
 
-    method Action storeLookupReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
-/*
+    
+    method Action lookupByIndexReq(t_IID iid,
+                                   CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
         // Look up the index in the tag store.
-        let idx = getCacheIndex(addr);
-        for (Integer x = 0; x < numWays; x = x + 1)
-        begin
-            tagStoreBanks[x].readPorts[`PORT_STORE].readReq(iid, idx);
-        end
+        tagStoreBanks.readPorts[`PORT_IDX].readReq(iid, idx.set);
 
-        // Pass the request on to the next stage.
-        storeLookupQ.enq(addr);
-*/
-        noAction;
-    endmethod
-    
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) storeLookupRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        /*
-        LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) accessed = accessedPool.getRAMWithWritePort(iid, `PORT_STORE);
-        LUTRAM#(Bit#(t_IDX_SIZE), Vector#(t_NUM_WAYS, Bool)) valids   = validsPool.getRAM(iid);
+        debugLog.record_simple_ctx(iid, $format("LD lookup req idx set %0d, way %0d", idx.set, idx.way));
 
-        let addr = storeLookupQ.first();
-        storeLookupQ.deq();
-        let idx = getCacheIndex(addr);
-
-        Maybe#(CACHE_ENTRY#(t_OPAQUE)) res = tagged Invalid;
-        let validsvec = valids.sub(idx);
-
-        Maybe#(Bit#(TLog#(t_NUM_WAYS))) winner = tagged Invalid;
-
-        for (Integer x = 0; x < numWays; x = x + 1)
-        begin
-            let entry <- tagStoreBanks[x].readPorts[`PORT_STORE].readRsp(iid);
-        
-            if (entryTagCheck(addr, validsvec[x], entry) matches tagged Valid .entry2)
-            begin
-                res = tagged Valid entry2;
-                winner = tagged Valid fromInteger(x);
-            end
-        end
-        
-        if (winner matches tagged Valid .way)
-        begin
-            let new_accessed = accessed.sub(idx);
-            new_accessed[way] = True;
-            new_accessed = all(id, new_accessed) ? replicate(False) : new_accessed;
-            accessed.upd(idx, new_accessed);
-        end
-        
-        return res;
-        */
-        noAction;
-        return tagged Invalid;
+        lookupByIdxQ.enq(idx);
     endmethod
 
-    method Action evictionCheckReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr) if (!allocQ.notEmpty());
-
-        // Look up the index in the tag store.
-        let idx = getCacheIndex(addr);
-        tagStoreBanks.readPorts[`PORT_EVICT].readReq(iid, idx);
-        accessedPool.readPorts[`PORT_EVICT].readReq(iid, idx);
-        validsPool.readPorts[`PORT_EVICT].readReq(iid, idx);
-
-        // Pass the request on to the next stage.
-        evictionQ.enq(idx);
-    
-    endmethod
-    
-    method ActionValue#(Maybe#(CACHE_ENTRY#(t_OPAQUE))) evictionCheckRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-
-        Bit#(t_IDX_SIZE) idx = evictionQ.first();
-        evictionQ.deq();
-
-        // Since we're a set associative cache we need to figure out which bank
-        // to insert into for this address.  This is where the accessing
-        // psuedo-LRU scheme comes in.
-       
-        let entryvec <- tagStoreBanks.readPorts[`PORT_EVICT].readRsp(iid);
-        let accessedvec <- accessedPool.readPorts[`PORT_EVICT].readRsp(iid);
-        let validsvec <- validsPool.readPorts[`PORT_EVICT].readRsp(iid);
+    method ActionValue#(Maybe#(CACHE_ENTRY_STATE#(t_OPAQUE))) lookupByIndexRsp(t_IID iid);
+        let idx = lookupByIdxQ.first();
+        lookupByIdxQ.deq();
         
-        Bool allValid = True;
-
-        for (Integer x = 0; x < numWays; x = x + 1)
+        let entryvec <- tagStoreBanks.readPorts[`PORT_IDX].readRsp(iid);
+        if (entryvec[idx.way] matches tagged Valid .entry)
         begin
-            allValid = allValid && validsvec[x];
-        end
+            let rsp = toCacheEntryState(entry, idx.set);
 
-        if (!allValid)
-        begin
-            // There's an unused way, so no one will be evicted.
-            debugLog.record_simple_ctx(iid, $format("EVICT NONE idx %d: accessed 0x%0h, valids 0x%0h", idx, pack(accessedvec), pack(validsvec)));
-            return tagged Invalid;
+            debugLog.record_simple_ctx(iid, $format("LD lookup rsp idx set %0d, way %0d: addr 0x%0h, dirty %0d", idx.set, idx.way, rsp.linePAddr, rsp.dirty));
+
+            return tagged Valid rsp;
         end
         else
         begin
-            // Everyone's valid, so figure out which was (pseudo) LRU.
-            if (findElem(False, accessedvec) matches tagged Valid .x)
-            begin
-                debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, x, entryvec[x], pack(accessedvec), pack(validsvec)));
-                return tagged Valid toCacheEntry(entryvec[x], idx);
-            end
-            else
-            begin
-                debugLog.record_simple_ctx(iid, $format("EVICT LRU idx %d: way %d, tag 0x%0h, accessed 0x%0h, valids 0x%0h", idx, 0, entryvec[0], pack(accessedvec), pack(validsvec)));
-                return tagged Valid toCacheEntry(entryvec[0], idx);
-            end
+            return tagged Invalid;
         end
+    endmethod
 
+
+    method Action allocate(t_IID iid,
+                           CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx,
+                           CACHE_ENTRY_STATE#(t_OPAQUE) state,
+                           CACHE_ALLOC_SOURCE source);
+
+        assertIdxOk(idx.set == getCacheSet(state.linePAddr));
+
+        let entry = initInternalCacheEntryFromState(state);
+
+        tagStoreBanks.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
+        accessedPool.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
+
+        updateQ.enq(tuple4(iid, idx, entry, True));
     endmethod
-    
-    method Action allocate(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr, Bool dirty, t_OPAQUE opaque);
-    
-        let entry = dirty ? initInternalCacheEntryDirty(addr) : initInternalCacheEntryClean(addr);
-        entry.opaque = opaque;
-        let idx = getCacheIndex(addr);
-        tagStoreBanks.readPorts[`PORT_ALLOC].readReq(iid, idx);
-        accessedPool.readPorts[`PORT_ALLOC].readReq(iid, idx);
-        validsPool.readPorts[`PORT_ALLOC].readReq(iid, idx);
-        allocQ.enq(tuple3(iid, idx, entry));
-        
+
+    method Action update(t_IID iid,
+                         CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx,
+                         CACHE_ENTRY_STATE#(t_OPAQUE) state);
+        assertIdxOk(idx.set == getCacheSet(state.linePAddr));
+
+        let entry = initInternalCacheEntryFromState(state);
+
+        tagStoreBanks.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
+        accessedPool.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
+
+        updateQ.enq(tuple4(iid, idx, entry, False));
     endmethod
-    
 endmodule

@@ -1,10 +1,10 @@
 
 [Global]
 SaveParameters=0
-Description=Direct Mapped, Writethrough Private Caches
+Description=No Coherence, Direct Mapped, Writethrough Private Caches
 File=private-caches
 Version=2.2
-Name=Direct Mapped, Writethrough Private Caches
+Name=No Coherence, Direct Mapped, Writethrough Private Caches
 Type=HAsim
 Class=Asim::Model
 DefaultBenchmark=
@@ -25,6 +25,7 @@ l1_cache_base_types=L1 Cache Base Types
 hasim_l1_icache=L1 ICache
 hasim_miss_tracker=Unified Cache Miss Tracker
 hasim_l2_cache=Unpipelined L2 Cache
+hasim_cache_protocol=No-Coherence Protocol
 
 [Split (Instruction and Data)]
 File=modules/hasim/timing-models/caches/private-caches/private-caches.awb
@@ -39,11 +40,11 @@ File=modules/hasim/timing-models/caches/translation-buffers/null/dtlb-null.awb
 Packagehint=hasim-models
 
 [Unpipelined L1 DCache]
-File=modules/hasim/timing-models/caches/private-caches/l1-data-caches/unpipelined/l1-dcache-controller-unpipelined.awb
+File=modules/hasim/timing-models/caches/protocol/no-coherence/l1-data-cache/unpipelined/l1-dcache-controller-unpipelined.awb
 Packagehint=hasim-models
 
 [L1 ICache]
-File=modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/l1-instruction-cache.awb
+File=modules/hasim/timing-models/caches/protocol/no-coherence/l1-instruction-cache/l1-instruction-cache.awb
 Packagehint=hasim-models
 
 [Static Priority L1 Cache Arbiter]
@@ -59,11 +60,11 @@ File=modules/hasim/timing-models/caches/private-caches/base-types/l1-cache-base-
 Packagehint=hasim-models
 
 [Direct-Mapped L1 DCache Alg]
-File=modules/hasim/timing-models/caches/private-caches/l1-data-caches/alg/l1-dcache-alg-direct-mapped.awb
+File=modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-data-cache/l1-dcache-alg-direct-mapped.awb
 Packagehint=hasim-models
 
 [Direct-Mapped L1 ICache Alg]
-File=modules/hasim/timing-models/caches/private-caches/l1-instruction-caches/alg/l1-icache-alg-direct-mapped.awb
+File=modules/hasim/timing-models/caches/cache-algorithms/wrappers/l1-instruction-cache/l1-icache-alg-direct-mapped.awb
 Packagehint=hasim-models
 
 [Unpipelined L1 DCache/Requires]
@@ -73,12 +74,16 @@ hasim_l1_dcache_alg=Direct-Mapped L1 DCache Alg
 hasim_l1_icache_alg=Direct-Mapped L1 ICache Alg
 
 [Unpipelined L2 Cache]
-File=modules/hasim/timing-models/caches/private-caches/l2-caches/unpipelined/l2-cache-controller-unpipelined.awb
+File=modules/hasim/timing-models/caches/protocol/no-coherence/l2-cache/unpipelined/l2-cache-controller-unpipelined.awb
 Packagehint=hasim-models
 
 [Set Associative L2 Cache Alg]
-File=modules/hasim/timing-models/caches/private-caches/l2-caches/alg/l2-alg-set-associative.awb
+File=modules/hasim/timing-models/caches/cache-algorithms/wrappers/l2-cache/l2-alg-set-associative.awb
 Packagehint=hasim-models
 
 [Unpipelined L2 Cache/Requires]
 hasim_l2_cache_alg=Set Associative L2 Cache Alg
+
+[No-Coherence Protocol]
+File=modules/hasim/timing-models/caches/protocol/no-coherence/no-coherence-protocol.awb
+Packagehint=hasim-models

@@ -1,0 +1,8 @@
+%name No-Coherence Protocol
+%desc No-Coherence Protocol
+
+%provides hasim_cache_protocol
+
+%attributes hasim model caches
+
+%public no-coherence-protocol.bsv

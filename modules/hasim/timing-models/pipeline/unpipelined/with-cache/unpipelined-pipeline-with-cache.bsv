@@ -210,7 +210,6 @@ module [HASIM_MODULE] mkPipeline
         // Begin a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
         linkModelCycle.send(cpu_iid);
-        debugLog.nextModelCycle(cpu_iid);
         
         Reg#(ISA_ADDRESS)      pc = pcPool.getRegWithWritePort(cpu_iid, 0);
         Reg#(STALL_FETCH) stalledFetch = stalledFetchPool.getRegWithWritePort(cpu_iid, 0);
@@ -230,7 +229,7 @@ module [HASIM_MODULE] mkPipeline
 
             // Unstall.
             stalledFetch <= UNSTALLING(inst);
-            debugLog.record_next_cycle(cpu_iid, $format("ICache responded from Miss."));
+            debugLog.record(cpu_iid, $format("ICache responded from Miss."));
             
             // Unlike most functional methods, doITranslate requires
             // a no-message.  There will be no response.
@@ -245,7 +244,7 @@ module [HASIM_MODULE] mkPipeline
         
             // Unstall.
             stalledLoad <= UNSTALLING(tok);
-            debugLog.record_next_cycle(cpu_iid, $format("DCache responded from Load Miss."));
+            debugLog.record(cpu_iid, $format("DCache responded from Load Miss."));
             
             linkToITR.makeReq(tagged Invalid);
 
@@ -258,7 +257,7 @@ module [HASIM_MODULE] mkPipeline
 
             // Unstall.
             stalledStore <= UNSTALLING(tuple2(tok, addr));
-            debugLog.record_next_cycle(cpu_iid, $format("DCache responded from Store Miss."));
+            debugLog.record(cpu_iid, $format("DCache responded from Store Miss."));
             
             linkToITR.makeReq(tagged Invalid);
 
@@ -272,7 +271,7 @@ module [HASIM_MODULE] mkPipeline
             // Translate next pc.
             let ctx_id = getContextId(cpu_iid);
             linkToITR.makeReq(tagged Valid initFuncpReqDoITranslate(ctx_id, pc));
-            debugLog.record_next_cycle(cpu_iid, $format("Translating virtual address: 0x%h", pc));
+            debugLog.record(cpu_iid, $format("Translating virtual address: 0x%h", pc));
             stage2Ctrl.ready(cpu_iid, True);
 
         end
@@ -280,7 +279,7 @@ module [HASIM_MODULE] mkPipeline
         begin
         
             // Stalled, so just bubble.
-            debugLog.record_next_cycle(cpu_iid, $format("STALL"));
+            debugLog.record(cpu_iid, $format("STALL"));
             stage2Ctrl.ready(cpu_iid, False);
             
             linkToITR.makeReq(tagged Invalid);
@@ -986,7 +985,7 @@ module [HASIM_MODULE] mkPipeline
 
         // End the model cycle.
         localCtrl.endModelCycle(cpu_iid, 1);
-
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 

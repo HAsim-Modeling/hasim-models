@@ -224,7 +224,6 @@ module [HASIM_MODULE] mkExecute ();
     
         // Get our local state from the context.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
         Reg#(MULTITHREADED#(TOKEN_EPOCH)) epochs = epochsPool[cpu_iid];
 
         // Do we have an instruction to execute, and a place to put it?
@@ -242,7 +241,7 @@ module [HASIM_MODULE] mkExecute ();
             begin
                 
                 // It's on the good path.            
-                debugLog.record_next_cycle(cpu_iid, fshow("EXEC: ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
+                debugLog.record(cpu_iid, fshow("EXEC: ") + fshow(tok) + $format(", pc = 0x%h", bundle.pc));
 
                 // Have the functional partition execute it.
                 getResults.makeReq(initFuncpReqGetResults(tok));
@@ -256,7 +255,7 @@ module [HASIM_MODULE] mkExecute ();
             
                 // We've got to flush.
             
-                debugLog.record_next_cycle(cpu_iid, fshow("FLUSH: ") + fshow(tok));
+                debugLog.record(cpu_iid, fshow("FLUSH: ") + fshow(tok));
 
                 if (bundle.faultEpoch != epochs[tokThreadId(tok)].fault)
                 begin
@@ -304,7 +303,7 @@ module [HASIM_MODULE] mkExecute ();
         begin
 
             // A bubble. 
-            debugLog.record_next_cycle(cpu_iid, fshow("BUBBLE"));
+            debugLog.record(cpu_iid, fshow("BUBBLE"));
             
             // Tell the next stage to propogate the bubble.
             stage2Ctrl.ready(cpu_iid, tagged STAGE2_bubble);
@@ -544,6 +543,7 @@ module [HASIM_MODULE] mkExecute ();
 
         end
 
+        debugLog.nextModelCycle(cpu_iid);
     endrule
 
 endmodule

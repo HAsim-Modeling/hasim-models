@@ -13,4 +13,6 @@
 %param VCS_PER_LANE              1   "Number of virtual channels per lane in the on-chip network."
 
 %param MAX_FLITS_PER_PACKET      2   "Maximum flits in an on-chip network packet."
-%param OCN_PACKET_PAYLOAD_BITS  64   "Size of side-buffer in which OCN packet payloads are stored"
+
+%param OCN_PACKET_TAG_BITS       2   "Size of tag associated with each packet payload."
+%param OCN_PACKET_PAYLOAD_BITS  62   "Size of side-buffer in which OCN packet payloads are stored"

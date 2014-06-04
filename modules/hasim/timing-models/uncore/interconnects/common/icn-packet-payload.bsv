@@ -65,8 +65,25 @@ import DefaultValue::*;
 `include "awb/dict/VDEV_SCRATCH.bsh"
 
 
-typedef Bit#(`OCN_PACKET_PAYLOAD_BITS) OCN_PACKET_PAYLOAD;
 typedef OCN_FLIT_OPAQUE OCN_PACKET_HANDLE;
+
+//
+// Packets are a combination of the payload and a tag.  The tag is generally
+// used to route messages as they leave the OCN when multiple model clients
+// share a virtual channel.  E.g., both the LLC and memory controllers may share
+// a common response virtual channel.
+//
+typedef Bit#(`OCN_PACKET_TAG_BITS) OCN_PACKET_TAG;
+typedef Bit#(`OCN_PACKET_PAYLOAD_BITS) OCN_PACKET_PAYLOAD;
+
+typedef struct
+{
+    OCN_PACKET_TAG tag;
+    OCN_PACKET_PAYLOAD payload;
+}
+OCN_PACKET_BUNDLE
+    deriving (Eq, Bits);
+
 
 //
 // Client interface to the pool of storage for holding packet payloads.
@@ -79,9 +96,9 @@ interface OCN_PACKET_PAYLOAD_CLIENT;
     method Action freeHandle(OCN_PACKET_HANDLE handle);
 
     method Action readReq(OCN_PACKET_HANDLE handle);
-    method ActionValue#(OCN_PACKET_PAYLOAD) readRsp();
+    method ActionValue#(OCN_PACKET_BUNDLE) readRsp();
 
-    method Action write(OCN_PACKET_HANDLE handle, OCN_PACKET_PAYLOAD payload);
+    method Action write(OCN_PACKET_HANDLE handle, OCN_PACKET_BUNDLE payload);
     // An ACK is returned for every write when the write is globally visible.
     method Action writeAck();
 endinterface
@@ -112,10 +129,10 @@ module [HASIM_MODULE] mkNetworkPacketPayloadClient#(Integer id)
 
     CONNECTION_SEND#(OCN_PACKET_HANDLE) readReqQ <-
         mkConnectionSend("OCN_PACKET_PAYLOAD_READREQ_" + suffix);
-    CONNECTION_RECV#(OCN_PACKET_PAYLOAD) readRspQ <-
+    CONNECTION_RECV#(OCN_PACKET_BUNDLE) readRspQ <-
         mkConnectionRecv("OCN_PACKET_PAYLOAD_READRSP_" + suffix);
 
-    CONNECTION_SEND#(Tuple2#(OCN_PACKET_HANDLE, OCN_PACKET_PAYLOAD)) writeQ <-
+    CONNECTION_SEND#(Tuple2#(OCN_PACKET_HANDLE, OCN_PACKET_BUNDLE)) writeQ <-
         mkConnectionSend("OCN_PACKET_PAYLOAD_WRITE_" + suffix);
     CONNECTION_RECV#(Bool) writeAckQ <-
         mkConnectionRecv("OCN_PACKET_PAYLOAD_WRITEACK_" + suffix);
@@ -132,14 +149,14 @@ module [HASIM_MODULE] mkNetworkPacketPayloadClient#(Integer id)
 
     method readReq = readReqQ.send;
 
-    method ActionValue#(OCN_PACKET_PAYLOAD) readRsp();
+    method ActionValue#(OCN_PACKET_BUNDLE) readRsp();
         let r = readRspQ.receive();
         readRspQ.deq();
 
         return r;
     endmethod
 
-    method Action write(OCN_PACKET_HANDLE handle, OCN_PACKET_PAYLOAD payload) =
+    method Action write(OCN_PACKET_HANDLE handle, OCN_PACKET_BUNDLE payload) =
         writeQ.send(tuple2(handle, payload));
 
     method Action writeAck() = writeAckQ.deq();
@@ -162,13 +179,13 @@ module [HASIM_MODULE] mkNetworkPacketPayloadStorage#(NumTypeParam#(n_CLIENTS) p)
     Vector#(n_CLIENTS, CONNECTION_RECV#(OCN_PACKET_HANDLE)) freeQ = newVector();
 
     Vector#(n_CLIENTS, CONNECTION_RECV#(OCN_PACKET_HANDLE)) readReqQ = newVector();
-    Vector#(n_CLIENTS, CONNECTION_SEND#(OCN_PACKET_PAYLOAD)) readRspQ = newVector();
+    Vector#(n_CLIENTS, CONNECTION_SEND#(OCN_PACKET_BUNDLE)) readRspQ = newVector();
 
     Vector#(n_CLIENTS, CONNECTION_RECV#(Tuple2#(OCN_PACKET_HANDLE,
-                                                OCN_PACKET_PAYLOAD))) writeQ = newVector();
+                                                OCN_PACKET_BUNDLE))) writeQ = newVector();
     Vector#(n_CLIENTS, CONNECTION_SEND#(Bool)) writeAckQ = newVector();
 
-    MEMORY_HEAP_MULTI_READ#(n_CLIENTS, OCN_PACKET_HANDLE, OCN_PACKET_PAYLOAD) mem;
+    MEMORY_HEAP_MULTI_READ#(n_CLIENTS, OCN_PACKET_HANDLE, OCN_PACKET_BUNDLE) mem;
     if (valueOf(t_OCN_PACKET_HANDLE_SZ) <= 14)
     begin
         // Smaller configurations use BRAM for storing messages.

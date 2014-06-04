@@ -1,5 +1,11 @@
 //
 // On-chip network lanes are enumerated by dictionary entries.
 //
-def OCN_LANES.MEM_REQ           "OCN Lane: Memory Request";
-def OCN_LANES.MEM_RSP           "OCN Lane: Memory Response";
+def OCN_LANES.MEM_REQ             "OCN Lane: Memory Request";
+
+//
+// Responses share an OCN lane with other responses.  These are all transmitted
+// on one OCN lane (named SHARED_RSP).  MEM_RSP is a tag transmitted along with
+// each message.
+//
+def OCN_LANES.SHARED_RSP.MEM_RSP  "OCN Lane: Memory Response";

@@ -109,7 +109,6 @@ module [HASIM_MODULE] mkStoreBuffer ();
     rule stage1_dealloc (True);
     
         let ctx <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(ctx);
 
         Reg#(Bit#(2)) head = ctx_head[ctx];
         let buff = ctx_buff[ctx];
@@ -122,7 +121,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
             // assert !empty(ctx)
 
             // A deallocation request.
-            debugLog.record_next_cycle(ctx, fshow("DEALLOC ") + fshow(tok));
+            debugLog.record(ctx, fshow("DEALLOC ") + fshow(tok));
 
             // Invalidate the oldest entry and update the head pointer.
             head <= head + 1;
@@ -212,7 +211,7 @@ module [HASIM_MODULE] mkStoreBuffer ();
         endcase
         
         localCtrl.endModelCycle(ctx, 1);
-
+        debugLog.nextModelCycle(ctx);
     endrule
     
 endmodule

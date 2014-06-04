@@ -45,7 +45,7 @@ typedef `NUM_EXTRA_OCN_STATIONS NUM_EXTRA_OCN_STATIONS;
 // Lanes are allocated and assigned as dictionary entries.  This lets the
 // model respond to configurable components wishing to connect to the network
 // without a central module knowing the lane assignments.
-typedef `OCN_LANES__NENTRIES NUM_LANES;
+typedef TAdd#(`OCN_LANES__NENTRIES, `OCN_LANES__NSUBGROUPS) NUM_LANES;
 typedef INSTANCE_ID#(NUM_LANES) LANE_IDX;
 typedef INSTANCE_ID_BITS#(NUM_LANES) LANE_IDX_SZ;
 

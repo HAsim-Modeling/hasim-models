@@ -151,7 +151,6 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
         // Start a new model cycle.
         let cpu_iid <- localCtrl.startModelCycle();
-        debugLog.nextModelCycle(cpu_iid);
 
         let local_state <- statePool.extractState(cpu_iid);
 
@@ -162,7 +161,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
             tagged Invalid:
             begin
                 // Propogate the bubble.
-                debugLog.record_next_cycle(cpu_iid, fshow("NO SEARCH"));
+                debugLog.record(cpu_iid, fshow("NO SEARCH"));
                 rspToDMem.send(cpu_iid, Invalid);
             end
             tagged Valid .bundle:
@@ -189,14 +188,14 @@ module [HASIM_MODULE] mkWriteBuffer ();
                 if (hit)
                 begin
                     // We've got that address in the store buffer.
-                    debugLog.record_next_cycle(cpu_iid, fshow("LOAD HIT ") + fshow(bundle.token));
+                    debugLog.record(cpu_iid, fshow("LOAD HIT ") + fshow(bundle.token));
 
                     rspToDMem.send(cpu_iid, tagged Valid initWBHit(bundle));
                 end
                 else
                 begin
                     // We don't have it.
-                    debugLog.record_next_cycle(cpu_iid, fshow("LOAD MISS ") + fshow(bundle.token));
+                    debugLog.record(cpu_iid, fshow("LOAD MISS ") + fshow(bundle.token));
                     rspToDMem.send(cpu_iid, tagged Valid initWBMiss(bundle));
                 end
             end
@@ -341,6 +340,7 @@ module [HASIM_MODULE] mkWriteBuffer ();
 
         // End of model cycle. (Path 1)
         statePool.insertState(cpu_iid, local_state);
+        debugLog.nextModelCycle(cpu_iid);
         localCtrl.endModelCycle(cpu_iid, 1);
     endrule
 endmodule
