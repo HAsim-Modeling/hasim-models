@@ -69,13 +69,13 @@ typedef union tagged
     ICACHE_INPUT         LOAD_REQ;
     void Invalid;
 }
-L1_IC_OPER
+L1I_OPER
     deriving (Eq, Bits);
 
 // newL1ICOper --
 //   The compiler sometimes fails to infer the type when initialized.  This
 //   function makes types clear.
-function L1_IC_OPER newL1ICOper(L1_IC_OPER oper) = oper;
+function L1I_OPER newL1ICOper(L1I_OPER oper) = oper;
 
 
 // IC_LOCAL_STATE
@@ -132,8 +132,8 @@ module [HASIM_MODULE] mkL1ICache ();
     // ****** Submodules ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    function Bool alwaysTrue(t_DUMMY d) = True;
-    L1_ICACHE_ALG#(MAX_NUM_CPUS, void) iCacheAlg <- mkL1ICacheAlg(alwaysTrue);
+    L1_ICACHE_ALG#(MAX_NUM_CPUS, void) iCacheAlg <-
+        mkL1ICacheAlg(constFn(True));
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, ICACHE_MISS_ID_SIZE) outstandingMisses <- mkCoalescingCacheMissTracker();
@@ -167,17 +167,17 @@ module [HASIM_MODULE] mkL1ICache ();
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 ICache", inports, outports);
 
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1_IC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1I_OPER,
                                             IC_LOCAL_STATE)) stage2Ctrl <-
         mkStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1_IC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1I_OPER,
                                             IC_LOCAL_STATE)) stage3Ctrl <-
         mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(L1_IC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(L1I_OPER,
                                             IC_LOCAL_STATE,
                                             Bool)) stage4Ctrl <-
         mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1_IC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1I_OPER,
                                             IC_LOCAL_STATE)) stage5Ctrl <-
         mkStageController();
 
@@ -251,7 +251,7 @@ module [HASIM_MODULE] mkL1ICache ();
         // Pick an action for the model cycle.
         //
 
-        L1_IC_OPER oper = tagged Invalid;
+        L1I_OPER oper = tagged Invalid;
 
         // Are any previously returned fills going to multiple loads?
         if (outstandingMisses.fillToDeliver(cpu_iid) matches tagged Valid .miss_tok)

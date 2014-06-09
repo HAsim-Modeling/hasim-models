@@ -547,8 +547,8 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    function Bool alwaysTrue(t_DUMMY d) = True;
-    LLC_CACHE_ALG#(MAX_NUM_CPUS, void) llcAlg <- mkLastLevelCacheAlg(alwaysTrue);
+    LLC_CACHE_ALG#(MAX_NUM_CPUS, void) llcAlg <-
+        mkLastLevelCacheAlg(constFn(True));
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, LLC_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();

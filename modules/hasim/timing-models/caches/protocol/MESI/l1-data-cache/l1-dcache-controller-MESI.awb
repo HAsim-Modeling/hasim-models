@@ -7,5 +7,3 @@
 %attributes hasim model caches
 
 %public l1-dcache-controller-MESI.bsv 
-
-%param --dynamic L1_WRITE_THROUGH 0 "0 for write back dirty lines on eviction. 1 for write through to memory immediately."

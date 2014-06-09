@@ -169,12 +169,13 @@ endfunction
 //   Generate a load request CACHE_PROTOCOL_MSG.
 //
 function CACHE_PROTOCOL_MSG cacheMsg_ReqLoad(LINE_ADDRESS linePAddr,
-                                             MEM_OPAQUE opaque);
+                                             MEM_OPAQUE opaque,
+                                             CACHE_PROTOCOL_REQ_LOAD info);
     return CACHE_PROTOCOL_MSG
     {
         linePAddr: linePAddr,
         opaque: opaque,
-        kind: tagged REQ_LOAD defaultValue
+        kind: tagged REQ_LOAD info
     };
 endfunction
 
@@ -183,12 +184,13 @@ endfunction
 //   Generate a load response CACHE_PROTOCOL_MSG.
 //
 function CACHE_PROTOCOL_MSG cacheMsg_RspLoad(LINE_ADDRESS linePAddr,
-                                             MEM_OPAQUE opaque);
+                                             MEM_OPAQUE opaque,
+                                             CACHE_PROTOCOL_RSP_LOAD info);
     return CACHE_PROTOCOL_MSG
     {
         linePAddr: linePAddr,
         opaque: opaque,
-        kind: tagged RSP_LOAD defaultValue
+        kind: tagged RSP_LOAD info
     };
 endfunction
 
@@ -197,12 +199,13 @@ endfunction
 //   Generate a WB_INVAL response CACHE_PROTOCOL_MSG.
 //
 function CACHE_PROTOCOL_MSG cacheMsg_WBInval(LINE_ADDRESS linePAddr,
-                                             MEM_OPAQUE opaque);
+                                             MEM_OPAQUE opaque,
+                                             CACHE_PROTOCOL_WB_INVAL info);
     return CACHE_PROTOCOL_MSG
     {
         linePAddr: linePAddr,
         opaque: opaque,
-        kind: tagged WB_INVAL defaultValue
+        kind: tagged WB_INVAL info
     };
 endfunction
 
@@ -211,12 +214,27 @@ endfunction
 //   Generate a FORCE_WB response CACHE_PROTOCOL_MSG.
 //
 function CACHE_PROTOCOL_MSG cacheMsg_ForceWB(LINE_ADDRESS linePAddr,
-                                             MEM_OPAQUE opaque);
+                                             MEM_OPAQUE opaque,
+                                             CACHE_PROTOCOL_FORCE_WB info);
     return CACHE_PROTOCOL_MSG
     {
         linePAddr: linePAddr,
         opaque: opaque,
-        kind: tagged FORCE_WB defaultValue
+        kind: tagged FORCE_WB info
+    };
+endfunction
+
+
+//
+// cacheMsgFromMemRsp --
+//   Convert a MEMORY_RSP to a cache protocol message.
+//
+function CACHE_PROTOCOL_MSG cacheMsgFromMemRsp(MEMORY_RSP mrsp);
+    return CACHE_PROTOCOL_MSG
+    {
+        linePAddr: mrsp.linePAddr,
+        opaque: mrsp.opaque,
+        kind: tagged RSP_LOAD defaultValue
     };
 endfunction
 

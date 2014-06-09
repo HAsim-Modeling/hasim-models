@@ -153,8 +153,8 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    function Bool alwaysTrue(t_DUMMY d) = True;
-    L2_CACHE_ALG#(MAX_NUM_CPUS, void) l2Alg <- mkL2CacheAlg(alwaysTrue);
+    L2_CACHE_ALG#(MAX_NUM_CPUS, void) l2Alg <-
+        mkL2CacheAlg(constFn(True));
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, L2_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();

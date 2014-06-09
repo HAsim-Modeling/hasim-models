@@ -140,13 +140,6 @@ module [HASIM_MODULE] mkL1DCache ();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_l1_data.out");
 
-    // ****** Dynamic Parameters ******
-
-    PARAMETER_NODE paramNode <- mkDynamicParameterNode();
-    Param#(1) writeThroughParam <- mkDynamicParameter(`PARAMS_HASIM_L1_DCACHE_L1_WRITE_THROUGH, paramNode);
-    Bool simulatingWriteHitWriteThrough = (writeThroughParam == 1);
-    
- 
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
@@ -452,7 +445,10 @@ module [HASIM_MODULE] mkL1DCache ();
 
                         // Record that we're using the toL2Q.
                         local_state.toL2QUsed = True;
-                        local_state.toL2QData = cacheMsg_ReqStore(state.linePAddr, ?);
+                        CACHE_PROTOCOL_WB_INVAL wb = defaultValue;
+                        wb.inval = True;
+                        wb.isWriteback = True;
+                        local_state.toL2QData = cacheMsg_WBInval(state.linePAddr, ?, wb);
                     end
                     else
                     begin
@@ -549,41 +545,14 @@ module [HASIM_MODULE] mkL1DCache ();
 
                 if (entry.state matches tagged Valid .state)
                 begin
-                    // Hit!  What we do next depends on policy.
-                    if (simulatingWriteHitWriteThrough())
-                    begin
-                        if (local_state.toL2QNotFull)
-                        begin
-                            local_state.storeRspImm = tagged Valid initDCacheStoreOk();
-                            statWriteHit.incr(cpu_iid);
-                            debugLog.record(cpu_iid, $format("3: STORE HIT WT: line 0x%h", line_addr));
+                    // Hit!
+                    local_state.storeRspImm = tagged Valid initDCacheStoreOk();
+                    statWriteHit.incr(cpu_iid);
+                    debugLog.record(cpu_iid, $format("3: STORE HIT: line 0x%h", line_addr));
 
-                            // Since we're writethrough we need to enqueue into
-                            // the toL2Q.
-                            local_state.writePortUsed = True;
-                            local_state.writeDataDirty = False;
-
-                            // Record that we are using the toL2Q (since we're writethrough).
-                            local_state.toL2QUsed = True;
-                            local_state.toL2QData = cacheMsg_ReqStore(line_addr, ?);
-                        end
-                        else
-                        begin
-                            // L2 is busy.  Can't write through. Retry later.
-                            local_state.storeRspImm = tagged Valid initDCacheStoreRetry();
-                            debugLog.record(cpu_iid, $format("3: STORE RETRY L2 busy: line 0x%h", line_addr));
-                        end
-                    end
-                    else
-                    begin
-                        local_state.storeRspImm = tagged Valid initDCacheStoreOk();
-                        statWriteHit.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: STORE HIT: line 0x%h", line_addr));
-
-                        // We're writeback.  Update the line in the cache.
-                        local_state.writePortUsed = True;
-                        local_state.writeDataDirty = True;
-                    end
+                    // We're writeback.  Update the line in the cache.
+                    local_state.writePortUsed = True;
+                    local_state.writeDataDirty = True;
 
                     // If there was also a load request this cycle and the load
                     // is the same address as the store then bypass the value
@@ -671,7 +640,8 @@ module [HASIM_MODULE] mkL1DCache ();
                         // Use the opaque bits to store the miss token.
                         let line_addr = toLineAddress(req.physicalAddress);
                         let l2_req = cacheMsg_ReqLoad(line_addr,
-                                                      toMemOpaque(miss_tok));
+                                                      toMemOpaque(miss_tok),
+                                                      defaultValue);
                         local_state.toL2QData = l2_req;
 
                         debugLog.record(cpu_iid, $format("4: LOAD MISS: line 0x%h, tok %0d", line_addr, miss_tok.index));
@@ -691,8 +661,11 @@ module [HASIM_MODULE] mkL1DCache ();
 
                     // Use the opaque bits to store the miss token.
                     let line_addr = toLineAddress(req.physicalAddress);
+                    CACHE_PROTOCOL_REQ_LOAD fill_req = defaultValue;
+                    fill_req.exclusive = True;
                     let l2_req = cacheMsg_ReqLoad(line_addr,
-                                                  toMemOpaque(miss_tok));
+                                                  toMemOpaque(miss_tok),
+                                                  fill_req);
                     local_state.toL2QData = l2_req;
 
                     // Tell the CPU to delay until the store returns.

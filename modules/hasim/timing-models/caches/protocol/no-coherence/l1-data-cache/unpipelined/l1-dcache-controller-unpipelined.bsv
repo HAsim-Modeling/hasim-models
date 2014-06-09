@@ -75,13 +75,13 @@ typedef union tagged
     DCACHE_STORE_INPUT   STORE_REQ;
     void Invalid;
 }
-L1_DC_OPER
+L1D_OPER
     deriving (Eq, Bits);
 
 // newL1DCOper --
 //   The compiler sometimes fails to infer the type when initialized.  This
 //   function makes types clear.
-function L1_DC_OPER newL1DCOper(L1_DC_OPER oper) = oper;
+function L1D_OPER newL1DCOper(L1D_OPER oper) = oper;
 
 
 // DC_LOCAL_STATE
@@ -150,8 +150,8 @@ module [HASIM_MODULE] mkL1DCache ();
     // ****** Submodels ******
 
     // The cache algorithm which determines hits, misses, and evictions.
-    function Bool alwaysTrue(t_DUMMY d) = True;
-    L1_DCACHE_ALG#(MAX_NUM_CPUS, void) dCacheAlg <- mkL1DCacheAlg(alwaysTrue);
+    L1_DCACHE_ALG#(MAX_NUM_CPUS, void) dCacheAlg <-
+        mkL1DCacheAlg(constFn(True));
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, DCACHE_MISS_ID_SIZE) outstandingMisses <- mkCoalescingCacheMissTracker();
@@ -193,17 +193,17 @@ module [HASIM_MODULE] mkL1DCache ();
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 DCache Controller", inports, outports);
 
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1_DC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1D_OPER,
                                             DC_LOCAL_STATE)) stage2Ctrl <-
         mkStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1_DC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1D_OPER,
                                             DC_LOCAL_STATE)) stage3Ctrl <-
         mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(L1_DC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple3#(L1D_OPER,
                                             DC_LOCAL_STATE,
                                             Bool)) stage4Ctrl <-
         mkBufferedStageController();
-    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1_DC_OPER,
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Tuple2#(L1D_OPER,
                                             DC_LOCAL_STATE)) stage5Ctrl <-
         mkStageController();
 
@@ -271,7 +271,7 @@ module [HASIM_MODULE] mkL1DCache ();
         // Pick an action for the model cycle.
         //
 
-        L1_DC_OPER oper = tagged Invalid;
+        L1D_OPER oper = tagged Invalid;
 
         // Are any previously returned fills going to multiple loads?
         if (outstandingMisses.fillToDeliver(cpu_iid) matches tagged Valid .miss_tok)

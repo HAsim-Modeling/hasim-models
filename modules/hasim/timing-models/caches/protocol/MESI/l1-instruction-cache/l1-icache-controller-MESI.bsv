@@ -481,7 +481,8 @@ module [HASIM_MODULE] mkL1ICache ();
                         // Use the opaque bits to store the miss token.
                         let line_addr = toLineAddress(req.physicalAddress);
                         let l2_req = cacheMsg_ReqLoad(line_addr,
-                                                      toMemOpaque(miss_tok));
+                                                      toMemOpaque(miss_tok),
+                                                      defaultValue);
                         local_state.toL2QData = l2_req;
 
                         debugLog.record(cpu_iid, $format("4: LOAD MISS: line 0x%h, tok %0d", line_addr, miss_tok.index));

@@ -288,7 +288,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                 oper = tagged LOAD_REQ req;
                 debugLog.record(cpu_iid, $format("1: LOAD REQ: ") + fshow(req));
             end
-            else if (cacheMsg_IsReqStore(req))
+            else if (cacheMsg_IsWBInval(req))
             begin
                 oper = tagged STORE_REQ req;
                 debugLog.record(cpu_iid, $format("1: STORE REQ: ") + fshow(req));
@@ -424,7 +424,10 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
                         // Record that we're using the memQ.
                         local_state.memQUsed = True;
-                        local_state.memQData = cacheMsg_ReqStore(state.linePAddr, ?);
+                        CACHE_PROTOCOL_WB_INVAL wb = defaultValue;
+                        wb.inval = True;
+                        wb.isWriteback = True;
+                        local_state.memQData = cacheMsg_WBInval(state.linePAddr, ?, wb);
                     end
                     else
                     begin
@@ -461,7 +464,9 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     begin
                         // Load response indicates data present.
                         local_state.coreQUsed = True;
-                        local_state.coreQData = cacheMsg_RspLoad(req.linePAddr, req.opaque);
+                        local_state.coreQData = cacheMsg_RspLoad(req.linePAddr,
+                                                                 req.opaque,
+                                                                 defaultValue);
 
                         statReadHit.incr(cpu_iid);
                         evt_hit = tagged Valid resize({ req.linePAddr, 1'b0 });
@@ -512,7 +517,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
                 if (entry.state matches tagged Valid .state)
                 begin
-                    // Hit!  Store sets the dirty bit.
+                    // Hit!  Writeback sets the dirty bit.
                     local_state.writePortUsed = True;
                     local_state.writePortIdx = entry.idx;
                     local_state.writePortData = req.linePAddr;
@@ -588,7 +593,8 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
                     // Use the opaque bits to store the miss token.
                     // Use the opaque bits to store the miss token.
                     let mem_req = cacheMsg_ReqLoad(req.linePAddr,
-                                                   updateMemOpaque(req.opaque, miss_tok));
+                                                   updateMemOpaque(req.opaque, miss_tok),
+                                                   defaultValue);
                     local_state.memQData = mem_req;
 
                     debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));
@@ -605,8 +611,11 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
                     // Use the opaque bits to store the miss token.
                     // We use a load to simulate getting exclusive access.
+                    CACHE_PROTOCOL_REQ_LOAD fill_req = defaultValue;
+                    fill_req.exclusive = True;
                     let mem_req = cacheMsg_ReqLoad(req.linePAddr,
-                                                   updateMemOpaque(req.opaque, miss_tok));
+                                                   updateMemOpaque(req.opaque, miss_tok),
+                                                   fill_req);
                     local_state.memQData = mem_req;
 
                     debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
@@ -666,7 +675,7 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
             let req = local_state.memQData;
             let mreq = MEMORY_REQ { linePAddr: req.linePAddr,
                                     opaque: req.opaque,
-                                    isStore: cacheMsg_IsReqStore(req) };
+                                    isStore: cacheMsg_IsWBInval(req) };
 
             reqToUncore.doEnq(cpu_iid, mreq);
 
