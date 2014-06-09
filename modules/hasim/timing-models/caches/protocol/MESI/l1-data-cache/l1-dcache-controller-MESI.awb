@@ -1,0 +1,11 @@
+%name L1 MESI DCache
+%desc L1 MESI DCache
+
+%provides hasim_l1_dcache
+%requires hasim_l1_dcache_alg
+
+%attributes hasim model caches
+
+%public l1-dcache-controller-MESI.bsv 
+
+%param --dynamic L1_WRITE_THROUGH 0 "0 for write back dirty lines on eviction. 1 for write through to memory immediately."

@@ -1,0 +1,3 @@
+def EVENTS.L2.HIT        "L2: Hit";
+def EVENTS.L2.MISS       "L2: Miss";
+def EVENTS.L2.FILL       "L2: FIll";

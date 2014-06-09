@@ -1,0 +1,9 @@
+%name MESI Protocol
+%desc MESI Protocol
+
+%provides hasim_cache_protocol
+
+%attributes hasim model caches
+
+%notes README
+%public MESI-protocol.bsv

@@ -1,0 +1,14 @@
+%name MESI Last Level Cache with Directory
+%desc MESI Last Level Cache with Directory
+
+%provides hasim_last_level_cache
+%requires hasim_last_level_cache_alg
+
+%attributes hasim model caches
+
+%public last-level-cache-MESI.bsv
+%public last-level-cache-MESI.dic
+
+%param LLC_MISS_ID_SIZE 4 "Number of bits to identify LLC Load Misses. (4 = 8 outstanding misses)"
+
+%param SYNTH_BOUNDARY mkLastLevelCache "Name of synthesis boundary"

@@ -1,0 +1,233 @@
+Internal messages:
+    * READ: Read request
+        o exclusive flag: Shared (read-only) if false, write-intent if true
+        o opaque value (Level-dependent value.  Each level may update the value
+                        but must ultimately return the same value in a READ_RSP.)
+    * WB_INVAL: Write request
+        o inval flag: Line remains in shared state if false, line no longer present if true.
+        o writeback flag: Does the payload include dirty state?
+        o toDir flag: Is the message a response to a request from a lower level cache?
+    * READ_RSP
+        o exclusive flag: Same as READ.
+        o opaque value (from READ)
+    * REQ_WB: Force writeback, if necessary. The response to REQ_WB is a WRITE with toDir set.
+        o inval flag: Drop the line from the cache if true.
+        o fromDir: Request from directory controller
+
+Message/channel notation:  <type>/<channel>, e.g. WB_INVAL/2
+
+Three channels maintain ordering:
+    0: READ, WB_INVAL (local initiation - must stay ordered with READ)
+    1: READ_RSP, REQ_WB  [ may block when channel 2 full ]
+    2: WB_INVAL (response to REQ_WB)  [ never block ]
+
+
+L1I:
+
+States (stable):
+    * S: Present in this and, possibly, others.
+    * I: Invalid.
+States (transition):
+    * FILL: Fill request outstanding.
+
+Transitions:
+    * Processor READ:
+        o S: Immediate READ_RSP
+        o FILL: Block (fill request already in progress)
+        o Not present (pick a victim):
+          o I -> FILL: READ/0 to L2 with not exclusive
+          o S -> I  (No WB_INVAL msg needed.  Just drop.)
+          o FILL:  Block
+    * READ_RSP:
+        o {S, I, Not present}: ERROR
+        o FILL -> S
+    * REQ_WB:
+        o S -> I
+        o FILL: No change (Fill must not have been received yet by the LLC.
+                           If it had, the READ_RSP would arrive before REQ_WB.)
+        o Not present:  No change
+
+
+L1D:
+
+States (stable):
+    * M: Present only here and dirty.
+    * E: Present only here and clean.
+    * S: Present in this and, possibly, others.
+    * I: Invalid.
+States (transition):
+    * FILL_S: Fill request outstanding (for shared).
+    * FILL_E: Fill request outstanding (for exclusive).
+    * S_E: S to E transition
+
+Transitions:
+    * Processor READ:
+        o {M, E, S, S_E}: Immediate READ_RSP
+        o {FILL_S, FILL_E}: Block (fill request already in progress)
+        o Not present (pick a victim and keep READ request):
+          o M -> I: WB_INVAL/2 toDir false, inval true, writeback true
+          o E -> I: WB_INVAL/2 toDir false, inval true, writeback false
+          o S -> I: WB_INVAL/2 toDir false, inval true, writeback false
+                    (S -> I could just drop the line, but the L2 will
+                     eventually request invalidation due to capacity.)
+          o I -> FILL_S: READ/0 to L2 with not exclusive
+          o Transition state: Block
+    * Processor WRITE:
+        o M: Done
+        o E -> M: Done
+        o S -> S_E: READ/0 with exclusive to L2
+        o Not present (pick a victim):
+          o {M, E, S} -> I:  Same as READ not present messages
+          o I -> FILL_E: READ/0 to L2 with exclusive
+          o Transition state: Block
+    * READ_RSP:
+        o {M, E, S, I}: ERROR
+        o FILL_S -> S: Done
+        o {FILL_E, S_E} -> E: Done.  Error if READ_RSP ! exclusive.
+    * REQ_WB:
+        o {M, E, S} -> (! inval ? S : I): WB_INVAL/2 toDir copied from fromDir,
+                                                     inval copied from REQ_WB,
+                                                     writeback if from M
+        o I: WB_INVAL/2 toDir copied from fromDir, inval true, writeback false
+            (Directory was stale.)
+        o {FILL_S, FILL_E}: WB_INVAL/2 toDir copied from fromDir,
+                                       inval true, writeback false
+            (Line currently behaves as though it is invalid.  Fill request hasn't
+             been received by the directory but will still complete, later.)
+        o S_E -> FILL_E: WB_INVAL/2 toDir copied from fromDir,
+                                    inval true, writeback false
+            (Switching to FILL_E blocks future reads until the switch to exclusive.
+             In this protocol, the L2 always responds with data, even when the
+             L1 had the data at the time of entering S_E.  Responding with
+             data simplifies the S_E -> FILL_E -> E transition.)
+
+
+L2:
+
+States (stable):
+    * M: Present only here or L1 and dirty.
+    * E: Present only here or L1 and clean.
+    * S: Present in this and, possibly, others.
+    * I: Invalid.
+States (transition):
+    * FILL_S: Fill request outstanding (for shared).
+    * FILL_E: Fill request outstanding (for exclusive).
+    * S_E: S to E transition
+    * M_I: M to I transition
+    * ES_I: {E, S} to I transition
+
+Transitions:
+    * READ not exclusive:
+        o {M, E, S, S_E}: Immediate READ_RSP
+        o {FILL_S, FILL_E}: ERROR (L1 requested 2nd FILL before receiving READ_RSP)
+        o Not present (pick a victim and keep READ request):
+          o M -> M_I: REQ_WB/1 to L1 inval true, fromDir false
+          o {E, S} -> ES_I: REQ_WB/1 to L1 inval true, fromDir false
+          o I -> FILL_S: READ/0 to LLC with not exclusive
+          o Transition state: Block
+    * READ exclusive:
+        o {M, E}: Immediate READ_RSP
+        o S -> S_E: READ/0 with exclusive to LLC
+        o {FILL_S, FILL_E, S_E}: ERROR (L1 requested 2nd FILL before receiving READ_RSP)
+        o Not present (pick a victim and keep READ request):
+          o I -> FILL_E: READ/0 to LLC with exclusive
+          o All others same as READ not exclusive, not present
+    * WB_INVAL not fromDir:
+        o M: Done
+        o E -> {writeback ? M : E}: Done
+        o S: Done.  ERROR if writeback.
+        o I: Done
+        o M_I -> I: WB_INVAL/2 to LLC toDir false, inval true, writeback true
+        o ES_I -> I: WB_INVAL/2 to LLC toDir false, inval true, writeback copied
+        o All others: ERROR
+    * WB_INVAL fromDir:
+        o M -> I: WB_INVAL/2 to LLC toDir true, inval true, writeback true
+        o E -> I: WB_INVAL/2 to LLC toDir true, inval true, writeback copied
+        o S -> I: WB_INVAL/2 to LLC toDir true, inval true, writeback copied,
+                  ERROR if writeback
+        o I: WB_INVAL/2 to LLC toDir true, inval true, writeback false
+            (Directory was stale.)
+        o M_I -> I: WB_INVAL/2 to LLC toDir true, inval true, writeback true
+        o ES_I -> I: WB_INVAL/2 to LLC toDir true, inval true, writeback copied
+        o {FILL_S, FILL_E}: WB_INVAL/2 to LLC toDir true,
+                                              inval true, writeback copied
+            (Same as L1 REQ_WB.  Line currently behaves as though it is invalid.)
+        o S_E -> FILL_E: WB_INVAL/2 toDir true, inval true, writeback false
+            (Same as L1 REQ_WB transition.)
+    * READ_RSP:
+        o {M, E, S, I}: ERROR
+        o FILL_S -> S: READ_RSP forwarded to L1.
+        o {FILL_E, S_E} -> E: READ_RSP forwarded to L1,
+                              ERROR if READ_RSP ! exclusive.
+        o All others: ERROR
+    * REQ_WB:
+        o {M, E, S, FILL_E}:  Forward to L1
+        o {I, FILL_S}: WB_INVAL/2 toDir true, inval true, writeback false
+        o {M_I, ES_I}: Block
+
+
+LLC:
+
+Flags:
+    * Dirty: LLC way contains update not yet written to memory
+States (stable):
+    * L: Present only here.
+    * LS: Present in this and, possibly, others in S state.
+    * LM: Present in this and, possibly, modified in a private cache.
+    * I: Invalid.
+States (transition):
+    * FILL_S: Fill request outstanding (for shared).
+    * FILL_E: Fill request outstanding (for exclusive).
+    * LM_L: LM to L transition
+
+Transitions:
+    * READ not exclusive:
+        o {L, LS} -> LS: Immediate READ_RSP
+        o LM -> LM_L: Send WB request to directory and keep READ
+        o {FILL_S, FILL_E, LM_L}: Block
+        o Not present (pick a victim and keep READ request):
+          o L and dirty: WB_INVAL/0 toDir false, inval true, writeback true,
+                         clear dirty
+          o L and ! dirty -> FILL_S: READ/0 to mem with not exclusive
+          o {LS, LM} -> LM_L: Send WB+INVAL request to directory
+          o I -> FILL_S: READ/0 to mem with not exclusive
+          o Transition state: Block
+    * READ exclusive:
+        o L -> LM: Immediate READ_RSP
+        o {LS, LM} -> LM_L: Send WB+INVAL request to directory
+        o {FILL_S, FILL_E, LM_L}: Block
+        o Not present (pick a victim and keep READ request):
+          o L and dirty: WB_INVAL/0 toDir false, inval true, writeback true,
+                         clear dirty
+          o L and ! dirty -> FILL_E: READ/0 to mem with not exclusive
+          o {LS, LM} -> LM_L: Send WB+INVAL request to directory
+          o I -> FILL_E: READ/0 to mem with not exclusive
+          o Transition state: Block
+    * Directory response WB or WB+INVAL
+        o Not LM_L: ERROR
+        o LM_L and dirty:  WB_INVAL/0 toDir false, inval false, writeback true,
+                           clear dirty
+        o LM_L and ! dirty -> L
+    * WB_INVAL: Forward to directory
+        o {L, I, FILL_S, FILL_E}: ERROR
+        o LS: ERROR if writeback
+        o LM -> (! inval ? LS : L): Set dirty if writeback
+        o LM_L: Set dirty if writeback
+    * READ_RSP:
+        o {L, LS, LM, I, LM_L}: ERROR
+        o FILL_S -> LS: READ_RSP forwarded to L2.
+        o FILL_E -> LM: READ_RSP with exclusive forwarded to L2.
+    * REQ_WB: ERROR
+
+
+Directory:
+
+State:
+  * Bit vector, one per L2.  On when data present in L2.
+  * Active req flag
+
+    * New REQ_WB from LLC
+      * All bits clear:  Send response to LLC
+      * Not all clear: Set active req, Send REQ_WB/1 to each L2
+    * WB_INVAL: Update bit vector
+      * Active req: If all clear send response to LLC

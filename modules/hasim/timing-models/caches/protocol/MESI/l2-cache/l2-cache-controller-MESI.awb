@@ -1,0 +1,12 @@
+%name MESI L2 Cache
+%desc MESI L2 Cache
+
+%provides hasim_l2_cache
+%requires hasim_l2_cache_alg
+
+%attributes hasim model caches
+
+%public l2-cache-controller-MESI.bsv
+%public l2-cache-controller-MESI.dic
+
+%param L2_MISS_ID_SIZE   4  "Number of bits to identify L2 misses. (4 = 16 outstanding misses)"
