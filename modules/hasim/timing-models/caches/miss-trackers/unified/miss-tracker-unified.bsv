@@ -133,9 +133,6 @@ interface CACHE_MISS_TRACKER#(parameter type t_NUM_INSTANCES, parameter type t_M
     method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
     method Action reportLoadDone(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
     
-    method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-    
     method Action allocateLoadReq(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
     method ActionValue#(CACHE_MISS_TOKEN#(t_MISS_ID_SZ)) allocateLoadRsp(INSTANCE_ID#(t_NUM_INSTANCES) iid);
     method Action allocateStoreReq(INSTANCE_ID#(t_NUM_INSTANCES) iid);
@@ -206,28 +203,16 @@ module [HASIM_MODULE] mkCoalescingCacheMissTracker
     // ******* Local Functions *******
     
 
-    // empty()
-    
-    // Return true if the freelist for this instance is out of IDs.
-    // Note that we only allocate half of the IDs at a time for a given instance.
-    // This acts as an epoch which stops collisions of "deallocate ID, reallocate the same ID"
-    // We accomplish this by ignoring the high bit in the equality.
-    
-    function Bool empty(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+    //
+    // freelistEmpty --
+    //
+    //   Return true if the freelist for this instance is out of IDs.
+    //
+    function Bool freelistEmpty(INSTANCE_ID#(t_NUM_INSTANCES) iid);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
         
-        Bit#(TSub#(t_MISS_ID_SZ,1)) hp = truncate(headPtr);
-        Bit#(TSub#(t_MISS_ID_SZ,1)) tp = truncate(tailPtr);
-
-        return hp == tp;
-    endfunction
-        
-    function Bool full(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
-
-        return (tailPtr + 1) == headPtr;
+        return headPtr == tailPtr;
     endfunction
 
 
@@ -258,11 +243,11 @@ module [HASIM_MODULE] mkCoalescingCacheMissTracker
     // Since we're unified, we return true for these if the freelist is non-empty.
     
     method Bool canAllocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return !empty(iid);
+        return ! freelistEmpty(iid);
     endmethod
     
     method Bool canAllocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return !empty(iid);
+        return ! freelistEmpty(iid);
     endmethod
     
 
@@ -271,15 +256,6 @@ module [HASIM_MODULE] mkCoalescingCacheMissTracker
         Reg#(Bool)    lastServedAddrValid = lastServedAddrValidPool.getRegWithWritePort(iid, 0);
         
         return (lastServedAddrValid) ? (lastServedAddr == addr) : False;
-    endmethod
-    
-
-    method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return full(iid);
-    endmethod
-    
-    method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return full(iid);
     endmethod
     
 
@@ -422,31 +398,16 @@ module [HASIM_MODULE] mkCacheMissTracker
     // ******* Local Functions *******
     
 
-    // empty()
-    
-    // Return true if the freelist for this instance is out of IDs.
-    // Note that we only allocate half of the IDs at a time for a given
-    // instance.  This acts as an epoch which stops collisions of
-    // "deallocate ID, reallocate the same ID."  We accomplish this by
-    // ignoring the high bit in the equality.
-    
-    function Bool empty(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
-            headPtrPool.getRegWithWritePort(iid, 0);
+    //
+    // freelistEmpty --
+    //
+    //   Return true if the freelist for this instance is out of IDs.
+    //
+    function Bool freelistEmpty(INSTANCE_ID#(t_NUM_INSTANCES) iid);
+        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr = headPtrPool.getRegWithWritePort(iid, 0);
         Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
         
-        Bit#(TSub#(t_MISS_ID_SZ,1)) hp = truncate(headPtr);
-        Bit#(TSub#(t_MISS_ID_SZ,1)) tp = truncate(tailPtr);
-
-        return hp == tp;
-    endfunction
-        
-    function Bool full(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) headPtr =
-            headPtrPool.getRegWithWritePort(iid, 0);
-        Reg#(CACHE_MISS_INDEX#(t_MISS_ID_SZ)) tailPtr = tailPtrPool.getReg(iid);
-
-        return (tailPtr + 1) == headPtr;
+        return headPtr == tailPtr;
     endfunction
 
 
@@ -458,25 +419,16 @@ module [HASIM_MODULE] mkCacheMissTracker
     // Since we're unified, we return true for these if the freelist is non-empty.
     
     method Bool canAllocateStore(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return !empty(iid);
+        return ! freelistEmpty(iid);
     endmethod
     
     method Bool canAllocateLoad(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return !empty(iid);
+        return ! freelistEmpty(iid);
     endmethod
     
 
     method Bool loadOutstanding(INSTANCE_ID#(t_NUM_INSTANCES) iid, LINE_ADDRESS addr);
         return False;
-    endmethod
-    
-
-    method Bool noLoadsInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return full(iid);
-    endmethod
-    
-    method Bool noStoresInFlight(INSTANCE_ID#(t_NUM_INSTANCES) iid);
-        return full(iid);
     endmethod
     
 

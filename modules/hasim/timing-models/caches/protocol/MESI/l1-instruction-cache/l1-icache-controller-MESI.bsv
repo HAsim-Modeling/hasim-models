@@ -62,6 +62,34 @@ import DefaultValue::*;
 
 // ****** Local Definitions *******
 
+//
+// States associated with entries.  Invalid isn't listed because it is provided
+// as part of the cache algorithm.
+//
+typedef enum
+{
+    // Shared
+    L1I_STATE_S,
+    // Fill in progress.  No data yet.
+    L1I_STATE_FILL
+}
+L1I_ENTRY_STATE
+    deriving (Eq, Bits);
+
+instance FShow#(L1I_ENTRY_STATE);
+    function Fmt fshow(L1I_ENTRY_STATE state);
+        let str =
+            case (state) matches
+                L1I_STATE_S: return "S";
+                L1I_STATE_FILL: return "FILL";
+                default: return "UNDEFINED";
+            endcase;
+
+        return $format(str);
+    endfunction
+endinstance
+
+
 typedef union tagged
 {
     L1_ICACHE_MISS_TOKEN MULTI_LOAD;
@@ -90,9 +118,10 @@ typedef struct
     Bool toL2QUsed;
     CACHE_PROTOCOL_MSG toL2QData;
 
-    Bool writePortUsed;
-    L1_ICACHE_IDX writePortIdx;
-    LINE_ADDRESS writePortData;
+    Bool cacheUpdUsed;
+    L1_ICACHE_IDX cacheUpdIdx;
+    L1I_ENTRY_STATE cacheUpdState;
+    LINE_ADDRESS cacheUpdPAddr;
 
     Maybe#(ICACHE_OUTPUT_IMMEDIATE) loadRspImm;
     Maybe#(ICACHE_OUTPUT_DELAYED) loadRsp;
@@ -106,9 +135,10 @@ instance DefaultValue#(IC_LOCAL_STATE);
         toL2QNotFull: True,
         toL2QUsed: False,
         toL2QData: ?,
-        writePortUsed: False,
-        writePortIdx: ?,
-        writePortData: ?,
+        cacheUpdUsed: False,
+        cacheUpdIdx: ?,
+        cacheUpdState: ?,
+        cacheUpdPAddr: ?,
         loadRspImm: tagged Invalid,
         loadRsp: tagged Invalid
         };
@@ -131,9 +161,16 @@ module [HASIM_MODULE] mkL1ICache ();
  
     // ****** Submodules ******
 
+    //
     // The cache algorithm which determines hits, misses, and evictions.
-    L1_ICACHE_ALG#(MAX_NUM_CPUS, void) iCacheAlg <-
-        mkL1ICacheAlg(constFn(True));
+    // The mayEvict function is used inside the algorithm when returning
+    // a candidate for replacement.  mayEvict indicates when an entry
+    // may not be victimized.
+    //
+    function Bool mayEvict(L1I_ENTRY_STATE state) = (state != L1I_STATE_FILL);
+
+    L1_ICACHE_ALG#(MAX_NUM_CPUS, L1I_ENTRY_STATE) iCacheAlg <-
+        mkL1ICacheAlg(mayEvict);
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, ICACHE_MISS_ID_SIZE) outstandingMisses <- mkCoalescingCacheMissTracker();
@@ -202,24 +239,14 @@ module [HASIM_MODULE] mkL1ICache ();
 
     // ****** Assertions ******
 
+    let assertInFill <- mkAssertionSimOnly("l1-instruction-cache.bsv: Entry not in FILL state",
+                                          ASSERT_ERROR);
+
     let assertRspOk <- mkAssertionSimOnly("l1-instruction-cache.bsv: Unexpected response kind",
                                           ASSERT_ERROR);
 
 
     // ****** Rules ******
-
-    //
-    // canReplaceLine --
-    //   Is the cache in a state that permits a line to be replaced to service
-    //   a miss?
-    //
-    function Bool canReplaceLine(L1_ICACHE_LOOKUP_RSP#(void) rsp);
-        if (rsp.state matches tagged Blocked)
-            return False;
-        else
-            return True;
-    endfunction
-
 
     // stage1_fill
     
@@ -307,8 +334,9 @@ module [HASIM_MODULE] mkL1ICache ();
             tagged FILL_RSP .fill:
             begin
                 // Record fill meta data that will be written to the cache.
-                local_state.writePortUsed = True;
-                local_state.writePortData = fill.linePAddr;
+                local_state.cacheUpdUsed = True;
+                local_state.cacheUpdPAddr = fill.linePAddr;
+                local_state.cacheUpdState = L1I_STATE_S;
 
                 // Deallocate the Miss ID.
                 L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
@@ -361,26 +389,24 @@ module [HASIM_MODULE] mkL1ICache ();
             tagged FILL_RSP .fill:
             begin
                 //
-                // Does the cache entry being replaced require a writeback?
+                // This protocol evicts at request.  The entry should already
+                // be present in the FILL state.
                 //
-                let evict <- iCacheAlg.lookupByAddrRsp(cpu_iid);
+                let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
 
-                local_state.writePortIdx = evict.idx;
+                local_state.cacheUpdIdx = entry.idx;
+                outstandingMisses.reportLoadDone(cpu_iid, fill.linePAddr);
 
-                if (evict.state matches tagged Blocked)
+                if (entry.state matches tagged Valid .state)
                 begin
-                    // No available victim due to temporary state of the old
-                    // line.  Wait for it to settle.
-                    oper = newL1ICOper(tagged Invalid);
-                    local_state.writePortUsed = False;
-                    local_state.missTokToFree = tagged Invalid;
-
-                    debugLog.record(cpu_iid, $format("3: BLOCKED EVICTION: new line 0x%h", fill.linePAddr));
+                    assertInFill(state.opaque == L1I_STATE_FILL);
+                    debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx));
                 end
                 else
                 begin
-                    outstandingMisses.reportLoadDone(cpu_iid, fill.linePAddr);
-                    debugLog.record(cpu_iid, $format("3: CLEAN EVICTION: line 0x%h", fill.linePAddr));
+                    // Error:  line should be in the cache already in FILL state.
+                    assertInFill(False);
+                    debugLog.record(cpu_iid, $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr));
                 end
             end
 
@@ -391,21 +417,49 @@ module [HASIM_MODULE] mkL1ICache ();
                 //
                 let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
 
+                let line_addr = toLineAddress(req.physicalAddress);
+
+                // Is there space in the miss tracker for a new L2 request?
+                let can_allocate = outstandingMisses.canAllocateLoad(cpu_iid);
+
                 if (entry.state matches tagged Valid .state)
                 begin
-                    // A hit, so give the data back.
-                    local_state.loadRspImm = tagged Valid initICacheHit(req);
-                    statHit.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("3: LOAD HIT: line 0x%h", state.linePAddr));
+                    if (state.opaque == L1I_STATE_S)
+                    begin
+                        // A hit, so give the data back.
+                        local_state.loadRspImm = tagged Valid initICacheHit(req);
+                        statHit.incr(cpu_iid);
+                        debugLog.record(cpu_iid, $format("3: LOAD HIT: line 0x%h", state.linePAddr));
+                    end
+                    else
+                    begin
+                        //
+                        // Fill for this address is already outstanding.  One of
+                        // two things will now happen:
+                        //   (1) The miss tracker will merge the new request
+                        //       with the previous outstanding one.
+                        //   (2) Failing that, tell the core to retry later.
+                        //
+                        if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) &&
+                            can_allocate)
+                        begin
+                            // Option 1: Merge with previous fill token.
+                            new_miss_tok_req = True;
+                            outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
+
+                            statMiss.incr(cpu_iid);
+                            debugLog.record(cpu_iid, $format("3: LOAD MISS ALREADY IN FILL (merged): line 0x%h", line_addr));
+                        end
+                        else
+                        begin
+                            // Option 2: Retry later.
+                            debugLog.record(cpu_iid, $format("3: LOAD HIT IN FILL: line 0x%h (blocking)", state.linePAddr));
+                        end
+                    end
                 end
                 else
                 begin
                     // A miss.
-                    let line_addr = toLineAddress(req.physicalAddress);
-
-                    // Is there space in the miss tracker for a new L2 request?
-                    let can_allocate = outstandingMisses.canAllocateLoad(cpu_iid);
-
                     if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) &&
                         can_allocate)
                     begin
@@ -417,6 +471,11 @@ module [HASIM_MODULE] mkL1ICache ();
                         statMiss.incr(cpu_iid);
                         debugLog.record(cpu_iid, $format("3: LOAD MISS (ALREADY OUTSTANDING): line 0x%h", line_addr));
                     end
+                    else if (entry.state matches tagged Blocked)
+                    begin
+                        // A miss and no eviction candidate.  Replay.
+                        debugLog.record(cpu_iid, $format("3: BLOCKED: line 0x%h (blocking)", line_addr));
+                    end
                     else if (can_allocate && local_state.toL2QNotFull)
                     begin
                         // Allocate the next miss ID
@@ -426,14 +485,20 @@ module [HASIM_MODULE] mkL1ICache ();
                         // Record that we are using the memory queue.
                         local_state.toL2QUsed = True;
 
+                        // Evict now and add the new entry in FILL state.
+                        // This design embeds miss tracking in the cache itself.
+                        // (See comment in the MESI protocol README file.)
+                        local_state.cacheUpdUsed = True;
+                        local_state.cacheUpdIdx = entry.idx;
+                        local_state.cacheUpdPAddr = line_addr;
+                        local_state.cacheUpdState = L1I_STATE_FILL;
+
                         statMiss.incr(cpu_iid);
                         debugLog.record(cpu_iid, $format("3: LOAD MISS: line 0x%h", line_addr));
                     end
                     else
                     begin
                         // Miss, but miss tracker is full or L2 is busy.
-                        local_state.loadRspImm = tagged Valid initICacheRetry(req);
-
                         debugLog.record(cpu_iid, $format("3: LOAD RETRY: line 0x%h, can alloc %0d, l2 notFull %0d", line_addr, can_allocate, local_state.toL2QNotFull));
                     end
                 end
@@ -542,19 +607,30 @@ module [HASIM_MODULE] mkL1ICache ();
         end
         
         // Take care of the cache update.
-        if (local_state.writePortUsed)
+        if (local_state.cacheUpdUsed)
         begin
-            let state = initCacheEntryState(local_state.writePortData,
+            let state = initCacheEntryState(local_state.cacheUpdPAddr,
                                             False,
-                                            ?);
+                                            local_state.cacheUpdState);
 
             // Fill allocates a new line.
-            iCacheAlg.allocate(cpu_iid,
-                               local_state.writePortIdx,
-                               state,
-                               CACHE_ALLOC_FILL);
+            if (local_state.cacheUpdState == L1I_STATE_FILL)
+            begin
+                iCacheAlg.allocate(cpu_iid,
+                                   local_state.cacheUpdIdx,
+                                   state,
+                                   CACHE_ALLOC_FILL);
 
-            debugLog.record(cpu_iid, $format("5: ALLOC: line 0x%h", state.linePAddr));
+                debugLog.record(cpu_iid, $format("5: ALLOC: ") + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(state));
+            end
+            else
+            begin
+                iCacheAlg.update(cpu_iid,
+                                 local_state.cacheUpdIdx,
+                                 state);
+
+                debugLog.record(cpu_iid, $format("5: UPDATE: ") + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(state));
+            end
         end
         
         // Free at the end so we don't reuse token accidentally.

@@ -9,4 +9,4 @@
 %public l2-cache-controller-MESI.bsv
 %public l2-cache-controller-MESI.dic
 
-%param L2_MISS_ID_SIZE   4  "Number of bits to identify L2 misses. (4 = 16 outstanding misses)"
+%param L2_MISS_ID_SIZE   4  "Number of bits to identify L2 misses."

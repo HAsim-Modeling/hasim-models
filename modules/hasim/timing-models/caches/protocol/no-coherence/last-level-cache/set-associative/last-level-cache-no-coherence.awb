@@ -9,6 +9,6 @@
 %public last-level-cache-no-coherence.bsv
 %public last-level-cache-no-coherence.dic
 
-%param LLC_MISS_ID_SIZE 4 "Number of bits to identify LLC Load Misses. (4 = 8 outstanding misses)"
+%param LLC_MISS_ID_SIZE 4 "Number of bits to identify LLC Load Misses."
 
 %param SYNTH_BOUNDARY mkLastLevelCache "Name of synthesis boundary"

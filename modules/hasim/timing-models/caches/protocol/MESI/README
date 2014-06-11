@@ -42,6 +42,13 @@ Transitions:
         o {S, I, Not present}: ERROR
         o FILL -> S
     * REQ_WB:
+        o The I-cache currently sends no WB_INVAL response.  Doing so would force
+          the L2 to wait for a response from both the I and D caches, which would
+          complicate the algorithm.  Our run-time model never overwrites
+          instructions, so timing of REQ_WB/WB_INVAL isn't really critical.
+          The model does flush I-cache entries as a side effect of capacity
+          invalidation in lower level caches.
+
         o S -> I
         o FILL: No change (Fill must not have been received yet by the LLC.
                            If it had, the READ_RSP would arrive before REQ_WB.)
