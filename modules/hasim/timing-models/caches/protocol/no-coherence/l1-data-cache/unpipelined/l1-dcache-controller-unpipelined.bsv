@@ -171,8 +171,8 @@ module [HASIM_MODULE] mkL1DCache ();
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
 
     // Queues to and from the memory hierarchy, encapsulated as StallPorts.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToMemQ <- mkPortStallSend_Multiplexed("L1_DCache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_DCache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToMemQ <- mkPortStallSend_Multiplexed("L1_DCache_OutQ_0");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_DCache_InQ_0");
 
 
     // ****** Local Controller ******

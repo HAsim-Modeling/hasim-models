@@ -43,9 +43,13 @@ module [HASIM_MODULE] mkPrivateCaches();
     let dtlb    <- mkDTLB();
     let icache  <- mkL1ICache();
     let dcache  <- mkL1DCache();
-    let arbiter <- mkL1CacheArbiter("L1toL2_ReqQ", "L2toL1_RspQ");
 
-    let l2cache <- mkL2Cache("L1toL2_ReqQ", "L2toL1_RspQ",
+    NumTypeParam#(CACHE_PROTOCOL_CHANNELS_FROM_L1) nL1toL2Channels = ?;
+    NumTypeParam#(CACHE_PROTOCOL_CHANNELS_TO_L1) nL2toL1Channels = ?;
+    let arbiter <- mkL1CacheArbiter(nL1toL2Channels, "L1toL2Q",
+                                    nL2toL1Channels, "L2toL1Q");
+
+    let l2cache <- mkL2Cache("L1toL2Q", "L2toL1Q",
                              "CorePvtCache_to_UncoreQ",
                              "Uncore_to_CorePvtCacheQ");
 endmodule

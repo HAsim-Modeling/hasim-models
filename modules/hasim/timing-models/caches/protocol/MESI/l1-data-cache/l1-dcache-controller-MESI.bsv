@@ -164,25 +164,31 @@ module [HASIM_MODULE] mkL1DCache ();
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_STORE_OUTPUT_DELAYED) storeRspDelToCPU <- mkPortSend_Multiplexed("DCache_to_CPU_store_delayed");
 
     // Queues to and from the memory hierarchy, encapsulated as StallPorts.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToMemQ <- mkPortStallSend_Multiplexed("L1_DCache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_DCache_InQ");
+    Vector#(2, PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                            CACHE_PROTOCOL_MSG)) portToL2 = newVector();
+    portToL2[0] <- mkPortStallSend_Multiplexed("L1_DCache_OutQ_0");
+    portToL2[1] <- mkPortStallSend_Multiplexed("L1_DCache_OutQ_1");
+
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) portFromL2 <- mkPortStallRecv_Multiplexed("L1_DCache_InQ_0");
 
 
     // ****** Local Controller ******
 
-    Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
+    Vector#(5, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(7, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = storeReqFromCPU.ctrl;
-    inports[2] = fillFromMemory.ctrl.in;
-    inports[3] = reqToMemQ.ctrl.in;
+    inports[2] = portFromL2.ctrl.in;
+    inports[3] = portToL2[0].ctrl.in;
+    inports[4] = portToL2[1].ctrl.in;
     outports[0] = loadRspImmToCPU.ctrl;
     outports[1] = loadRspDelToCPU.ctrl;
     outports[2] = storeRspImmToCPU.ctrl;
     outports[3] = storeRspDelToCPU.ctrl;
-    outports[4] = reqToMemQ.ctrl.out;
-    outports[5] = fillFromMemory.ctrl.out;
+    outports[4] = portFromL2.ctrl.out;
+    outports[5] = portToL2[0].ctrl.out;
+    outports[6] = portToL2[1].ctrl.out;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 DCache Controller", inports, outports);
 
@@ -239,7 +245,7 @@ module [HASIM_MODULE] mkL1DCache ();
     // Consider all requests and pick one to process.
 
     // Ports read:
-    // * fillFromMemory
+    // * portFromL2
     // * storeReqFromCPU
     // * loadReqFromCPU
     
@@ -252,11 +258,13 @@ module [HASIM_MODULE] mkL1DCache ();
         DC_LOCAL_STATE local_state = defaultValue;
 
         // Check if the toL2Q has room for any new requests.
-        let toL2Q_not_full <- reqToMemQ.canEnq(cpu_iid);
+        let toL2Q_not_full <- portToL2[0].canEnq(cpu_iid);
         local_state.toL2QNotFull = toL2Q_not_full;
         
+        let dummy <- portToL2[1].canEnq(cpu_iid);
+
         // Consume incoming messages
-        let m_fill <- fillFromMemory.receive(cpu_iid);
+        let m_fill <- portFromL2.receive(cpu_iid);
         let m_cpu_req_store <- storeReqFromCPU.receive(cpu_iid);
         let m_cpu_req_load <- loadReqFromCPU.receive(cpu_iid);
 
@@ -718,23 +726,25 @@ module [HASIM_MODULE] mkL1DCache ();
 
         if (oper matches tagged FILL_RSP .rsp)
         begin
-            fillFromMemory.doDeq(cpu_iid);
+            portFromL2.doDeq(cpu_iid);
         end
         else
         begin
-            fillFromMemory.noDeq(cpu_iid);
+            portFromL2.noDeq(cpu_iid);
         end
 
         // Take care of the memory queue.
         if (local_state.toL2QUsed)
         begin
-            reqToMemQ.doEnq(cpu_iid, local_state.toL2QData);
+            portToL2[0].doEnq(cpu_iid, local_state.toL2QData);
         end
         else
         begin
-            reqToMemQ.noEnq(cpu_iid);
+            portToL2[0].noEnq(cpu_iid);
         end
         
+        portToL2[1].noEnq(cpu_iid);
+
         // Take care of the cache update.
         if (local_state.writePortUsed)
         begin

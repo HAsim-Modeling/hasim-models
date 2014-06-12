@@ -188,22 +188,28 @@ module [HASIM_MODULE] mkL1ICache ();
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("ICache_to_CPU_load_delayed");
 
     // Queues to and from the memory hierarchy, encapsulated as StallPorts.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) portToL2 <- mkPortStallSend_Multiplexed("L1_ICache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) portFromL2 <- mkPortStallRecv_Multiplexed("L1_ICache_InQ");
+    Vector#(2, PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                            CACHE_PROTOCOL_MSG)) portToL2 = newVector();
+    portToL2[0] <- mkPortStallSend_Multiplexed("L1_ICache_OutQ_0");
+    portToL2[1] <- mkPortStallSend_Multiplexed("L1_ICache_OutQ_1");
+
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) portFromL2 <- mkPortStallRecv_Multiplexed("L1_ICache_InQ_0");
 
 
     // ****** Local Controller ******
 
-    Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
-    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
     inports[1] = portFromL2.ctrl.in;
-    inports[2] = portToL2.ctrl.in;
+    inports[2] = portToL2[0].ctrl.in;
+    inports[3] = portToL2[1].ctrl.in;
     outports[0] = loadRspImmToCPU.ctrl;
     outports[1] = loadRspDelToCPU.ctrl;
-    outports[2] = portToL2.ctrl.out;
-    outports[3] = portFromL2.ctrl.out;
+    outports[2] = portFromL2.ctrl.out;
+    outports[3] = portToL2[0].ctrl.out;
+    outports[4] = portToL2[1].ctrl.out;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 ICache", inports, outports);
 
@@ -270,8 +276,13 @@ module [HASIM_MODULE] mkL1ICache ();
         IC_LOCAL_STATE local_state = defaultValue;
 
         // Check if the toL2Q has room for any new requests.
-        let toL2Q_not_full <- portToL2.canEnq(cpu_iid);
+        let toL2Q_not_full <- portToL2[0].canEnq(cpu_iid);
         local_state.toL2QNotFull = toL2Q_not_full;
+
+        // The 2nd port to L2 isn't used by the I-cache.  It would normally hold
+        // responses to writeback/invalidation requests, but this I-cache
+        // never sends a response.
+        let dummy <- portToL2[1].canEnq(cpu_iid);
 
         // Consume incoming messages
         let m_fromL2 <- portFromL2.receive(cpu_iid);
@@ -673,13 +684,16 @@ module [HASIM_MODULE] mkL1ICache ();
         // Take care of the memory queue.
         if (local_state.toL2QUsed)
         begin
-            portToL2.doEnq(cpu_iid, local_state.toL2QData);
+            portToL2[0].doEnq(cpu_iid, local_state.toL2QData);
         end
         else
         begin
-            portToL2.noEnq(cpu_iid);
+            portToL2[0].noEnq(cpu_iid);
         end
         
+        // Second to-L2 port never used by I-cache.
+        portToL2[1].noEnq(cpu_iid);
+
         // Take care of the cache update.
         if (local_state.cacheUpdInval)
         begin

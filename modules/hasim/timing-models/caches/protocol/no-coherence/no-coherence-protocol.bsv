@@ -38,6 +38,14 @@ import FShow::*;
 
 
 //
+// Number of L1 channels in each direction (needed to instantiate the L1
+// cache arbiter).
+//
+typedef 1 CACHE_PROTOCOL_CHANNELS_FROM_L1;
+typedef 1 CACHE_PROTOCOL_CHANNELS_TO_L1;
+
+
+//
 // All coherence messages are represented in CACHE_PROTOCOL_MSG.
 //
 typedef struct

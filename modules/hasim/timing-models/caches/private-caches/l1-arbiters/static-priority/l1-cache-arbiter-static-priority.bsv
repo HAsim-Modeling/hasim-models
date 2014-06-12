@@ -1,4 +1,35 @@
+//
+// Copyright (c) 2014, Intel Corporation
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// Redistributions of source code must retain the above copyright notice, this
+// list of conditions and the following disclaimer.
+//
+// Redistributions in binary form must reproduce the above copyright notice,
+// this list of conditions and the following disclaimer in the documentation
+// and/or other materials provided with the distribution.
+//
+// Neither the name of the Intel Corporation nor the names of its contributors
+// may be used to endorse or promote products derived from this software
+// without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+// POSSIBILITY OF SUCH DAMAGE.
+
 import Vector::*;
+import FShow::*;
 
 // ******* Project Imports *******
 
@@ -15,8 +46,19 @@ import Vector::*;
 `include "awb/provides/hasim_cache_protocol.bsh"
 `include "awb/provides/l1_cache_base_types.bsh"
 
-module [HASIM_MODULE] mkL1CacheArbiter#(String reqToMemoryName,
-                                        String rspFromMemoryName)
+//
+// mkL1CacheArbiter --
+//   Merge an L1 I-cache and D-cache into what appears to be a single interface
+//   from the perspective of lower down in the hierarchy.  In this code, lower
+//   down the hierarchy is called "memory", though it is likely the L2.
+//
+//   The number of ports (channels) is assumed to be the same for each L1 and
+//   for the path to memory.
+//
+module [HASIM_MODULE] mkL1CacheArbiter#(NumTypeParam#(n_TO_MEM_CHANNELS) nToMemChannels,
+                                        String toMemoryName,
+                                        NumTypeParam#(n_FROM_MEM_CHANNELS) nFromMemChannels,
+                                        String fromMemoryName)
     // Interface
     (Empty);
 
@@ -26,203 +68,265 @@ module [HASIM_MODULE] mkL1CacheArbiter#(String reqToMemoryName,
     Bool favorICache = `L1_ARBITER_FAVOR_ICACHE;
 
     // Queues to/from DCache
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqFromDCache <-
-        mkPortStallRecv_Multiplexed("L1_DCache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToDCache <-
-        mkPortStallSend_Multiplexed("L1_DCache_InQ");
+    Vector#(n_TO_MEM_CHANNELS,
+            PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         CACHE_PROTOCOL_MSG)) fromDCache = newVector();
+
+    Vector#(n_FROM_MEM_CHANNELS,
+            PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         CACHE_PROTOCOL_MSG)) toDCache = newVector();
 
     // Queues to/from ICache
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqFromICache <-
-        mkPortStallRecv_Multiplexed("L1_ICache_OutQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToICache <-
-        mkPortStallSend_Multiplexed("L1_ICache_InQ");
+    Vector#(n_TO_MEM_CHANNELS,
+            PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         CACHE_PROTOCOL_MSG)) fromICache = newVector();
+
+    Vector#(n_FROM_MEM_CHANNELS,
+            PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         CACHE_PROTOCOL_MSG)) toICache = newVector();
+
 
     // Queues to/from Memory
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToMemory <-
-        mkPortStallSend_Multiplexed(reqToMemoryName);
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspFromMemory <-
-        mkPortStallRecv_Multiplexed(rspFromMemoryName);
+    Vector#(n_TO_MEM_CHANNELS,
+            PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         CACHE_PROTOCOL_MSG)) toMemory = newVector();
+
+    Vector#(n_FROM_MEM_CHANNELS,
+            PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         CACHE_PROTOCOL_MSG)) fromMemory = newVector();
+
+    for (Integer c = 0; c < valueOf(n_TO_MEM_CHANNELS); c = c + 1)
+    begin
+        let n = integerToString(c);
+        fromDCache[c] <- mkPortStallRecv_Multiplexed("L1_DCache_OutQ_" + n);
+        fromICache[c] <- mkPortStallRecv_Multiplexed("L1_ICache_OutQ_" + n);
+        toMemory[c] <- mkPortStallSend_Multiplexed(toMemoryName + "_" + n);
+    end
+
+    for (Integer c = 0; c < valueOf(n_FROM_MEM_CHANNELS); c = c + 1)
+    begin
+        let n = integerToString(c);
+        toDCache[c] <- mkPortStallSend_Multiplexed("L1_DCache_InQ_" + n);
+        toICache[c] <- mkPortStallSend_Multiplexed("L1_ICache_InQ_" + n);
+        fromMemory[c] <- mkPortStallRecv_Multiplexed(fromMemoryName + "_" + n);
+    end
+
     
     // ******* Local Controller *******
     
-    Vector#(6, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    Vector#(TAdd#(TMul#(3, n_TO_MEM_CHANNELS), TMul#(3, n_FROM_MEM_CHANNELS)),
+            INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inctrls = newVector();
+    Vector#(TAdd#(TMul#(3, n_TO_MEM_CHANNELS), TMul#(3, n_FROM_MEM_CHANNELS)),
+            INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     
-    inctrls[0]  = reqFromDCache.ctrl.in;
-    inctrls[1]  = rspToDCache.ctrl.in;
-    inctrls[2]  = reqFromICache.ctrl.in;
-    inctrls[3]  = rspToICache.ctrl.in;
-    inctrls[4]  = reqToMemory.ctrl.in;
-    inctrls[5]  = rspFromMemory.ctrl.in;
-    outctrls[0]  = reqFromDCache.ctrl.out;
-    outctrls[1]  = rspToDCache.ctrl.out;
-    outctrls[2]  = reqFromICache.ctrl.out;
-    outctrls[3]  = rspToICache.ctrl.out;
-    outctrls[4]  = reqToMemory.ctrl.out;
-    outctrls[5]  = rspFromMemory.ctrl.out;
+    Integer c_idx = 0;
+
+    for (Integer c = 0; c < valueOf(n_TO_MEM_CHANNELS); c = c + 1)
+    begin
+        inctrls[c_idx] = fromDCache[c].ctrl.in;
+        inctrls[c_idx + 1] = fromICache[c].ctrl.in;
+        inctrls[c_idx + 2] = toMemory[c].ctrl.in;
+
+        outctrls[c_idx] = fromDCache[c].ctrl.out;
+        outctrls[c_idx + 1] = fromICache[c].ctrl.out;
+        outctrls[c_idx + 2] = toMemory[c].ctrl.out;
+
+        c_idx = c_idx + 3;
+    end
+
+    for (Integer c = 0; c < valueOf(n_FROM_MEM_CHANNELS); c = c + 1)
+    begin
+        inctrls[c_idx] = toDCache[c].ctrl.in;
+        inctrls[c_idx + 1] = toICache[c].ctrl.in;
+        inctrls[c_idx + 2] = fromMemory[c].ctrl.in;
+
+        outctrls[c_idx] = toDCache[c].ctrl.out;
+        outctrls[c_idx + 1] = toICache[c].ctrl.out;
+        outctrls[c_idx + 2] = fromMemory[c].ctrl.out;
+
+        c_idx = c_idx + 3;
+    end
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 Cache Arbiter", inctrls, outctrls);
     
 
-    function Bool rspForIStream(MEM_OPAQUE opaque);
+    function Bool forIStream(MEM_OPAQUE opaque);
         return unpack(msb(opaque));
     endfunction
 
 
-    function MEM_OPAQUE setRspForIStream(MEM_OPAQUE opaque);
+    function MEM_OPAQUE setForIStream(MEM_OPAQUE opaque);
         let new_opaque = opaque;
         new_opaque[valueof(MEM_OPAQUE_SIZE) - 1] = 1;
         return new_opaque;
     endfunction
 
 
-    function MEM_OPAQUE setRspForDStream(MEM_OPAQUE opaque);
+    function MEM_OPAQUE setForDStream(MEM_OPAQUE opaque);
         let new_opaque = opaque;
         new_opaque[valueof(MEM_OPAQUE_SIZE) - 1] = 0;
         return new_opaque;
     endfunction
 
 
+    (* conservative_implicit_conditions *)
     rule stage1_arbitrate (True);
         // Get the next instance to simulate.
         let cpu_iid <- localCtrl.startModelCycle();
     
-        // Route responses to the right place.
-        let memory_out <- rspFromMemory.receive(cpu_iid);
-        let icache_has_room <- rspToICache.canEnq(cpu_iid);
-        let dcache_has_room <- rspToDCache.canEnq(cpu_iid);
-        
-        if (memory_out matches tagged Valid .memory_rsp)
-        begin
-            // There's a response. Where should it go?
-            if (rspForIStream(memory_rsp.opaque))
-            begin
-                // It's going to the ICacheQ, if it has room.
-                if (icache_has_room)
-                begin
-                    debugLog.record(cpu_iid, $format("RSP TO ICACHE"));
-                    rspToICache.doEnq(cpu_iid, memory_rsp);
-                    rspToDCache.noEnq(cpu_iid);
-                    rspFromMemory.doDeq(cpu_iid);
-                end
-                else
-                begin
-                    debugLog.record(cpu_iid, $format("RSP TO ICACHE RETRY"));
-                    // No room, so just leave it.
-                    rspToICache.noEnq(cpu_iid);
-                    rspToDCache.noEnq(cpu_iid);
-                    rspFromMemory.noDeq(cpu_iid);
-                end
-            end
-            else
-            begin
-                // It's going to the DCacheQ, if it has room.
-                if (dcache_has_room)
-                begin
-                    debugLog.record(cpu_iid, $format("RSP TO DCACHE"));
-                    rspToDCache.doEnq(cpu_iid, memory_rsp);
-                    rspToICache.noEnq(cpu_iid);
-                    rspFromMemory.doDeq(cpu_iid);
-                end
-                else
-                begin
-                    debugLog.record(cpu_iid, $format("RSP TO DCACHE RETRY"));
-                    // No room, so just leave it.
-                    rspToDCache.noEnq(cpu_iid);
-                    rspToICache.noEnq(cpu_iid);
-                    rspFromMemory.noDeq(cpu_iid);
-                end
-            end
-        end
-        else
-        begin
-            debugLog.record(cpu_iid, $format("NO RSP"));
-            // No response to route.
-            rspToDCache.noEnq(cpu_iid);
-            rspToICache.noEnq(cpu_iid);
-            rspFromMemory.noDeq(cpu_iid);
-        end
-    
-        // Arbitrate the outgoing queue.
-    
-        let memory_has_room <- reqToMemory.canEnq(cpu_iid);
+        // ================================================================
+        //
+        // Route responses from memory to the right L1 cache.
+        //
+        // ================================================================
 
-        let dcache_out <- reqFromDCache.receive(cpu_iid);
-        let icache_out <- reqFromICache.receive(cpu_iid);
-        
-        let dcache_valid = isValid(dcache_out);
-        let icache_valid = isValid(icache_out);
-        
-        if (!memory_has_room)
+        for (Integer c = 0; c < valueOf(n_FROM_MEM_CHANNELS); c = c + 1)
         begin
-            // Stall
-            debugLog.record(cpu_iid, $format("REQ STALL"));
-            reqFromDCache.noDeq(cpu_iid);
-            reqFromICache.noDeq(cpu_iid);
-            reqToMemory.noEnq(cpu_iid);
-        end
-        else
-        begin
-            // Arbitrate based on favorite.
-            if (icache_out matches tagged Valid .icache_value)
+            let memory_out <- fromMemory[c].receive(cpu_iid);
+            let icache_has_room <- toICache[c].canEnq(cpu_iid);
+            let dcache_has_room <- toDCache[c].canEnq(cpu_iid);
+        
+            if (memory_out matches tagged Valid .memory_msg)
             begin
-                if (dcache_out matches tagged Valid .dcache_value)
+                // There's a response. Where should it go?
+                if (forIStream(memory_msg.opaque))
                 begin
-                    // The both want it. Resolve based on dynamic parameter.
-                    if (favorICache())
+                    // It's going to the ICacheQ, if it has room.
+                    if (icache_has_room)
                     begin
-                        debugLog.record(cpu_iid, $format("REQ FROM ICACHE & DCACHE: ICACHE GRANT"));
-                        let final_value = icache_value;
-                        final_value.opaque = setRspForIStream(final_value.opaque);
-
-                        reqToMemory.doEnq(cpu_iid, final_value);
-                        reqFromICache.doDeq(cpu_iid);
-                        reqFromDCache.noDeq(cpu_iid);
+                        debugLog.record(cpu_iid, $format("TO ICACHE[%0d]: ", c) + fshow(memory_msg));
+                        toICache[c].doEnq(cpu_iid, memory_msg);
+                        toDCache[c].noEnq(cpu_iid);
+                        fromMemory[c].doDeq(cpu_iid);
                     end
                     else
                     begin
-                        debugLog.record(cpu_iid, $format("REQ FROM ICACHE & DCACHE: DCACHE GRANT"));
-
-                        let final_value = dcache_value;
-                        final_value.opaque = setRspForDStream(final_value.opaque);
-
-                        reqToMemory.doEnq(cpu_iid, final_value);
-                        reqFromDCache.doDeq(cpu_iid);
-                        reqFromICache.noDeq(cpu_iid);
+                        debugLog.record(cpu_iid, $format("TO ICACHE[%0d] RETRY", c));
+                        // No room, so just leave it.
+                        toICache[c].noEnq(cpu_iid);
+                        toDCache[c].noEnq(cpu_iid);
+                        fromMemory[c].noDeq(cpu_iid);
                     end
                 end
                 else
                 begin
-                    debugLog.record(cpu_iid, $format("REQ FROM ICACHE"));
-
-                    // Only the ICache wants it, so they get it.
-                    let final_value = icache_value;
-                    final_value.opaque = setRspForIStream(final_value.opaque);
-
-                    reqToMemory.doEnq(cpu_iid, final_value);
-                    reqFromICache.doDeq(cpu_iid);
-                    reqFromDCache.noDeq(cpu_iid);
+                    // It's going to the DCacheQ, if it has room.
+                    if (dcache_has_room)
+                    begin
+                        debugLog.record(cpu_iid, $format("TO DCACHE[%0d]: ", c) + fshow(memory_msg));
+                        toDCache[c].doEnq(cpu_iid, memory_msg);
+                        toICache[c].noEnq(cpu_iid);
+                        fromMemory[c].doDeq(cpu_iid);
+                    end
+                    else
+                    begin
+                        debugLog.record(cpu_iid, $format("TO DCACHE[%0d] RETRY", c));
+                        // No room, so just leave it.
+                        toDCache[c].noEnq(cpu_iid);
+                        toICache[c].noEnq(cpu_iid);
+                        fromMemory[c].noDeq(cpu_iid);
+                    end
                 end
-            end
-            else if (dcache_out matches tagged Valid .dcache_value)
-            begin
-                debugLog.record(cpu_iid, $format("REQ FROM DCACHE"));
-
-                // Only the DCache wants it, so they get it.
-                let final_value = dcache_value;
-                final_value.opaque = setRspForDStream(final_value.opaque);
-
-                reqToMemory.doEnq(cpu_iid, final_value);
-                reqFromDCache.doDeq(cpu_iid);
-                reqFromICache.noDeq(cpu_iid);
             end
             else
             begin
-                debugLog.record(cpu_iid, $format("NO REQ"));
-                // Neither want it.
-                reqToMemory.noEnq(cpu_iid);
-                reqFromDCache.noDeq(cpu_iid);
-                reqFromICache.noDeq(cpu_iid);
+                debugLog.record(cpu_iid, $format("NO TO L1[%0d]", c));
+                // No response to route.
+                toDCache[c].noEnq(cpu_iid);
+                toICache[c].noEnq(cpu_iid);
+                fromMemory[c].noDeq(cpu_iid);
+            end
+        end
+    
+    
+        // ================================================================
+        //
+        // Route messages from L1 caches to memory.
+        //
+        // ================================================================
+    
+        for (Integer c = 0; c < valueOf(n_TO_MEM_CHANNELS); c = c + 1)
+        begin
+            let memory_has_room <- toMemory[c].canEnq(cpu_iid);
+
+            let dcache_out <- fromDCache[c].receive(cpu_iid);
+            let icache_out <- fromICache[c].receive(cpu_iid);
+
+            let dcache_valid = isValid(dcache_out);
+            let icache_valid = isValid(icache_out);
+
+            if (! memory_has_room)
+            begin
+                // Stall
+                debugLog.record(cpu_iid, $format("MEM FULL [%0d] STALL", c));
+                fromDCache[c].noDeq(cpu_iid);
+                fromICache[c].noDeq(cpu_iid);
+                toMemory[c].noEnq(cpu_iid);
+            end
+            else
+            begin
+                // Arbitrate based on favorite.
+                if (icache_out matches tagged Valid .icache_value)
+                begin
+                    if (dcache_out matches tagged Valid .dcache_value)
+                    begin
+                        // They both want it. Resolve based on dynamic parameter.
+                        if (favorICache())
+                        begin
+                            let final_value = icache_value;
+                            final_value.opaque = setForIStream(final_value.opaque);
+
+                            debugLog.record(cpu_iid, $format("FROM ICACHE & DCACHE: ICACHE[%0d] GRANT: ", c) + fshow(final_value));
+
+                            toMemory[c].doEnq(cpu_iid, final_value);
+                            fromICache[c].doDeq(cpu_iid);
+                            fromDCache[c].noDeq(cpu_iid);
+                        end
+                        else
+                        begin
+                            let final_value = dcache_value;
+                            final_value.opaque = setForDStream(final_value.opaque);
+
+                            debugLog.record(cpu_iid, $format("FROM ICACHE & DCACHE: DCACHE[%0d] GRANT:", c) + fshow(final_value));
+
+                            toMemory[c].doEnq(cpu_iid, final_value);
+                            fromDCache[c].doDeq(cpu_iid);
+                            fromICache[c].noDeq(cpu_iid);
+                        end
+                    end
+                    else
+                    begin
+                        // Only the ICache wants it, so they get it.
+                        let final_value = icache_value;
+                        final_value.opaque = setForIStream(final_value.opaque);
+
+                        debugLog.record(cpu_iid, $format("FROM ICACHE[%0d]: ", c) + fshow(final_value));
+
+                        toMemory[c].doEnq(cpu_iid, final_value);
+                        fromICache[c].doDeq(cpu_iid);
+                        fromDCache[c].noDeq(cpu_iid);
+                    end
+                end
+                else if (dcache_out matches tagged Valid .dcache_value)
+                begin
+                    // Only the DCache wants it, so they get it.
+                    let final_value = dcache_value;
+                    final_value.opaque = setForDStream(final_value.opaque);
+
+                    debugLog.record(cpu_iid, $format("FROM DCACHE[%0d]: ", c) + fshow(final_value));
+
+                    toMemory[c].doEnq(cpu_iid, final_value);
+                    fromDCache[c].doDeq(cpu_iid);
+                    fromICache[c].noDeq(cpu_iid);
+                end
+                else
+                begin
+                    debugLog.record(cpu_iid, $format("NO FROM L1[%0d]", c));
+                    // Neither want it.
+                    toMemory[c].noEnq(cpu_iid);
+                    fromDCache[c].noDeq(cpu_iid);
+                    fromICache[c].noDeq(cpu_iid);
+                end
             end
         end
 

@@ -141,8 +141,8 @@ endinstance
 // Note that the module itself is implemented as a pipeline, though the target
 // model carries out all actions in one model cycle.
 //
-module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
-                                 String rspToL1Name,
+module [HASIM_MODULE] mkL2Cache#(String portFromL1Name,
+                                 String portToL1Name,
                                  String reqToMemoryName,
                                  String rspFromMemoryName)
     // Interface:
@@ -166,10 +166,13 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     // ****** Ports ******
 
     // Queues to/from core hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqFromCore <-
-        mkPortStallRecv_Multiplexed(reqFromL1Name);
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToCore <-
-        mkPortStallSend_Multiplexed(rspToL1Name);
+    Vector#(2, PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                            CACHE_PROTOCOL_MSG)) portFromL1 = newVector();
+    portFromL1[0] <- mkPortStallRecv_Multiplexed(portFromL1Name + "_0");
+    portFromL1[1] <- mkPortStallRecv_Multiplexed(portFromL1Name + "_1");
+
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) portToL1 <-
+        mkPortStallSend_Multiplexed(portToL1Name + "_0");
     
     // Queues to/from coherence engine.
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToUncore <-
@@ -178,18 +181,20 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_RSP) rspFromUncore <-
         mkPortStallRecv_Multiplexed(rspFromMemoryName);
     
-    Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    Vector#(5, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
     
-    inctrls[0]  = reqFromCore.ctrl.in;
-    inctrls[1]  = rspToCore.ctrl.in;
-    inctrls[2]  = reqToUncore.ctrl.in;
-    inctrls[3]  = rspFromUncore.ctrl.in;
+    inctrls[0]  = portFromL1[0].ctrl.in;
+    inctrls[1]  = portFromL1[1].ctrl.in;
+    inctrls[2]  = portToL1.ctrl.in;
+    inctrls[3]  = reqToUncore.ctrl.in;
+    inctrls[4]  = rspFromUncore.ctrl.in;
 
-    outctrls[0] = reqFromCore.ctrl.out;
-    outctrls[1] = rspToCore.ctrl.out;
-    outctrls[2] = reqToUncore.ctrl.out;
-    outctrls[3] = rspFromUncore.ctrl.out;
+    outctrls[0] = portFromL1[0].ctrl.out;
+    outctrls[1] = portFromL1[1].ctrl.out;
+    outctrls[2] = portToL1.ctrl.out;
+    outctrls[3] = reqToUncore.ctrl.out;
+    outctrls[4] = rspFromUncore.ctrl.out;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L2 Cache", inctrls, outctrls);
 
@@ -253,13 +258,14 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
         // Check whether the request ports have room for any new requests.
         let can_enq_uncore_req <- reqToUncore.canEnq(cpu_iid);
-        let can_enq_core_rsp <- rspToCore.canEnq(cpu_iid);
+        let can_enq_core_rsp <- portToL1.canEnq(cpu_iid);
         local_state.memQNotFull = can_enq_uncore_req;
         local_state.coreQNotFull = can_enq_core_rsp;
         
         // Now check for responses from the cache coherence engine.
         let m_uncore_rsp <- rspFromUncore.receive(cpu_iid);
-        let m_core_req <- reqFromCore.receive(cpu_iid);
+        let m_core_req <- portFromL1[0].receive(cpu_iid);
+        let dummy <- portFromL1[1].receive(cpu_iid);
 
 
         L2C_OPER oper = tagged Invalid;
@@ -653,17 +659,18 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
         if (oper matches tagged LOAD_REQ .req)
         begin
-            reqFromCore.doDeq(cpu_iid);
+            portFromL1[0].doDeq(cpu_iid);
         end
         else if (oper matches tagged STORE_REQ .req)
         begin
-            reqFromCore.doDeq(cpu_iid);
+            portFromL1[0].doDeq(cpu_iid);
         end
         else
         begin
-            reqFromCore.noDeq(cpu_iid);
+            portFromL1[0].noDeq(cpu_iid);
         end
 
+        portFromL1[1].noDeq(cpu_iid);
 
         //
         // Send requests/responses.
@@ -719,11 +726,11 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
         // Take care of CPU rsp
         if (local_state.coreQUsed)
         begin
-            rspToCore.doEnq(cpu_iid, local_state.coreQData); 
+            portToL1.doEnq(cpu_iid, local_state.coreQData); 
         end
         else
         begin
-            rspToCore.noEnq(cpu_iid);
+            portToL1.noEnq(cpu_iid);
         end
 
 

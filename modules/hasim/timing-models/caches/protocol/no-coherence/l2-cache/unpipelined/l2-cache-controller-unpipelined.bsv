@@ -167,9 +167,9 @@ module [HASIM_MODULE] mkL2Cache#(String reqFromL1Name,
 
     // Queues to/from core hierarchy.
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqFromCore <-
-        mkPortStallRecv_Multiplexed(reqFromL1Name);
+        mkPortStallRecv_Multiplexed(reqFromL1Name + "_0");
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToCore <-
-        mkPortStallSend_Multiplexed(rspToL1Name);
+        mkPortStallSend_Multiplexed(rspToL1Name + "_0");
     
     // Queues to/from coherence engine.
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, MEMORY_REQ) reqToUncore <-
