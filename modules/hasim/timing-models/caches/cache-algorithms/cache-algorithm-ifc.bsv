@@ -105,6 +105,13 @@ interface CACHE_ALG#(numeric type t_NUM_INSTANCES,
     method Action update(INSTANCE_ID#(t_NUM_INSTANCES) iid,
                          CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx,
                          CACHE_ENTRY_STATE#(t_OPAQUE) state);
+
+    //
+    // invalidate --
+    //   Drop an entry.
+    //
+    method Action invalidate(INSTANCE_ID#(t_NUM_INSTANCES) iid,
+                             CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
 endinterface
 
 

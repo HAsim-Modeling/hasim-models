@@ -169,4 +169,10 @@ module [HASIM_MODULE] mkCacheAlgDirectMapped#(function Bool mayEvict(t_OPAQUE op
         let entry = initInternalCacheEntryFromState(state);
         tagStore.write(iid, idx.set, tagged Valid entry);
     endmethod
+    
+    method Action invalidate(t_IID iid,
+                             CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
+
+        tagStore.write(iid, idx.set, tagged Invalid);
+    endmethod
 endmodule

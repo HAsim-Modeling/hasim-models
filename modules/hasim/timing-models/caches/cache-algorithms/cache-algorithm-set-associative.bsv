@@ -68,7 +68,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(function Bool mayEvict(t_OPAQUE 
     FIFO#(CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS)) lookupByIdxQ <- mkSizedFIFO(buffering);
     FIFOF#(Tuple4#(t_IID,
                    CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS),
-                   t_INTERNAL_ENTRY,
+                   Maybe#(t_INTERNAL_ENTRY),
                    Bool)) updateQ <- mkSizedFIFOF(buffering);
 
     // Store tags in a scratchpad
@@ -121,22 +121,31 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(function Bool mayEvict(t_OPAQUE 
     //   Complete alloc or update request.
     //
     rule finishUpdate (True);
-        match {.iid, .idx, .entry, .is_alloc} = updateQ.first();
+        match {.iid, .idx, .m_entry, .is_alloc} = updateQ.first();
         updateQ.deq();
 
         let entryvec <- tagStoreBanks.readPorts[`PORT_ALLOC].readRsp(iid);
         let accessedvec <- accessedPool.readPorts[`PORT_ALLOC].readRsp(iid);
 
-        entryvec[idx.way] = tagged Valid entry;
+        entryvec[idx.way] = m_entry;
         tagStoreBanks.write(iid, idx.set, entryvec);
         
         if (is_alloc)
         begin
             accessedvec[idx.way] = False;
             accessedPool.write(iid, idx.set, accessedvec);
+
+            debugLog.record_simple_ctx(iid, $format("Alloc set %0d: way %0d, tag 0x%0h, accessed 0x%0h", idx.set, idx.way, validValue(m_entry).tag, pack(accessedvec)));
+        end
+        else if (m_entry matches tagged Valid .entry)
+        begin
+            debugLog.record_simple_ctx(iid, $format("Update set %0d: way %0d, tag 0x%0h, accessed 0x%0h", idx.set, idx.way, entry.tag, pack(accessedvec)));
+        end
+        else
+        begin
+            debugLog.record_simple_ctx(iid, $format("Inval set %0d: way %0d", idx.set, idx.way));
         end
 
-        debugLog.record_simple_ctx(iid, $format("Alloc set %0d: way %0d, tag 0x%0h, accessed 0x%0h", idx.set, idx.way, entry.tag, pack(accessedvec)));
     endrule
 
 
@@ -283,7 +292,7 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(function Bool mayEvict(t_OPAQUE 
         tagStoreBanks.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
         accessedPool.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
 
-        updateQ.enq(tuple4(iid, idx, entry, True));
+        updateQ.enq(tuple4(iid, idx, tagged Valid entry, True));
     endmethod
 
     method Action update(t_IID iid,
@@ -296,6 +305,14 @@ module [HASIM_MODULE] mkCacheAlgSetAssociative#(function Bool mayEvict(t_OPAQUE 
         tagStoreBanks.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
         accessedPool.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
 
-        updateQ.enq(tuple4(iid, idx, entry, False));
+        updateQ.enq(tuple4(iid, idx, tagged Valid entry, False));
+    endmethod
+
+    method Action invalidate(t_IID iid,
+                             CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
+        tagStoreBanks.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
+        accessedPool.readPorts[`PORT_ALLOC].readReq(iid, idx.set);
+
+        updateQ.enq(tuple4(iid, idx, tagged Invalid, False));
     endmethod
 endmodule

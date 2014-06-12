@@ -229,4 +229,9 @@ module [HASIM_MODULE] mkCacheAlgPseudoRandom
                          CACHE_ENTRY_STATE#(t_OPAQUE) state);
         noAction;
     endmethod
+    
+    method Action invalidate(t_IID iid,
+                             CACHE_ENTRY_IDX#(t_SET_SIZE, t_NUM_WAYS) idx);
+        noAction;
+    endmethod
 endmodule

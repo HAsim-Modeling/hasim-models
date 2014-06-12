@@ -94,6 +94,7 @@ typedef union tagged
 {
     L1_ICACHE_MISS_TOKEN MULTI_LOAD;
     CACHE_PROTOCOL_MSG   FILL_RSP;
+    CACHE_PROTOCOL_MSG   INVAL_REQ;
     ICACHE_INPUT         LOAD_REQ;
     void Invalid;
 }
@@ -119,6 +120,7 @@ typedef struct
     CACHE_PROTOCOL_MSG toL2QData;
 
     Bool cacheUpdUsed;
+    Bool cacheUpdInval;
     L1_ICACHE_IDX cacheUpdIdx;
     L1I_ENTRY_STATE cacheUpdState;
     LINE_ADDRESS cacheUpdPAddr;
@@ -136,6 +138,7 @@ instance DefaultValue#(IC_LOCAL_STATE);
         toL2QUsed: False,
         toL2QData: ?,
         cacheUpdUsed: False,
+        cacheUpdInval: False,
         cacheUpdIdx: ?,
         cacheUpdState: ?,
         cacheUpdPAddr: ?,
@@ -185,8 +188,8 @@ module [HASIM_MODULE] mkL1ICache ();
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ICACHE_OUTPUT_DELAYED) loadRspDelToCPU <- mkPortSend_Multiplexed("ICache_to_CPU_load_delayed");
 
     // Queues to and from the memory hierarchy, encapsulated as StallPorts.
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) reqToMemQ <- mkPortStallSend_Multiplexed("L1_ICache_OutQ");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) fillFromMemory <- mkPortStallRecv_Multiplexed("L1_ICache_InQ");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) portToL2 <- mkPortStallSend_Multiplexed("L1_ICache_OutQ");
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) portFromL2 <- mkPortStallRecv_Multiplexed("L1_ICache_InQ");
 
 
     // ****** Local Controller ******
@@ -195,12 +198,12 @@ module [HASIM_MODULE] mkL1ICache ();
     Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     
     inports[0] = loadReqFromCPU.ctrl;
-    inports[1] = fillFromMemory.ctrl.in;
-    inports[2] = reqToMemQ.ctrl.in;
+    inports[1] = portFromL2.ctrl.in;
+    inports[2] = portToL2.ctrl.in;
     outports[0] = loadRspImmToCPU.ctrl;
     outports[1] = loadRspDelToCPU.ctrl;
-    outports[2] = reqToMemQ.ctrl.out;
-    outports[3] = fillFromMemory.ctrl.out;
+    outports[2] = portToL2.ctrl.out;
+    outports[3] = portFromL2.ctrl.out;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 ICache", inports, outports);
 
@@ -242,8 +245,8 @@ module [HASIM_MODULE] mkL1ICache ();
     let assertInFill <- mkAssertionSimOnly("l1-instruction-cache.bsv: Entry not in FILL state",
                                           ASSERT_ERROR);
 
-    let assertRspOk <- mkAssertionSimOnly("l1-instruction-cache.bsv: Unexpected response kind",
-                                          ASSERT_ERROR);
+    let assertL2MsgOk <- mkAssertionSimOnly("l1-instruction-cache.bsv: Unexpected message from L2",
+                                            ASSERT_ERROR);
 
 
     // ****** Rules ******
@@ -253,7 +256,7 @@ module [HASIM_MODULE] mkL1ICache ();
     // See if there are any new fill responses from memory.
 
     // Ports read:
-    // * fillFromMemory
+    // * portFromL2
     
     // Ports written:
     // * loadRspDelayedtoCPU
@@ -267,11 +270,11 @@ module [HASIM_MODULE] mkL1ICache ();
         IC_LOCAL_STATE local_state = defaultValue;
 
         // Check if the toL2Q has room for any new requests.
-        let toL2Q_not_full <- reqToMemQ.canEnq(cpu_iid);
+        let toL2Q_not_full <- portToL2.canEnq(cpu_iid);
         local_state.toL2QNotFull = toL2Q_not_full;
 
         // Consume incoming messages
-        let m_fill <- fillFromMemory.receive(cpu_iid);
+        let m_fromL2 <- portFromL2.receive(cpu_iid);
         let m_cpu_req_load <- loadReqFromCPU.receive(cpu_iid);
 
         //
@@ -286,14 +289,33 @@ module [HASIM_MODULE] mkL1ICache ();
             oper = tagged MULTI_LOAD miss_tok;
             debugLog.record(cpu_iid, $format("1: FILL MULTIPLE RSP: %0d", miss_tok.index));
         end
-        else if (m_fill matches tagged Valid .fill)
+        else if (m_fromL2 matches tagged Valid .fromL2)
         begin
-            assertRspOk(cacheMsg_IsRspLoad(fill));
+            // Request/response from lower in the cache hierarchy.
+            if (fromL2.kind matches tagged RSP_LOAD .fill)
+            begin
+                // Fill response.
+                oper = tagged FILL_RSP fromL2;
 
-            oper = tagged FILL_RSP fill;
-
-            L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
-            debugLog.record(cpu_iid, $format("1: FILL RSP: idx %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+                L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fromL2.opaque);
+                debugLog.record(cpu_iid, $format("1: FILL RSP: idx %0d, line 0x%h", miss_tok.index, fromL2.linePAddr));
+            end
+            else if (fromL2.kind matches tagged WB_INVAL .req)
+            begin
+                // Writeback or invalidation request.  Ignore simple writeback
+                // since entries in the I-cache are never dirty.  Only consider
+                // invalidation requests.
+                if (req.inval)
+                begin
+                    oper = tagged INVAL_REQ fromL2;
+                    debugLog.record(cpu_iid, $format("1: INVAL REQ: line 0x%h", fromL2.linePAddr));
+                end
+            end
+            else
+            begin
+                // Unexpected message!
+                assertL2MsgOk(False);
+            end
         end
         else if (m_cpu_req_load matches tagged Valid .req)
         begin
@@ -355,6 +377,17 @@ module [HASIM_MODULE] mkL1ICache ();
                                           True);
             end
 
+            tagged INVAL_REQ .inval:
+            begin
+                debugLog.record(cpu_iid, $format("2: INVAL: line 0x%h", inval.linePAddr));
+
+                // Look up the line
+                iCacheAlg.lookupByAddrReq(cpu_iid,
+                                          inval.linePAddr,
+                                          False,
+                                          True);
+            end
+
             tagged LOAD_REQ .req:
             begin
                 let line_addr = toLineAddress(req.physicalAddress);
@@ -407,6 +440,42 @@ module [HASIM_MODULE] mkL1ICache ();
                     // Error:  line should be in the cache already in FILL state.
                     assertInFill(False);
                     debugLog.record(cpu_iid, $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr));
+                end
+            end
+
+            tagged INVAL_REQ .inval:
+            begin
+                let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
+
+                local_state.cacheUpdIdx = entry.idx;
+
+                if (entry.state matches tagged Valid .state &&&
+                    state.opaque == L1I_STATE_S)
+                begin
+                    //
+                    // Line is present and in use.  Invalidate it.
+                    //
+                    // Note that the this cache never sends a response to the
+                    // invalidation request.  This is a simplification of the
+                    // protocol.  The L1 dcache will send a response and the
+                    // timing will be almost identical.  Sending a response
+                    // from the icache would require bookkeeping by the L2
+                    // to merge icache and dcache responses.  Instead, we use
+                    // the dcache response in the model as a proxy for both
+                    // L1 caches.
+                    //
+                    local_state.cacheUpdInval = True;
+                    debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
+                end
+                else
+                begin
+                    //
+                    // Either the line is not present or it is in the cache
+                    // but tagged in FILL state.  FILL state is a proxy for
+                    // a miss address handler.  The fill remains outstanding
+                    // and will be serviced with the updated value later.
+                    //
+                    debugLog.record(cpu_iid, $format("3: INVAL NOT PRESENT: line 0x%h", inval.linePAddr));
                 end
             end
 
@@ -530,6 +599,11 @@ module [HASIM_MODULE] mkL1ICache ();
                 debugLog.record(cpu_iid, $format("4: Bubble FILL"));
             end
 
+            tagged INVAL_REQ .inval:
+            begin
+                debugLog.record(cpu_iid, $format("4: Bubble INVAL"));
+            end
+
             tagged LOAD_REQ .req:
             begin
                 if (new_miss_tok_req)
@@ -589,25 +663,31 @@ module [HASIM_MODULE] mkL1ICache ();
 
         if (oper matches tagged FILL_RSP .rsp)
         begin
-            fillFromMemory.doDeq(cpu_iid);
+            portFromL2.doDeq(cpu_iid);
         end
         else
         begin
-            fillFromMemory.noDeq(cpu_iid);
+            portFromL2.noDeq(cpu_iid);
         end
 
         // Take care of the memory queue.
         if (local_state.toL2QUsed)
         begin
-            reqToMemQ.doEnq(cpu_iid, local_state.toL2QData);
+            portToL2.doEnq(cpu_iid, local_state.toL2QData);
         end
         else
         begin
-            reqToMemQ.noEnq(cpu_iid);
+            portToL2.noEnq(cpu_iid);
         end
         
         // Take care of the cache update.
-        if (local_state.cacheUpdUsed)
+        if (local_state.cacheUpdInval)
+        begin
+            iCacheAlg.invalidate(cpu_iid, local_state.cacheUpdIdx);
+
+            debugLog.record(cpu_iid, $format("5: INVAL: ") + fshow(local_state.cacheUpdIdx));
+        end
+        else if (local_state.cacheUpdUsed)
         begin
             let state = initCacheEntryState(local_state.cacheUpdPAddr,
                                             False,
