@@ -97,9 +97,6 @@ module [HASIM_MODULE] mkDMem ();
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("pipe_mem.out");
 
-    // ****** Soft Connections ******
-
-    Connection_Client#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoads  <- mkConnection_Client("funcp_doLoads");
 
     // ****** Ports *****
     
@@ -110,9 +107,7 @@ module [HASIM_MODULE] mkDMem ();
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_INPUT)          loadToDCache   <- mkPortSend_Multiplexed("CPU_to_DCache_load");
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, SB_INPUT)                   reqToSB        <- mkPortSend_Multiplexed("DMem_to_SB_req");
     PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, WB_SEARCH_INPUT)            searchToWB     <- mkPortSend_Multiplexed("DMem_to_WB_search");
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
-
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)                writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, Tuple3#(DMEM_BUNDLE, Bool, Maybe#(L1_DCACHE_MISS_ID))) allocToCommitQ <- mkPortSend_Multiplexed("commitQ_alloc");
 
     // Zero-latency response ports for stage 2.
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspFromDCache <- mkPortRecvDependent_Multiplexed("DCache_to_CPU_load_immediate");
@@ -124,7 +119,7 @@ module [HASIM_MODULE] mkDMem ();
 
     Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
     Vector#(3, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports = newVector();
-    Vector#(6, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
+    Vector#(5, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = bundleFromDMemQ.ctrl.in;
     inports[1]  = creditFromCommitQ.ctrl;
     depports[0] = loadRspFromDCache.ctrl;
@@ -135,7 +130,6 @@ module [HASIM_MODULE] mkDMem ();
     outports[2] = allocToCommitQ.ctrl;
     outports[3] = searchToWB.ctrl;
     outports[4] = bundleFromDMemQ.ctrl.out;
-    outports[5] = writebackToDec.ctrl;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalControllerWithUncontrolled("DMem", inports, depports, outports);
 
@@ -266,9 +260,6 @@ module [HASIM_MODULE] mkDMem ();
     // * rspFromSB
     // * rspFromWB
     // * loadRspFromDCache
-    
-    // Ports written:
-    // * writebackToDec
 
     (* conservative_implicit_conditions *)
     rule stage2_loadRsp (True);
@@ -286,9 +277,6 @@ module [HASIM_MODULE] mkDMem ();
 
             // It was a bubble, so we have no writebacks to report.
             debugLog.record(cpu_iid, fshow("2: BUBBLE"));
-        
-            // Don't report any writebacks.
-            writebackToDec.send(cpu_iid, tagged Invalid);
 
             // Finish the bubble in the next stage.
             stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
@@ -299,9 +287,6 @@ module [HASIM_MODULE] mkDMem ();
         
             // We're just here because of something that was completed.
             debugLog.record(cpu_iid, fshow("2: NON-LOAD"));
-        
-            // Don't report any writebacks.
-            writebackToDec.send(cpu_iid, tagged Invalid);
 
             // Do the enqueue in the next stage.
             stage3Ctrl.ready(cpu_iid, tagged STAGE3_completed info);
@@ -320,17 +305,6 @@ module [HASIM_MODULE] mkDMem ();
                 // (Stores in the SB are always younger than those.)
                 debugLog.record(cpu_iid, fshow("2: SB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
 
-                // Send the writeback to decode.  The branch epoch is irrelevant
-                // at this late stage.
-                let epoch = initEpoch(?, rsp.bundle.faultEpoch);
-                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token,
-                                                                        epoch,
-                                                                        rsp.bundle.dests));
-
-                // Pass it to the next stage through the functional partition, 
-                // which actually retrieves the data.
-                doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
-
                 // Tell the next stage it was a hit:
                 stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(rsp.bundle, tagged Invalid));
 
@@ -341,16 +315,6 @@ module [HASIM_MODULE] mkDMem ();
                 // We found the data in the Write buffer, 
                 // so we don't have to look at the DCache response.
                 debugLog.record(cpu_iid, fshow("2: SB MISS/WB HIT ") + fshow(rsp.bundle.token) + fshow(" ADDR:") + fshow(rsp.bundle.physicalAddress));
-
-                // Send the writeback to decode.
-                let epoch = initEpoch(?, rsp.bundle.faultEpoch);
-                writebackToDec.send(cpu_iid, tagged Valid genBusMessage(rsp.bundle.token,
-                                                                        epoch,
-                                                                        rsp.bundle.dests));
-
-                // Pass it to the next stage through the functional partition, 
-                // which actually retrieves the data.
-                doLoads.makeReq(initFuncpReqDoLoads(rsp.bundle.token));
 
                 // Tell the next stage it was a hit:
                 stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(rsp.bundle, tagged Invalid));
@@ -369,16 +333,6 @@ module [HASIM_MODULE] mkDMem ();
                         // Well, the cache found it.
                         debugLog.record(cpu_iid, fshow("2: SB/WB MISS, DCACHE HIT ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
-                        // Send the writeback to decode.
-                        let epoch = initEpoch(?, bundle.faultEpoch);
-                        writebackToDec.send(cpu_iid, tagged Valid genBusMessage(tok,
-                                                                                epoch,
-                                                                                bundle.dests));
-
-                        // Pass it to the next stage through the functional partition, 
-                        // which actually retrieves the data.
-                        doLoads.makeReq(initFuncpReqDoLoads(tok));
-
                         // Tell the next stage it was a hit:
                         stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(bundle, tagged Invalid));
                     end
@@ -388,13 +342,6 @@ module [HASIM_MODULE] mkDMem ();
                         // The cache missed, but is handling it. 
                         debugLog.record(cpu_iid, fshow("2: SB/WB MISS, DCACHE MISS ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
 
-                        // No writebacks to report.
-                        writebackToDec.send(cpu_iid, tagged Invalid);
-
-                        // Pass it to the next stage through the functional partition, 
-                        // which actually retrieves the data.
-                        doLoads.makeReq(initFuncpReqDoLoads(tok));
-
                         // Tell the next stage it was a miss:
                         stage3Ctrl.ready(cpu_iid, tagged STAGE3_loadRsp tuple2(bundle, tagged Valid miss_id));
                     end
@@ -403,9 +350,6 @@ module [HASIM_MODULE] mkDMem ();
                     begin
                         // The SB/WB Missed, and the cache needs us to retry.
                         debugLog.record(cpu_iid, fshow("2: SB MISS, DCACHE RETRY ") + fshow(tok) + fshow(" ADDR:") + fshow(bundle.physicalAddress));
-
-                        // No writebacks to report.
-                        writebackToDec.send(cpu_iid, tagged Invalid);
 
                         stage3Ctrl.ready(cpu_iid, tagged STAGE3_bubble);
                     end
@@ -438,14 +382,12 @@ module [HASIM_MODULE] mkDMem ();
     // * allocToCommitQ
 
     rule stage3_loadRsp (True);
-    
         match {.cpu_iid, .state} <- stage3Ctrl.nextReadyInstance();
         
         debugLog.record(cpu_iid, fshow("3: Done"));
         
         if (state matches tagged STAGE3_bubble)
         begin
-        
             // Don't pass anything to the commitQ.
             bundleFromDMemQ.noDeq(cpu_iid);
             allocToCommitQ.send(cpu_iid, tagged Invalid);
@@ -453,39 +395,26 @@ module [HASIM_MODULE] mkDMem ();
 
             // End of model cycle. (Path 1)
             localCtrl.endModelCycle(cpu_iid, 1);
-
         end
         else if (state matches tagged STAGE3_completed .bundle)
         begin
-        
             // Add it to the CommitQ with no miss id.
             bundleFromDMemQ.doDeq(cpu_iid);
-            allocToCommitQ.send(cpu_iid, tagged Valid tuple2(bundle, tagged Invalid));
+            allocToCommitQ.send(cpu_iid, tagged Valid tuple3(bundle, False, tagged Invalid));
             eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(bundle.token)));
 
             // End of model cycle. (Path 2)
             localCtrl.endModelCycle(cpu_iid, 2);
-
         end
         else if (state matches tagged STAGE3_loadRsp {.bundle, .m_miss_id})
         begin
-        
-            // Get the response from the functional partition.
-            let rsp = doLoads.getResp();
-            doLoads.deq();
-
-            // Update the bundle with the new token.
-            let new_bundle = bundle;
-            new_bundle.token = rsp.token;
-
             // Send it to the commitQ, completed if we got a hit.
             bundleFromDMemQ.doDeq(cpu_iid);
-            allocToCommitQ.send(cpu_iid, tagged Valid tuple2(new_bundle, m_miss_id));
-            eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(new_bundle.token)));
+            allocToCommitQ.send(cpu_iid, tagged Valid tuple3(bundle, True, m_miss_id));
+            eventMem.recordEvent(cpu_iid, tagged Valid zeroExtend(tokTokenId(bundle.token)));
 
             // End of model cycle. (Path 3)
             localCtrl.endModelCycle(cpu_iid, 3);
-
         end
 
         debugLog.nextModelCycle(cpu_iid);

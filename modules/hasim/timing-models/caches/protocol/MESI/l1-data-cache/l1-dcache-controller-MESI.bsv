@@ -61,9 +61,6 @@ import DefaultValue::*;
 `include "awb/provides/hasim_l1_dcache_alg.bsh"
 `include "awb/provides/hasim_miss_tracker.bsh"
 
-// ******* Generated File Imports *******
-
-`include "awb/dict/PARAMS_HASIM_L1_DCACHE.bsh"
 
 // ****** Local Definitions *******
 

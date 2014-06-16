@@ -255,18 +255,31 @@ module [HASIM_MODULE] mkL1ICache ();
                                             ASSERT_ERROR);
 
 
+    // ****** Functions ******
+
+    //
+    // getOper --
+    //   Pick out the L1I_OPER argument from a stage controller payload.
+    //   Assumes the operation is always the first element in the payload
+    //   tuple.
+    //
+    function L1I_OPER getOper(STAGE_CONTROLLER#(MAX_NUM_CPUS, t_ARGS) ctrl)
+        provisos (Has_tpl_1#(t_ARGS, L1I_OPER));
+
+        match {.cpu_iid, .payload} = ctrl.peekReadyInstance();
+        return tpl_1(payload);
+    endfunction
+
+
     // ****** Rules ******
 
-    // stage1_fill
-    
-    // See if there are any new fill responses from memory.
+    // ====================================================================
+    //
+    //  Stage 1:  Consume inputs, populate local_state, and pick an
+    //  operation to perform this target machine cycle.
+    //
+    // ====================================================================
 
-    // Ports read:
-    // * portFromL2
-    
-    // Ports written:
-    // * loadRspDelayedtoCPU
-    
     (* conservative_implicit_conditions *)
     rule stage1_pickOperation (True);
         // Start a new model cycle
@@ -350,249 +363,294 @@ module [HASIM_MODULE] mkL1ICache ();
         stage2Ctrl.ready(cpu_iid, tuple2(oper, local_state));
     endrule
 
-    rule stage2 (True);
+
+    // ====================================================================
+    //
+    //  Stage 2:  Exactly one stage2 rule must fire for proper pipelining.
+    //
+    // ====================================================================
+
+    rule stage2_MULTI_LOAD (getOper(stage2Ctrl) matches tagged MULTI_LOAD .miss_tok);
         match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
-        case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
-            begin
-                // A fill that came in previously is going to multiple miss tokens.
-                local_state.missTokToFree = tagged Valid miss_tok;
+        // A fill that came in previously is going to multiple miss tokens.
+        local_state.missTokToFree = tagged Valid miss_tok;
 
-                // Now send the fill to CPU
-                debugLog.record(cpu_iid, $format("2: FILL MULTIPLE RSP LOAD: %0d", miss_tok.index));
-                local_state.loadRsp = tagged Valid initICacheMissRsp(miss_tok.index);
-            end
-
-            tagged FILL_RSP .fill:
-            begin
-                // Record fill meta data that will be written to the cache.
-                local_state.cacheUpdUsed = True;
-                local_state.cacheUpdPAddr = fill.linePAddr;
-                local_state.cacheUpdState = L1I_STATE_S;
-
-                // Deallocate the Miss ID.
-                L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
-
-                // Free the token in the next stage, in case we had to retry.
-                local_state.missTokToFree = tagged Valid miss_tok;
-
-                // Now send the fill to the CPU
-                debugLog.record(cpu_iid, $format("2: MEM RSP LOAD: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
-                local_state.loadRsp = tagged Valid initICacheMissRsp(miss_tok.index);
-
-                // Pick the victim
-                iCacheAlg.lookupByAddrReq(cpu_iid,
-                                          fill.linePAddr,
-                                          False,
-                                          True);
-            end
-
-            tagged INVAL_REQ .inval:
-            begin
-                debugLog.record(cpu_iid, $format("2: INVAL: line 0x%h", inval.linePAddr));
-
-                // Look up the line
-                iCacheAlg.lookupByAddrReq(cpu_iid,
-                                          inval.linePAddr,
-                                          False,
-                                          True);
-            end
-
-            tagged LOAD_REQ .req:
-            begin
-                let line_addr = toLineAddress(req.physicalAddress);
-
-                debugLog.record(cpu_iid, $format("2: LOAD REQ: PA 0x%h, line 0x%h", req.physicalAddress, line_addr));
-
-                // Look up the address in the cache.
-                iCacheAlg.lookupByAddrReq(cpu_iid, line_addr, True, True);
-            end
-
-            tagged Invalid:
-            begin
-                debugLog.record(cpu_iid, $format("2: Bubble"));
-            end
-        endcase
+        // Now send the fill to CPU
+        debugLog.record(cpu_iid, $format("2: FILL MULTIPLE RSP LOAD: %0d", miss_tok.index));
+        local_state.loadRsp = tagged Valid initICacheMissRsp(miss_tok.index);
 
         stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
     endrule
 
 
-    rule stage3 (True);
-        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+    rule stage2_FILL_RSP (getOper(stage2Ctrl) matches tagged FILL_RSP .fill);
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
+        // Record fill meta data that will be written to the cache.
+        local_state.cacheUpdUsed = True;
+        local_state.cacheUpdPAddr = fill.linePAddr;
+        local_state.cacheUpdState = L1I_STATE_S;
+
+        // Deallocate the Miss ID.
+        L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
+
+        // Free the token in the next stage, in case we had to retry.
+        local_state.missTokToFree = tagged Valid miss_tok;
+
+        // Now send the fill to the CPU
+        debugLog.record(cpu_iid, $format("2: MEM RSP LOAD: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+        local_state.loadRsp = tagged Valid initICacheMissRsp(miss_tok.index);
+
+        // Pick the victim
+        iCacheAlg.lookupByAddrReq(cpu_iid,
+                                  fill.linePAddr,
+                                  False,
+                                  True);
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    rule stage2_INVAL_REQ (getOper(stage2Ctrl) matches tagged INVAL_REQ .inval);
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        debugLog.record(cpu_iid, $format("2: INVAL: line 0x%h", inval.linePAddr));
+
+        // Look up the line
+        iCacheAlg.lookupByAddrReq(cpu_iid,
+                                  inval.linePAddr,
+                                  False,
+                                  True);
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    rule stage2_LOAD_REQ (getOper(stage2Ctrl) matches tagged LOAD_REQ .req);
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        let line_addr = toLineAddress(req.physicalAddress);
+
+        debugLog.record(cpu_iid, $format("2: LOAD REQ: PA 0x%h, line 0x%h", req.physicalAddress, line_addr));
+
+        // Look up the address in the cache.
+        iCacheAlg.lookupByAddrReq(cpu_iid, line_addr, True, True);
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    rule stage2_Invalid (getOper(stage2Ctrl) matches tagged Invalid);
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        debugLog.record(cpu_iid, $format("2: Bubble"));
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    // ====================================================================
+    //
+    //  Stage 3:  Exactly one stage3 rule must fire for proper pipelining.
+    //
+    // ====================================================================
+
+    rule stage3_MULTI_LOAD (getOper(stage3Ctrl) matches tagged MULTI_LOAD .miss_tok);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
         Bool new_miss_tok_req = False;
 
-        case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
-            begin
-                debugLog.record(cpu_iid, $format("3: Bubble MULTI_LOAD"));
-            end
-
-            tagged FILL_RSP .fill:
-            begin
-                //
-                // This protocol evicts at request.  The entry should already
-                // be present in the FILL state.
-                //
-                let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
-
-                local_state.cacheUpdIdx = entry.idx;
-                outstandingMisses.reportLoadDone(cpu_iid, fill.linePAddr);
-
-                if (entry.state matches tagged Valid .state)
-                begin
-                    assertInFill(state.opaque == L1I_STATE_FILL);
-                    debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx));
-                end
-                else
-                begin
-                    // Error:  line should be in the cache already in FILL state.
-                    assertInFill(False);
-                    debugLog.record(cpu_iid, $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr));
-                end
-            end
-
-            tagged INVAL_REQ .inval:
-            begin
-                let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
-
-                local_state.cacheUpdIdx = entry.idx;
-
-                if (entry.state matches tagged Valid .state &&&
-                    state.opaque == L1I_STATE_S)
-                begin
-                    //
-                    // Line is present and in use.  Invalidate it.
-                    //
-                    // Note that the this cache never sends a response to the
-                    // invalidation request.  This is a simplification of the
-                    // protocol.  The L1 dcache will send a response and the
-                    // timing will be almost identical.  Sending a response
-                    // from the icache would require bookkeeping by the L2
-                    // to merge icache and dcache responses.  Instead, we use
-                    // the dcache response in the model as a proxy for both
-                    // L1 caches.
-                    //
-                    local_state.cacheUpdInval = True;
-                    debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
-                end
-                else
-                begin
-                    //
-                    // Either the line is not present or it is in the cache
-                    // but tagged in FILL state.  FILL state is a proxy for
-                    // a miss address handler.  The fill remains outstanding
-                    // and will be serviced with the updated value later.
-                    //
-                    debugLog.record(cpu_iid, $format("3: INVAL NOT PRESENT: line 0x%h", inval.linePAddr));
-                end
-            end
-
-            tagged LOAD_REQ .req:
-            begin
-                //
-                // Did the load hit in the cache?
-                //
-                let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
-
-                let line_addr = toLineAddress(req.physicalAddress);
-
-                // Is there space in the miss tracker for a new L2 request?
-                let can_allocate = outstandingMisses.canAllocateLoad(cpu_iid);
-
-                if (entry.state matches tagged Valid .state)
-                begin
-                    if (state.opaque == L1I_STATE_S)
-                    begin
-                        // A hit, so give the data back.
-                        local_state.loadRspImm = tagged Valid initICacheHit(req);
-                        statHit.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: LOAD HIT: line 0x%h", state.linePAddr));
-                    end
-                    else
-                    begin
-                        //
-                        // Fill for this address is already outstanding.  One of
-                        // two things will now happen:
-                        //   (1) The miss tracker will merge the new request
-                        //       with the previous outstanding one.
-                        //   (2) Failing that, tell the core to retry later.
-                        //
-                        if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) &&
-                            can_allocate)
-                        begin
-                            // Option 1: Merge with previous fill token.
-                            new_miss_tok_req = True;
-                            outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
-
-                            statMiss.incr(cpu_iid);
-                            debugLog.record(cpu_iid, $format("3: LOAD MISS ALREADY IN FILL (merged): line 0x%h", line_addr));
-                        end
-                        else
-                        begin
-                            // Option 2: Retry later.
-                            debugLog.record(cpu_iid, $format("3: LOAD HIT IN FILL: line 0x%h (blocking)", state.linePAddr));
-                        end
-                    end
-                end
-                else
-                begin
-                    // A miss.
-                    if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) &&
-                        can_allocate)
-                    begin
-                        // A fill of this address is already in flight.  Latch
-                        // on to it and don't generate a new request.
-                        new_miss_tok_req = True;
-                        outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
-
-                        statMiss.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: LOAD MISS (ALREADY OUTSTANDING): line 0x%h", line_addr));
-                    end
-                    else if (entry.state matches tagged Blocked)
-                    begin
-                        // A miss and no eviction candidate.  Replay.
-                        debugLog.record(cpu_iid, $format("3: BLOCKED: line 0x%h (blocking)", line_addr));
-                    end
-                    else if (can_allocate && local_state.toL2QNotFull)
-                    begin
-                        // Allocate the next miss ID
-                        new_miss_tok_req = True;
-                        outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
-
-                        // Record that we are using the memory queue.
-                        local_state.toL2QUsed = True;
-
-                        // Evict now and add the new entry in FILL state.
-                        // This design embeds miss tracking in the cache itself.
-                        // (See comment in the MESI protocol README file.)
-                        local_state.cacheUpdUsed = True;
-                        local_state.cacheUpdIdx = entry.idx;
-                        local_state.cacheUpdPAddr = line_addr;
-                        local_state.cacheUpdState = L1I_STATE_FILL;
-
-                        statMiss.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: LOAD MISS: line 0x%h", line_addr));
-                    end
-                    else
-                    begin
-                        // Miss, but miss tracker is full or L2 is busy.
-                        debugLog.record(cpu_iid, $format("3: LOAD RETRY: line 0x%h, can alloc %0d, l2 notFull %0d", line_addr, can_allocate, local_state.toL2QNotFull));
-                    end
-                end
-            end
-
-            tagged Invalid:
-            begin
-                debugLog.record(cpu_iid, $format("3: Bubble"));
-            end
-        endcase
+        debugLog.record(cpu_iid, $format("3: Bubble MULTI_LOAD"));
 
         stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
     endrule
 
+
+    rule stage3_FILL_RSP (getOper(stage3Ctrl) matches tagged FILL_RSP .fill);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        //
+        // This protocol evicts at request.  The entry should already
+        // be present in the FILL state.
+        //
+        let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
+
+        local_state.cacheUpdIdx = entry.idx;
+        outstandingMisses.reportLoadDone(cpu_iid, fill.linePAddr);
+
+        if (entry.state matches tagged Valid .state)
+        begin
+            assertInFill(state.opaque == L1I_STATE_FILL);
+            debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx));
+        end
+        else
+        begin
+            // Error:  line should be in the cache already in FILL state.
+            assertInFill(False);
+            debugLog.record(cpu_iid, $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr));
+        end
+
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+
+
+    rule stage3_INVAL_REQ (getOper(stage3Ctrl) matches tagged INVAL_REQ .inval);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
+
+        local_state.cacheUpdIdx = entry.idx;
+
+        if (entry.state matches tagged Valid .state &&&
+            state.opaque == L1I_STATE_S)
+        begin
+            //
+            // Line is present and in use.  Invalidate it.
+            //
+            // Note that the this cache never sends a response to the
+            // invalidation request.  This is a simplification of the
+            // protocol.  The L1 dcache will send a response and the
+            // timing will be almost identical.  Sending a response
+            // from the icache would require bookkeeping by the L2
+            // to merge icache and dcache responses.  Instead, we use
+            // the dcache response in the model as a proxy for both
+            // L1 caches.
+            //
+            local_state.cacheUpdInval = True;
+            debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
+        end
+        else
+        begin
+            //
+            // Either the line is not present or it is in the cache
+            // but tagged in FILL state.  FILL state is a proxy for
+            // a miss address handler.  The fill remains outstanding
+            // and will be serviced with the updated value later.
+            //
+            debugLog.record(cpu_iid, $format("3: INVAL NOT PRESENT: line 0x%h", inval.linePAddr));
+        end
+
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+
+
+    rule stage3_LOAD_REQ (getOper(stage3Ctrl) matches tagged LOAD_REQ .req);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        //
+        // Did the load hit in the cache?
+        //
+        let entry <- iCacheAlg.lookupByAddrRsp(cpu_iid);
+
+        let line_addr = toLineAddress(req.physicalAddress);
+
+        // Is there space in the miss tracker for a new L2 request?
+        let can_allocate = outstandingMisses.canAllocateLoad(cpu_iid);
+
+        if (entry.state matches tagged Valid .state)
+        begin
+            if (state.opaque == L1I_STATE_S)
+            begin
+                // A hit, so give the data back.
+                local_state.loadRspImm = tagged Valid initICacheHit(req);
+                statHit.incr(cpu_iid);
+                debugLog.record(cpu_iid, $format("3: LOAD HIT: line 0x%h", state.linePAddr));
+            end
+            else
+            begin
+                //
+                // Fill for this address is already outstanding.  One of
+                // two things will now happen:
+                //   (1) The miss tracker will merge the new request
+                //       with the previous outstanding one.
+                //   (2) Failing that, tell the core to retry later.
+                //
+                if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) &&
+                    can_allocate)
+                begin
+                    // Option 1: Merge with previous fill token.
+                    new_miss_tok_req = True;
+                    outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
+
+                    statMiss.incr(cpu_iid);
+                    debugLog.record(cpu_iid, $format("3: LOAD MISS ALREADY IN FILL (merged): line 0x%h", line_addr));
+                end
+                else
+                begin
+                    // Option 2: Retry later.
+                    debugLog.record(cpu_iid, $format("3: LOAD HIT IN FILL: line 0x%h (blocking)", state.linePAddr));
+                end
+            end
+        end
+        else
+        begin
+            // A miss.
+            if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) &&
+                can_allocate)
+            begin
+                // A fill of this address is already in flight.  Latch
+                // on to it and don't generate a new request.
+                new_miss_tok_req = True;
+                outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
+
+                statMiss.incr(cpu_iid);
+                debugLog.record(cpu_iid, $format("3: LOAD MISS (ALREADY OUTSTANDING): line 0x%h", line_addr));
+            end
+            else if (entry.state matches tagged Blocked)
+            begin
+                // A miss and no eviction candidate.  Replay.
+                debugLog.record(cpu_iid, $format("3: BLOCKED: line 0x%h (blocking)", line_addr));
+            end
+            else if (can_allocate && local_state.toL2QNotFull)
+            begin
+                // Allocate the next miss ID
+                new_miss_tok_req = True;
+                outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
+
+                // Record that we are using the memory queue.
+                local_state.toL2QUsed = True;
+
+                // Evict now and add the new entry in FILL state.
+                // This design embeds miss tracking in the cache itself.
+                // (See comment in the MESI protocol README file.)
+                local_state.cacheUpdUsed = True;
+                local_state.cacheUpdIdx = entry.idx;
+                local_state.cacheUpdPAddr = line_addr;
+                local_state.cacheUpdState = L1I_STATE_FILL;
+
+                statMiss.incr(cpu_iid);
+                debugLog.record(cpu_iid, $format("3: LOAD MISS: line 0x%h", line_addr));
+            end
+            else
+            begin
+                // Miss, but miss tracker is full or L2 is busy.
+                debugLog.record(cpu_iid, $format("3: LOAD RETRY: line 0x%h, can alloc %0d, l2 notFull %0d", line_addr, can_allocate, local_state.toL2QNotFull));
+            end
+        end
+
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+
+
+    rule stage3_Invalid (getOper(stage3Ctrl) matches tagged Invalid);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        debugLog.record(cpu_iid, $format("3: Bubble"));
+
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+
+
+    // ====================================================================
+    //
+    //  Stage 4:  Not much left to do.  All operations trigger the same
+    //            rule.
+    //
+    // ====================================================================
 
     rule stage4 (True);
         match {.cpu_iid, {.oper,

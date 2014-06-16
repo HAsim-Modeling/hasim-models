@@ -36,6 +36,8 @@ import FShow::*;
 import Vector::*;
 import FIFO::*;
 import FIFOF::*;
+import GetPut::*;
+
 
 // ****** Project imports ******
 
@@ -98,33 +100,46 @@ module [HASIM_MODULE] mkCommitQueue
     MULTIPLEXED_LUTRAM#(MAX_NUM_CPUS, L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) mafPool <- mkMultiplexedLUTRAM(?);
     
 
+    // ****** Soft Connections ******
+
+    CONNECTION_CLIENT#(FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoadsClient <- mkConnectionClient("funcp_doLoads");
+
+    // Wrap doLoads in a multi-ported interface
+    let doLoadsBufSize = min(`STAGE_CONTROLLER_BUF_MAX, valueOf(MAX_NUM_CPUS));
+    MULTIPORT_GET_PUT#(2, FUNCP_REQ_DO_LOADS, FUNCP_RSP_DO_LOADS) doLoads <-
+        mkSizedMultiPortedGetPut(doLoadsBufSize,
+                                 toPut(doLoadsClient), toGet(doLoadsClient));
+
     // ****** Ports ******
 
-    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, Tuple2#(DMEM_BUNDLE, Maybe#(L1_DCACHE_MISS_ID))) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
-    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID)                       deqFromCom       <- mkPortRecvDependent_Multiplexed("commitQ_deq");
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, Tuple3#(DMEM_BUNDLE, Bool, Maybe#(L1_DCACHE_MISS_ID))) allocateFromDMem <- mkPortRecv_Multiplexed("commitQ_alloc", 0);
+    PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, VOID) deqFromCom <- mkPortRecvDependent_Multiplexed("commitQ_deq");
     PORT_RECV_MULTIPLEXED#(MAX_NUM_CPUS, DCACHE_LOAD_OUTPUT_DELAYED)  rspFromDCacheDelayed <- mkPortRecv_Multiplexed("DCache_to_CPU_load_delayed", 1);
 
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE)     bundleToCom    <- mkPortSend_Multiplexed("commitQ_first");
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID) creditToDMem   <- mkPortSend_Multiplexed("commitQ_credit");
-    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE)     writebackToDec <- mkPortSend_Multiplexed("DMem_to_Dec_miss_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, DMEM_BUNDLE) bundleToCom <- mkPortSend_Multiplexed("commitQ_first");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, VOID) creditToDMem <- mkPortSend_Multiplexed("commitQ_credit");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE) writebackHitToDec <- mkPortSend_Multiplexed("DMem_to_Dec_hit_writeback");
+    PORT_SEND_MULTIPLEXED#(MAX_NUM_CPUS, BUS_MESSAGE) writebackMissToDec <- mkPortSend_Multiplexed("DMem_to_Dec_miss_writeback");
 
     // ****** Local Controller ******
 
     Vector#(2, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inports  = newVector();
     Vector#(1, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) depports  = newVector();
-    Vector#(3, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
+    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outports = newVector();
     inports[0]  = allocateFromDMem.ctrl;
     inports[1]  = rspFromDCacheDelayed.ctrl;
     depports[0] = deqFromCom.ctrl;
     outports[0] = creditToDMem.ctrl;
     outports[1] = bundleToCom.ctrl;
-    outports[2] = writebackToDec.ctrl;
+    outports[2] = writebackHitToDec.ctrl;
+    outports[3] = writebackMissToDec.ctrl;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS)      localCtrl  <- mkNamedLocalControllerWithUncontrolled("Commit Queue", inports, depports, outports);
 
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage2Ctrl <- mkBufferedStageController();
     STAGE_CONTROLLER#(MAX_NUM_CPUS, Maybe#(COMMITQ_SLOT_ID)) stage3Ctrl <- mkBufferedStageController();
-    STAGE_CONTROLLER_VOID#(MAX_NUM_CPUS) stage4Ctrl <- mkBufferedStageControllerVoid();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage4Ctrl <- mkBufferedStageController();
+    STAGE_CONTROLLER#(MAX_NUM_CPUS, Bool) stage5Ctrl <- mkBufferedStageController();
 
 
     // ****** Rules ******
@@ -139,7 +154,7 @@ module [HASIM_MODULE] mkCommitQueue
     
     // Ports written:
     // * bundleToCom
-    // * writebackToDec
+    // * writebackMissToDec
 
     (* conservative_implicit_conditions *)
     rule stage1_sendFirst (True);
@@ -231,6 +246,8 @@ module [HASIM_MODULE] mkCommitQueue
         // Get the local state for the current instance.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 0);
 
+        Bool did_load_miss = False;
+
         if (incoming_completion matches tagged Valid .slot)
         begin
             let bundle <- bundlesPool.readPorts[`PORT_INCOMING].readRsp(cpu_iid);
@@ -238,10 +255,14 @@ module [HASIM_MODULE] mkCommitQueue
             // Mark this slot as complete.
             completions.upd(slot, True);
 
+            // Ask the functional model to do the load.
+            doLoads.putPorts[0].put(initFuncpReqDoLoads(bundle.token));
+            did_load_miss = True;
+
             // Tell Decode to writeback the destination.  The branch epoch is
             // irrelevant at this late stage, so only send fault epoch.
             let epoch = initEpoch(?, bundle.faultEpoch);
-            writebackToDec.send(cpu_iid,
+            writebackMissToDec.send(cpu_iid,
                                 tagged Valid genBusMessage(bundle.token,
                                                            epoch,
                                                            bundle.dests));
@@ -250,7 +271,7 @@ module [HASIM_MODULE] mkCommitQueue
         else
         begin
             // No writebacks to report.
-            writebackToDec.send(cpu_iid, tagged Invalid);
+            writebackMissToDec.send(cpu_iid, tagged Invalid);
         end
 
         // Get the local state for the current instance.
@@ -269,8 +290,7 @@ module [HASIM_MODULE] mkCommitQueue
         end
         
         // Send it to the next stage.
-        stage4Ctrl.ready(cpu_iid);
-
+        stage4Ctrl.ready(cpu_iid, did_load_miss);
     endrule
 
     // stage4_allocate
@@ -283,12 +303,18 @@ module [HASIM_MODULE] mkCommitQueue
     
     // Ports written:
     // * creditToDMem
+    // * writebackHitToDec
 
     rule stage4_allocate (True);
-
         // Get our context from the previous stage.
-        let cpu_iid <- stage4Ctrl.nextReadyInstance();
+        match {.cpu_iid, .did_load_miss} <- stage4Ctrl.nextReadyInstance();
         
+        if (did_load_miss)
+        begin
+            let rsp <- doLoads.getPorts[0].get();
+            debugLog.record(cpu_iid, fshow("4: LOAD MISS DONE ") + fshow(rsp.token));
+        end
+
         // Get our local state based on the context.
         LUTRAM#(COMMITQ_SLOT_ID, Bool) completions = completionsPool.getRAMWithWritePort(cpu_iid, 1);
         LUTRAM#(L1_DCACHE_MISS_ID, COMMITQ_SLOT_ID) maf = mafPool.getRAM(cpu_iid);
@@ -296,13 +322,14 @@ module [HASIM_MODULE] mkCommitQueue
         Reg#(COMMITQ_SLOT_ID) nextFreeSlot = nextFreeSlotPool.getReg(cpu_iid);
         Reg#(COMMITQ_SLOT_ID) oldestSlot   = oldestSlotPool.getReg(cpu_iid);
 
+        Bool did_load_hit = False;
+
         // Check for any new allocations.
         let m_alloc <- allocateFromDMem.receive(cpu_iid);
         let new_next_free = nextFreeSlot;
 
-        if (m_alloc matches tagged Valid {.bundle, .m_miss_id})
+        if (m_alloc matches tagged Valid {.bundle, .is_load, .m_miss_id})
         begin
-
             // A new allocation.
             debugLog.record(cpu_iid, $format("4: ALLOC: ") + fshow(bundle.token) + $format(" COMPLETE: %0b", pack(isValid(m_miss_id))));
             bundlesPool.write(cpu_iid, nextFreeSlot, bundle);
@@ -311,37 +338,74 @@ module [HASIM_MODULE] mkCommitQueue
 
             if (m_miss_id matches tagged Valid .miss_id)
             begin
-            
+                // Load missed in DMem.  Wait for the response from the cache.
                 debugLog.record(cpu_iid, $format("4: MISS ID: %0d mapped to slot %0d.", miss_id, nextFreeSlot));
                 maf.upd(miss_id, nextFreeSlot);
-                
+                writebackHitToDec.send(cpu_iid, tagged Invalid);
             end
+            else if (is_load)
+            begin
+                // Load hit in DMem.  Send the request to the functional model
+                // now.
+                doLoads.putPorts[1].put(initFuncpReqDoLoads(bundle.token));
+                did_load_hit = True;
 
+                // Tell decode the destination register is ready.
+                let epoch = initEpoch(?, bundle.faultEpoch);
+                writebackHitToDec.send(cpu_iid,
+                                       tagged Valid genBusMessage(bundle.token,
+                                                                  epoch,
+                                                                  bundle.dests));
+
+                debugLog.record(cpu_iid, fshow("4: HIT: ") + fshow(bundle.token));
+            end
+            else
+            begin
+                writebackHitToDec.send(cpu_iid, tagged Invalid);
+                debugLog.record(cpu_iid, fshow("4: NON-LOAD: ") + fshow(bundle.token));
+            end
+        end
+        else
+        begin
+            writebackHitToDec.send(cpu_iid, tagged Invalid);
         end
         
         // Now check if we have a credit to send to fetch based on our (simulated) length.
         if (new_next_free + 1 != oldestSlot) // This should really be +L+1, where L is the latency of the credit to DMem.
         begin
-        
             // We still have room.
             debugLog.record(cpu_iid, fshow("4: SEND CREDIT"));
             creditToDMem.send(cpu_iid, tagged Valid (?));
-
         end
         else
         begin
-
             // We're full.
             debugLog.record(cpu_iid, fshow("4: NO CREDIT"));
             creditToDMem.send(cpu_iid, tagged Invalid);
-
         end
         
         nextFreeSlot <= new_next_free;
-        
+
+        stage5Ctrl.ready(cpu_iid, did_load_hit);
+    endrule
+
+
+    rule stage5_finish (True);
+        // Get our context from the previous stage.
+        match {.cpu_iid, .did_load_hit} <- stage5Ctrl.nextReadyInstance();
+
+        if (did_load_hit)
+        begin
+            let rsp <- doLoads.getPorts[1].get();
+            debugLog.record(cpu_iid, fshow("5: LOAD HIT DONE ") + fshow(rsp.token));
+        end
+        else
+        begin
+            debugLog.record(cpu_iid, fshow("5: Bubble"));
+        end
+
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1);
         debugLog.nextModelCycle(cpu_iid);
     endrule
-
 endmodule
