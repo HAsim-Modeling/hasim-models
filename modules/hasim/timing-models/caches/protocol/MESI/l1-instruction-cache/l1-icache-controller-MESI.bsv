@@ -93,8 +93,7 @@ endinstance
 typedef union tagged
 {
     L1_ICACHE_MISS_TOKEN MULTI_LOAD;
-    CACHE_PROTOCOL_MSG   FILL_RSP;
-    CACHE_PROTOCOL_MSG   INVAL_REQ;
+    CACHE_PROTOCOL_MSG   CACHE_MSG;
     ICACHE_INPUT         LOAD_REQ;
     void Invalid;
 }
@@ -134,7 +133,7 @@ IC_LOCAL_STATE
 instance DefaultValue#(IC_LOCAL_STATE);
     defaultValue = IC_LOCAL_STATE { 
         missTokToFree: tagged Invalid,
-        toL2QNotFull: True,
+        toL2QNotFull: ?,
         toL2QUsed: False,
         toL2QData: ?,
         cacheUpdUsed: False,
@@ -248,10 +247,10 @@ module [HASIM_MODULE] mkL1ICache ();
 
     // ****** Assertions ******
 
-    let assertInFill <- mkAssertionSimOnly("l1-instruction-cache.bsv: Entry not in FILL state",
+    let assertInFill <- mkAssertionSimOnly("l1-icache-controller-MESI.bsv: Entry not in FILL state",
                                           ASSERT_ERROR);
 
-    let assertL2MsgOk <- mkAssertionSimOnly("l1-instruction-cache.bsv: Unexpected message from L2",
+    let assertL2MsgOk <- mkAssertionSimOnly("l1-icache-controller-MESI.bsv: Unexpected message from L2",
                                             ASSERT_ERROR);
 
 
@@ -315,29 +314,24 @@ module [HASIM_MODULE] mkL1ICache ();
         end
         else if (m_fromL2 matches tagged Valid .fromL2)
         begin
+            oper = tagged CACHE_MSG fromL2;
+
             // Request/response from lower in the cache hierarchy.
-            if (fromL2.kind matches tagged RSP_LOAD .fill)
+            if (fromL2.kind matches tagged RSP_LOAD .fill_meta)
             begin
                 // Fill response.
-                oper = tagged FILL_RSP fromL2;
-
                 L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fromL2.opaque);
-                debugLog.record(cpu_iid, $format("1: FILL RSP: idx %0d, line 0x%h", miss_tok.index, fromL2.linePAddr));
+                debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2) + $format(", idx %0d", miss_tok.index));
             end
-            else if (fromL2.kind matches tagged WB_INVAL .req)
+            else if (fromL2.kind matches tagged FORCE_WB .wb_meta)
             begin
-                // Writeback or invalidation request.  Ignore simple writeback
-                // since entries in the I-cache are never dirty.  Only consider
-                // invalidation requests.
-                if (req.inval)
-                begin
-                    oper = tagged INVAL_REQ fromL2;
-                    debugLog.record(cpu_iid, $format("1: INVAL REQ: line 0x%h", fromL2.linePAddr));
-                end
+                // Writeback or invalidation request.
+                debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2));
             end
             else
             begin
                 // Unexpected message!
+                debugLog.record(cpu_iid, $format("1: UNEXPECTED: ") + fshow(fromL2));
                 assertL2MsgOk(False);
             end
         end
@@ -384,7 +378,9 @@ module [HASIM_MODULE] mkL1ICache ();
     endrule
 
 
-    rule stage2_FILL_RSP (getOper(stage2Ctrl) matches tagged FILL_RSP .fill);
+    rule stage2_FILL_RSP (getOper(stage2Ctrl) matches tagged CACHE_MSG .fill &&&
+                          fill.kind matches tagged RSP_LOAD .fill_meta);
+
         match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
         // Record fill meta data that will be written to the cache.
@@ -412,7 +408,9 @@ module [HASIM_MODULE] mkL1ICache ();
     endrule
 
 
-    rule stage2_INVAL_REQ (getOper(stage2Ctrl) matches tagged INVAL_REQ .inval);
+    rule stage2_INVAL_REQ (getOper(stage2Ctrl) matches tagged CACHE_MSG .inval &&&
+                           inval.kind matches tagged FORCE_WB .wb_meta);
+
         match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
         debugLog.record(cpu_iid, $format("2: INVAL: line 0x%h", inval.linePAddr));
@@ -466,7 +464,9 @@ module [HASIM_MODULE] mkL1ICache ();
     endrule
 
 
-    rule stage3_FILL_RSP (getOper(stage3Ctrl) matches tagged FILL_RSP .fill);
+    rule stage3_FILL_RSP (getOper(stage3Ctrl) matches tagged CACHE_MSG .fill &&&
+                          fill.kind matches tagged RSP_LOAD .fill_meta);
+
         match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
         Bool new_miss_tok_req = False;
 
@@ -495,7 +495,9 @@ module [HASIM_MODULE] mkL1ICache ();
     endrule
 
 
-    rule stage3_INVAL_REQ (getOper(stage3Ctrl) matches tagged INVAL_REQ .inval);
+    rule stage3_INVAL_REQ (getOper(stage3Ctrl) matches tagged CACHE_MSG .inval &&&
+                           inval.kind matches tagged FORCE_WB .wb_meta);
+
         match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
         Bool new_miss_tok_req = False;
 
@@ -506,20 +508,30 @@ module [HASIM_MODULE] mkL1ICache ();
         if (entry.state matches tagged Valid .state &&&
             state.opaque == L1I_STATE_S)
         begin
-            //
-            // Line is present and in use.  Invalidate it.
-            //
-            // Note that the this cache never sends a response to the
-            // invalidation request.  This is a simplification of the
-            // protocol.  The L1 dcache will send a response and the
-            // timing will be almost identical.  Sending a response
-            // from the icache would require bookkeeping by the L2
-            // to merge icache and dcache responses.  Instead, we use
-            // the dcache response in the model as a proxy for both
-            // L1 caches.
-            //
-            local_state.cacheUpdInval = True;
-            debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
+            if (wb_meta.inval)
+            begin
+                //
+                // Line is present and in use.  Invalidate it.
+                //
+                // Note that the this cache never sends a response to the
+                // invalidation request.  This is a simplification of the
+                // protocol.  The L1 dcache will send a response and the
+                // timing will be almost identical.  Sending a response
+                // from the icache would require bookkeeping by the L2
+                // to merge icache and dcache responses.  Instead, we use
+                // the dcache response in the model as a proxy for both
+                // L1 caches.
+                //
+                local_state.cacheUpdInval = True;
+                debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
+            end
+            else
+            begin
+                //
+                // Line is present but request is just writeback.  Keep the line.
+                //
+                debugLog.record(cpu_iid, $format("3: WB-ONLY ENTRY: line 0x%h", inval.linePAddr));
+            end
         end
         else
         begin
@@ -663,14 +675,9 @@ module [HASIM_MODULE] mkL1ICache ();
                 debugLog.record(cpu_iid, $format("4: Bubble MULTI_LOAD"));
             end
 
-            tagged FILL_RSP .fill:
+            tagged CACHE_MSG .msg:
             begin
-                debugLog.record(cpu_iid, $format("4: Bubble FILL"));
-            end
-
-            tagged INVAL_REQ .inval:
-            begin
-                debugLog.record(cpu_iid, $format("4: Bubble INVAL"));
+                debugLog.record(cpu_iid, $format("4: Bubble CACHE_MSG"));
             end
 
             tagged LOAD_REQ .req:
@@ -730,7 +737,7 @@ module [HASIM_MODULE] mkL1ICache ();
 
         loadRspDelToCPU.send(cpu_iid, local_state.loadRsp);
 
-        if (oper matches tagged FILL_RSP .rsp)
+        if (oper matches tagged CACHE_MSG .msg)
         begin
             portFromL2.doDeq(cpu_iid);
         end

@@ -265,8 +265,17 @@ module [HASIM_MODULE] mkL2Cache#(String portFromL1Name,
         // Now check for responses from the cache coherence engine.
         let m_uncore_rsp <- rspFromUncore.receive(cpu_iid);
         let m_core_req <- portFromL1[0].receive(cpu_iid);
-        let dummy <- portFromL1[1].receive(cpu_iid);
 
+        let m_dummy <- portFromL1[1].receive(cpu_iid);
+        if (m_dummy matches tagged Valid .dummy)
+        begin
+            debugLog.record(cpu_iid, $format("1: WB Port: ") + fshow(dummy));
+            portFromL1[1].doDeq(cpu_iid);
+        end
+        else
+        begin
+            portFromL1[1].noDeq(cpu_iid);
+        end
 
         L2C_OPER oper = tagged Invalid;
 
@@ -670,7 +679,6 @@ module [HASIM_MODULE] mkL2Cache#(String portFromL1Name,
             portFromL1[0].noDeq(cpu_iid);
         end
 
-        portFromL1[1].noDeq(cpu_iid);
 
         //
         // Send requests/responses.

@@ -150,21 +150,40 @@ module [HASIM_MODULE] mkL1CacheArbiter#(NumTypeParam#(n_TO_MEM_CHANNELS) nToMemC
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("L1 Cache Arbiter", inctrls, outctrls);
     
 
-    function Bool forIStream(MEM_OPAQUE opaque);
-        return unpack(msb(opaque));
+    //
+    // Tagging and lookup of the opaque value to route messages from memory
+    // toward the L1.  The top two bits of opaque are used.  If MSB is clear
+    // then the message should be forwarded to both the I- and the D-caches.
+    // This is to make it easy for a lower level cache to forward a writeback
+    // or invalidation request to both halves of the L1 cache.  An opaque
+    // value of 0 is routed to both.  If the MSB is set then the next bit is
+    // examined.  A value of 1 is routed to the I-cache and 0 to the D-cache.
+    //
+
+    function Bool forBoth(MEM_OPAQUE opaque);
+        return ! unpack(msb(opaque));
     endfunction
 
+    function Bool forIStream(MEM_OPAQUE opaque);
+        return ! forBoth(opaque) && unpack(opaque[valueOf(MEM_OPAQUE_SIZE) - 2]);
+    endfunction
+
+    function Bool forDStream(MEM_OPAQUE opaque);
+        return ! forBoth(opaque) && ! unpack(opaque[valueOf(MEM_OPAQUE_SIZE) - 2]);
+    endfunction
 
     function MEM_OPAQUE setForIStream(MEM_OPAQUE opaque);
         let new_opaque = opaque;
-        new_opaque[valueof(MEM_OPAQUE_SIZE) - 1] = 1;
+        new_opaque[valueOf(MEM_OPAQUE_SIZE) - 1] = 1;
+        new_opaque[valueOf(MEM_OPAQUE_SIZE) - 2] = 1;
         return new_opaque;
     endfunction
 
 
     function MEM_OPAQUE setForDStream(MEM_OPAQUE opaque);
         let new_opaque = opaque;
-        new_opaque[valueof(MEM_OPAQUE_SIZE) - 1] = 0;
+        new_opaque[valueOf(MEM_OPAQUE_SIZE) - 1] = 1;
+        new_opaque[valueOf(MEM_OPAQUE_SIZE) - 2] = 0;
         return new_opaque;
     endfunction
 
@@ -189,7 +208,24 @@ module [HASIM_MODULE] mkL1CacheArbiter#(NumTypeParam#(n_TO_MEM_CHANNELS) nToMemC
             if (memory_out matches tagged Valid .memory_msg)
             begin
                 // There's a response. Where should it go?
-                if (forIStream(memory_msg.opaque))
+                if (forBoth(memory_msg.opaque))
+                begin
+                    if (icache_has_room && dcache_has_room)
+                    begin
+                        debugLog.record(cpu_iid, $format("TO BOTH[%0d]: ", c) + fshow(memory_msg));
+                        toICache[c].doEnq(cpu_iid, memory_msg);
+                        toDCache[c].doEnq(cpu_iid, memory_msg);
+                        fromMemory[c].doDeq(cpu_iid);
+                    end
+                    else
+                    begin
+                        debugLog.record(cpu_iid, $format("TO BOTH[%0d] RETRY", c));
+                        toDCache[c].noEnq(cpu_iid);
+                        toICache[c].noEnq(cpu_iid);
+                        fromMemory[c].noDeq(cpu_iid);
+                    end
+                end
+                else if (forIStream(memory_msg.opaque))
                 begin
                     // It's going to the ICacheQ, if it has room.
                     if (icache_has_room)

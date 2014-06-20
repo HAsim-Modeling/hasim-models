@@ -64,10 +64,50 @@ import DefaultValue::*;
 
 // ****** Local Definitions *******
 
+//
+// States associated with entries.  Invalid isn't listed because it is provided
+// as part of the cache algorithm.
+//
+typedef enum
+{
+    // Modified
+    L1D_STATE_M,
+    // Exclusive
+    L1D_STATE_E,
+    // Shared
+    L1D_STATE_S,
+    // Fill to shared in progress.  No data yet.
+    L1D_STATE_FILL_S,
+    // Fill to exclusive in progress.  No data yet.
+    L1D_STATE_FILL_E,
+    // Shared to exclusive transition in progress.
+    L1D_STATE_S_E
+}
+L1D_ENTRY_STATE
+    deriving (Eq, Bits);
+
+instance FShow#(L1D_ENTRY_STATE);
+    function Fmt fshow(L1D_ENTRY_STATE state);
+        let str =
+            case (state) matches
+                L1D_STATE_M: return "M";
+                L1D_STATE_E: return "E";
+                L1D_STATE_S: return "S";
+                L1D_STATE_FILL_S: return "FILL_S";
+                L1D_STATE_FILL_E: return "FILL_E";
+                L1D_STATE_S_E: return "S_E";
+                default: return "UNDEFINED";
+            endcase;
+
+        return $format(str);
+    endfunction
+endinstance
+
+
 typedef union tagged
 {
-    L1_DCACHE_MISS_TOKEN MULTI_LOAD;
-    CACHE_PROTOCOL_MSG   FILL_RSP;
+    L1_DCACHE_MISS_TOKEN MULTI_FILL;
+    CACHE_PROTOCOL_MSG   CACHE_MSG;
     DCACHE_LOAD_INPUT    LOAD_REQ;
     DCACHE_STORE_INPUT   STORE_REQ;
     void Invalid;
@@ -89,14 +129,15 @@ typedef struct
 {
     Maybe#(L1_DCACHE_MISS_TOKEN) missTokToFree;
 
-    Bool toL2QNotFull;
-    Bool toL2QUsed;
-    CACHE_PROTOCOL_MSG toL2QData;
+    Vector#(2, Bool) toL2QNotFull;
+    Vector#(2, Bool) toL2QUsed;
+    Vector#(2, CACHE_PROTOCOL_MSG) toL2QData;
     
-    Bool writePortUsed;
-    Bool writeDataDirty;
-    L1_DCACHE_IDX writePortIdx;
-    LINE_ADDRESS writePortData;
+    Bool cacheUpdUsed;
+    Bool cacheUpdInval;
+    L1_DCACHE_IDX cacheUpdIdx;
+    L1D_ENTRY_STATE cacheUpdState;
+    LINE_ADDRESS cacheUpdPAddr;
 
     Maybe#(DCACHE_LOAD_OUTPUT_IMMEDIATE) loadRspImm;
     Maybe#(DCACHE_STORE_OUTPUT_IMMEDIATE) storeRspImm;
@@ -111,13 +152,14 @@ DC_LOCAL_STATE
 instance DefaultValue#(DC_LOCAL_STATE);
     defaultValue = DC_LOCAL_STATE { 
         missTokToFree: tagged Invalid,
-        toL2QNotFull: True,
-        toL2QUsed: False,
+        toL2QNotFull: ?,
+        toL2QUsed: replicate(False),
         toL2QData: ?,
-        writePortUsed: False,
-        writeDataDirty: False,
-        writePortIdx: ?,
-        writePortData: ?,
+        cacheUpdUsed: False,
+        cacheUpdInval: False,
+        cacheUpdIdx: ?,
+        cacheUpdPAddr: ?,
+        cacheUpdState: ?,
         loadRspImm: tagged Invalid,
         storeRspImm: tagged Invalid,
         loadRsp: tagged Invalid,
@@ -139,9 +181,17 @@ module [HASIM_MODULE] mkL1DCache ();
 
     // ****** Submodels ******
 
+
+    //
     // The cache algorithm which determines hits, misses, and evictions.
-    L1_DCACHE_ALG#(MAX_NUM_CPUS, void) dCacheAlg <-
-        mkL1DCacheAlg(constFn(True));
+    // The mayEvict function is used inside the algorithm when returning
+    // a candidate for replacement.  mayEvict indicates when an entry
+    // may not be victimized.
+    //
+    function Bool mayEvict(L1D_ENTRY_STATE state) = (pack(state) <= pack(L1D_STATE_S));
+
+    L1_DCACHE_ALG#(MAX_NUM_CPUS, L1D_ENTRY_STATE) dCacheAlg <-
+        mkL1DCacheAlg(mayEvict);
 
     // Track the next Miss ID to give out.
     CACHE_MISS_TRACKER#(MAX_NUM_CPUS, DCACHE_MISS_ID_SIZE) outstandingMisses <- mkCoalescingCacheMissTracker();
@@ -231,8 +281,43 @@ module [HASIM_MODULE] mkL1DCache ();
 
     // ****** Assertions ******
 
-    let assertRspOk <- mkAssertionSimOnly("l1-dcache-controller-unpipelined.bsv: Unexpected response kind",
-                                          ASSERT_ERROR);
+    Vector#(4, ASSERTION_STR_CLIENT) assertNode <- mkAssertionStrClientVec();
+
+    let assertL2MsgOk <-
+        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Unexpected message from L2",
+                              ASSERT_ERROR,
+                              assertNode[0]);
+
+    let assertValidExclusiveFlag <-
+        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Exclusive flag set for LOAD or clear for STORE",
+                              ASSERT_ERROR,
+                              assertNode[1]);
+
+    let assertInFillState <-
+        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Entry not in proper FILL state",
+                              ASSERT_ERROR,
+                              assertNode[2]);
+
+    let assertNewToken <-
+        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Entry unexpected merged FILL token",
+                              ASSERT_ERROR,
+                              assertNode[3]);
+
+
+    // ****** Functions ******
+
+    //
+    // getOper --
+    //   Pick out the L1D_OPER argument from a stage controller payload.
+    //   Assumes the operation is always the first element in the payload
+    //   tuple.
+    //
+    function L1D_OPER getOper(STAGE_CONTROLLER#(MAX_NUM_CPUS, t_ARGS) ctrl)
+        provisos (Has_tpl_1#(t_ARGS, L1D_OPER));
+
+        match {.cpu_iid, .payload} = ctrl.peekReadyInstance();
+        return tpl_1(payload);
+    endfunction
 
 
     // ****** Rules ******
@@ -255,13 +340,11 @@ module [HASIM_MODULE] mkL1DCache ();
         DC_LOCAL_STATE local_state = defaultValue;
 
         // Check if the toL2Q has room for any new requests.
-        let toL2Q_not_full <- portToL2[0].canEnq(cpu_iid);
-        local_state.toL2QNotFull = toL2Q_not_full;
+        local_state.toL2QNotFull[0] <- portToL2[0].canEnq(cpu_iid);
+        local_state.toL2QNotFull[1] <- portToL2[1].canEnq(cpu_iid);
         
-        let dummy <- portToL2[1].canEnq(cpu_iid);
-
         // Consume incoming messages
-        let m_fill <- portFromL2.receive(cpu_iid);
+        let m_fromL2 <- portFromL2.receive(cpu_iid);
         let m_cpu_req_store <- storeReqFromCPU.receive(cpu_iid);
         let m_cpu_req_load <- loadReqFromCPU.receive(cpu_iid);
 
@@ -274,17 +357,31 @@ module [HASIM_MODULE] mkL1DCache ();
         // Are any previously returned fills going to multiple loads?
         if (outstandingMisses.fillToDeliver(cpu_iid) matches tagged Valid .miss_tok)
         begin
-            oper = tagged MULTI_LOAD miss_tok;
+            oper = tagged MULTI_FILL miss_tok;
             debugLog.record(cpu_iid, $format("1: FILL MULTIPLE RSP: %0d", miss_tok.index));
         end
-        else if (m_fill matches tagged Valid .fill)
+        else if (m_fromL2 matches tagged Valid .fromL2)
         begin
-            assertRspOk(cacheMsg_IsRspLoad(fill));
+            oper = tagged CACHE_MSG fromL2;
 
-            oper = tagged FILL_RSP fill;
-
-            L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
-            debugLog.record(cpu_iid, $format("1: FILL RSP: idx %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+            // Request/response from lower in the cache hierarchy.
+            if (fromL2.kind matches tagged RSP_LOAD .fill_meta)
+            begin
+                // Fill response.
+                L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fromL2.opaque);
+                debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2) + $format(", idx %0d", miss_tok.index));
+            end
+            else if (fromL2.kind matches tagged FORCE_WB .wb_meta)
+            begin
+                // Writeback or invalidation request.
+                debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2));
+            end
+            else
+            begin
+                // Unexpected message!
+                debugLog.record(cpu_iid, $format("1: UNEXPECTED: ") + fshow(fromL2));
+                assertL2MsgOk(False);
+            end
         end
         else if (m_cpu_req_store matches tagged Valid .req)
         begin
@@ -320,187 +417,342 @@ module [HASIM_MODULE] mkL1DCache ();
     endrule
 
 
-    rule stage2 (True);
+    // ====================================================================
+    //
+    //  Stage 2:  Exactly one stage2 rule must fire for proper pipelining.
+    //
+    // ====================================================================
+
+    rule stage2_MULTI_FILL (getOper(stage2Ctrl) matches tagged MULTI_FILL .miss_tok);
         match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
-        case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
-            begin
-                // A fill that came in previously is going to multiple miss tokens.
-                local_state.missTokToFree = tagged Valid miss_tok;
+        // A fill that came in previously is going to multiple miss tokens.
+        local_state.missTokToFree = tagged Valid miss_tok;
 
-                // Now send the fill to the right place.
-                // Start by looking up if it was a load or store based on miss ID.
-                if (missTokIsLoad(miss_tok))
-                begin
-                    // The fill is a load response. Return it to the CPU.
-                    debugLog.record(cpu_iid, $format("2: FILL MULTIPLE RSP LOAD: %0d", miss_tok.index));
-                    local_state.loadRsp = tagged Valid initDCacheLoadMissRsp(miss_tok.index);
-                end
-                else
-                begin
-                    // The fill is a completed store.
-                    debugLog.record(cpu_iid, $format("2: FILL MULTIPLE RSP STORE: %0d", miss_tok.index));
-                    local_state.storeRsp = tagged Valid initDCacheStoreDelayOk(miss_tok.index);
-                end
-            end
-
-            tagged FILL_RSP .fill:
-            begin
-                // Record fill meta data that will be written to the cache.
-                local_state.writePortUsed = True;
-                local_state.writePortData = fill.linePAddr;
-                local_state.writeDataDirty = False;
-
-                // Deallocate the Miss ID.
-                L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
-
-                // Free the token in the next stage, in case we had to retry.
-                local_state.missTokToFree = tagged Valid miss_tok;
-
-                // Now send the fill to the right place.
-                if (missTokIsLoad(miss_tok))
-                begin
-                    // The fill is a load response. Return it to the CPU.
-                    debugLog.record(cpu_iid, $format("2: MEM RSP LOAD: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
-                    local_state.loadRsp = tagged Valid initDCacheLoadMissRsp(miss_tok.index);
-                end
-                else
-                begin
-                    // The fill is a store response. Tell the CPU the entry has
-                    // been updated.
-                    debugLog.record(cpu_iid, $format("2: MEM RSP STORE: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
-                    local_state.storeRsp = tagged Valid initDCacheStoreDelayOk(miss_tok.index);
-                end
-
-                // Pick the victim
-                dCacheAlg.lookupByAddrReq(cpu_iid,
-                                          fill.linePAddr,
-                                          False,
-                                          missTokIsLoad(miss_tok));
-            end
-
-            tagged LOAD_REQ .req:
-            begin
-                let line_addr = toLineAddress(req.physicalAddress);
-
-                debugLog.record(cpu_iid, $format("2: LOAD REQ: PA 0x%h, line 0x%h", req.physicalAddress, line_addr));
-
-                // Look up the address in the cache.
-                dCacheAlg.lookupByAddrReq(cpu_iid, line_addr, True, True);
-            end
-
-            tagged STORE_REQ .req:
-            begin
-                let line_addr = toLineAddress(req.physicalAddress);
-
-                debugLog.record(cpu_iid, $format("2: STORE REQ: PA 0x%h, line 0x%h", req.physicalAddress, line_addr));
-
-                // Look up the address in the cache.
-                dCacheAlg.lookupByAddrReq(cpu_iid, line_addr, True, False);
-            end
-
-            tagged Invalid:
-            begin
-                debugLog.record(cpu_iid, $format("2: Bubble"));
-            end
-        endcase
+        // Now send the fill to the right place.
+        // Start by looking up if it was a load or store based on miss ID.
+        if (missTokIsLoad(miss_tok))
+        begin
+            // The fill is a load response. Return it to the CPU.
+            debugLog.record(cpu_iid, $format("2: FILL MULTIPLE RSP LOAD: %0d", miss_tok.index));
+            local_state.loadRsp = tagged Valid initDCacheLoadMissRsp(miss_tok.index);
+        end
+        else
+        begin
+            // The fill is a completed store.
+            debugLog.record(cpu_iid, $format("2: FILL MULTIPLE RSP STORE: %0d", miss_tok.index));
+            local_state.storeRsp = tagged Valid initDCacheStoreDelayOk(miss_tok.index);
+        end
 
         stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
     endrule
 
 
-    rule stage3 (True);
-        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+    rule stage2_FILL_RSP (getOper(stage2Ctrl) matches tagged CACHE_MSG .fill &&&
+                          fill.kind matches tagged RSP_LOAD .fill_meta);
 
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        // Record fill meta data that will be written to the cache.
+        local_state.cacheUpdUsed = True;
+        local_state.cacheUpdPAddr = fill.linePAddr;
+
+        // Deallocate the Miss ID.
+        L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
+
+        // Free the token in the next stage, in case we had to retry.
+        local_state.missTokToFree = tagged Valid miss_tok;
+
+        // Now send the fill to the right place.
+        if (missTokIsLoad(miss_tok))
+        begin
+            // The fill is a load response. Return it to the CPU.
+            debugLog.record(cpu_iid, $format("2: MEM RSP LOAD: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+            local_state.loadRsp = tagged Valid initDCacheLoadMissRsp(miss_tok.index);
+            assertValidExclusiveFlag(fill_meta.exclusive == False);
+        end
+        else
+        begin
+            // The fill is a store response. Tell the CPU the entry has
+            // been updated.
+            debugLog.record(cpu_iid, $format("2: MEM RSP STORE: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+            local_state.storeRsp = tagged Valid initDCacheStoreDelayOk(miss_tok.index);
+//            assertValidExclusiveFlag(fill_meta.exclusive == True);
+            let new_meta = fill_meta;
+            new_meta.exclusive = True;
+            oper = tagged CACHE_MSG cacheMsg_RspLoad(fill.linePAddr, fill.opaque, new_meta);
+        end
+
+        // Pick the victim
+        dCacheAlg.lookupByAddrReq(cpu_iid,
+                                  fill.linePAddr,
+                                  False,
+                                  missTokIsLoad(miss_tok));
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    rule stage2_INVAL_REQ (getOper(stage2Ctrl) matches tagged CACHE_MSG .inval &&&
+                           inval.kind matches tagged FORCE_WB .wb_meta);
+
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        // Record fill meta data that will be written to the cache.
+        local_state.cacheUpdUsed = True;
+        local_state.cacheUpdPAddr = inval.linePAddr;
+
+        debugLog.record(cpu_iid, $format("2: INVAL: line 0x%h", inval.linePAddr));
+
+        // Look up the line
+        dCacheAlg.lookupByAddrReq(cpu_iid, inval.linePAddr, False, True);
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    rule stage2_LOAD_REQ (getOper(stage2Ctrl) matches tagged LOAD_REQ .req);
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        let line_addr = toLineAddress(req.physicalAddress);
+
+        debugLog.record(cpu_iid, $format("2: LOAD REQ: PA 0x%h, line 0x%h", req.physicalAddress, line_addr));
+
+        // Look up the address in the cache.
+        dCacheAlg.lookupByAddrReq(cpu_iid, line_addr, True, True);
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    rule stage2_STORE_REQ (getOper(stage2Ctrl) matches tagged STORE_REQ .req);
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        let line_addr = toLineAddress(req.physicalAddress);
+
+        debugLog.record(cpu_iid, $format("2: STORE REQ: PA 0x%h, line 0x%h", req.physicalAddress, line_addr));
+
+        // Look up the address in the cache.
+        dCacheAlg.lookupByAddrReq(cpu_iid, line_addr, True, False);
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    rule stage2_Invalid (getOper(stage2Ctrl) matches tagged Invalid);
+        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+
+        debugLog.record(cpu_iid, $format("2: Bubble"));
+
+        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+    endrule
+
+
+    // ====================================================================
+    //
+    //  Stage 3:  Exactly one stage3 rule must fire for proper pipelining.
+    //
+    // ====================================================================
+
+    rule stage3_MULTI_FILL (getOper(stage3Ctrl) matches tagged MULTI_FILL .miss_tok);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
         Bool new_miss_tok_req = False;
 
-        case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
-            begin
-                debugLog.record(cpu_iid, $format("3: Bubble MULTI_LOAD"));
-            end
+        debugLog.record(cpu_iid, $format("3: Bubble MULTI_FILL"));
 
-            tagged FILL_RSP .fill:
-            begin
-                //
-                // Does the cache entry being replaced require a writeback?
-                //
-                let evict <- dCacheAlg.lookupByAddrRsp(cpu_iid);
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
 
-                local_state.writePortIdx = evict.idx;
 
-                if (evict.state matches tagged Blocked)
+    rule stage3_FILL_RSP (getOper(stage3Ctrl) matches tagged CACHE_MSG .fill &&&
+                          fill.kind matches tagged RSP_LOAD .fill_meta);
+
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        //
+        // This protocol evicts at request.  The entry should already
+        // be present in the FILL state.
+        //
+        let entry <- dCacheAlg.lookupByAddrRsp(cpu_iid);
+
+        local_state.cacheUpdIdx = entry.idx;
+
+        L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
+        if (missTokIsLoad(miss_tok))
+        begin
+            // Load was serviced this cycle.  Free the fill token.
+            debugLog.record(cpu_iid, $format("3: FREE LOAD: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+            outstandingMisses.reportLoadDone(cpu_iid, fill.linePAddr);
+        end
+
+        // Expect a hit in the cache, since the cache is used to track misses.
+        if (entry.state matches tagged Valid .state)
+        begin
+            Bool error = False;
+
+            //
+            // State transition as a result of the fill...
+            //
+
+            case (state.opaque)
+                L1D_STATE_FILL_S:
                 begin
-                    // No available victim due to temporary state of the old
-                    // line.  Wait for it to settle.
-                    oper = newL1DCOper(tagged Invalid);
-                    local_state.writePortUsed = False;
-                    local_state.missTokToFree = tagged Invalid;
-
-                    debugLog.record(cpu_iid, $format("3: BLOCKED EVICTION: new line 0x%h", fill.linePAddr));
+                    local_state.cacheUpdState = L1D_STATE_S;
                 end
-                else if (evict.state matches tagged MustEvict .state &&&
-                         state.dirty)
-                begin
-                    // Victim is dirty.  Arrange for writeback.
-                    if (local_state.toL2QNotFull)
-                    begin
-                        debugLog.record(cpu_iid, $format("3: DIRTY EVICTION: new line 0x%h, old line 0x%h", fill.linePAddr, state.linePAddr));
 
-                        // Record that we're using the toL2Q.
-                        local_state.toL2QUsed = True;
-                        CACHE_PROTOCOL_WB_INVAL wb = defaultValue;
-                        wb.inval = True;
-                        wb.isWriteback = True;
-                        local_state.toL2QData = cacheMsg_WBInval(state.linePAddr, ?, wb);
+                L1D_STATE_FILL_E:
+                begin
+                    if (fill_meta.exclusive)
+                    begin
+                        // Fill for exclusive access complete
+                        local_state.cacheUpdState = L1D_STATE_E;
                     end
                     else
                     begin
-                        // Need to write back but L2 is busy.  Retry later.
-                        debugLog.record(cpu_iid, $format("3: DIRTY EVICTION WB BLOCKED: new line 0x%h, old line 0x%h", fill.linePAddr, state.linePAddr));
-
-                        oper = newL1DCOper(tagged Invalid);
-                        local_state.writePortUsed = False;
-                        local_state.missTokToFree = tagged Invalid;
+                        // There must also be a fill for exclusive pending.
+                        // The current response was for a load before a store.
+                        // Mark the entry shared in transition to exclusive.
+                        local_state.cacheUpdState = L1D_STATE_S_E;
                     end
                 end
-                else
+
+                L1D_STATE_S_E:
                 begin
-                    debugLog.record(cpu_iid, $format("3: CLEAN EVICTION: line 0x%h", fill.linePAddr));
+                    if (fill_meta.exclusive)
+                    begin
+                        local_state.cacheUpdState = L1D_STATE_E;
+                    end
+                    else
+                    begin
+                        debugLog.record(cpu_iid, $format("3: S_E FILL with not exlusive, probably a bug: line 0x%h, ", fill.linePAddr) + fshow(entry.idx));
+                        error = True;
+                    end
                 end
 
-                L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
-                if (local_state.writePortUsed && missTokIsLoad(miss_tok))
+                default:
                 begin
-                    // Load was serviced this cycle.  Free to the fill token.
-                    debugLog.record(cpu_iid, $format("3: FREE LOAD: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
-                    outstandingMisses.reportLoadDone(cpu_iid, fill.linePAddr);
+                    debugLog.record(cpu_iid, $format("3: Unexpected FILL state: line 0x%h, ", fill.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(state.opaque));
+                    error = True;
                 end
-            end
+            endcase
 
-            tagged LOAD_REQ .req:
-            begin
-                //
-                // Did the load hit in the cache?
-                //
-                let entry <- dCacheAlg.lookupByAddrRsp(cpu_iid);
+            debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(state.opaque) + $format(" -> ") + fshow(local_state.cacheUpdState));
+            assertInFillState(! error);
+        end
+        else
+        begin
+            // Error:  line should be in the cache already in FILL state.
+            assertInFillState(False);
+            debugLog.record(cpu_iid, $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr));
+        end
 
-                if (entry.state matches tagged Valid .state)
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+
+
+
+
+    rule stage3_INVAL_REQ (getOper(stage3Ctrl) matches tagged CACHE_MSG .inval &&&
+                           inval.kind matches tagged FORCE_WB .wb_meta);
+
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        let entry <- dCacheAlg.lookupByAddrRsp(cpu_iid);
+
+        local_state.cacheUpdIdx = entry.idx;
+
+        CACHE_PROTOCOL_WB_INVAL rsp_meta = defaultValue;
+        rsp_meta.toDir = wb_meta.fromDir;
+        rsp_meta.inval = wb_meta.inval;
+
+        if (! local_state.toL2QNotFull[1])
+        begin
+            // Can't forward the writeback response because the port 
+            local_state.cacheUpdUsed = False;
+            oper = newL1DCOper(tagged Invalid);
+            debugLog.record(cpu_iid, $format("3: INVAL RETRY LATER: line 0x%h", inval.linePAddr));
+        end
+        else if (entry.state matches tagged Valid .state)
+        begin
+            case (state.opaque)
+                L1D_STATE_M,
+                L1D_STATE_E,
+                L1D_STATE_S:
+                begin
+                    rsp_meta.isWriteback = (state.opaque == L1D_STATE_M);
+                    local_state.cacheUpdInval = wb_meta.inval;
+                    // Shared state (irrelevant if cacheUpdInval gets set)
+                    local_state.cacheUpdState = L1D_STATE_S;
+                end
+
+                L1D_STATE_S_E:
+                begin
+                    if (wb_meta.inval)
+                    begin
+                        // Drop shared but still waiting for fill for write
+                        local_state.cacheUpdState = L1D_STATE_FILL_E;
+                    end
+                end
+            endcase
+
+            local_state.toL2QUsed[1] = True;
+            local_state.toL2QData[1] = cacheMsg_WBInval(inval.linePAddr,
+                                                        ?,
+                                                        rsp_meta);
+            debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(state.opaque) + $format(" -> ") + fshow(local_state.cacheUpdState));
+        end
+        else
+        begin
+            // The line is not present.
+            local_state.toL2QUsed[1] = True;
+            local_state.toL2QData[1] = cacheMsg_WBInval(inval.linePAddr,
+                                                        ?,
+                                                        rsp_meta);
+            debugLog.record(cpu_iid, $format("3: INVAL NOT PRESENT: line 0x%h", inval.linePAddr));
+        end
+
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+
+
+    rule stage3_LOAD_REQ (getOper(stage3Ctrl) matches tagged LOAD_REQ .req);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        //
+        // Did the load hit in the cache?
+        //
+        let entry <- dCacheAlg.lookupByAddrRsp(cpu_iid);
+
+        // Is there space in the miss tracker for a new L2 request?
+        let can_allocate = outstandingMisses.canAllocateLoad(cpu_iid);
+        let line_addr = toLineAddress(req.physicalAddress);
+
+        local_state.cacheUpdIdx = entry.idx;
+        local_state.cacheUpdPAddr = line_addr;
+
+        if (entry.state matches tagged Valid .state)
+        begin
+            // Line is present in the cache.
+            case (state.opaque)
+                L1D_STATE_M,
+                L1D_STATE_E,
+                L1D_STATE_S,
+                L1D_STATE_S_E:
                 begin
                     // A hit, so give the data back.
                     local_state.loadRspImm = tagged Valid initDCacheLoadHit(req);
                     statReadHit.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("3: LOAD HIT: line 0x%h", state.linePAddr));
+                    debugLog.record(cpu_iid, $format("3: LOAD HIT: line 0x%h, state ", state.linePAddr) + fshow(state.opaque));
                 end
-                else
+
+                default:
                 begin
-                    // A miss.
-                    let line_addr = toLineAddress(req.physicalAddress);
-
-                    // Is there space in the miss tracker for a new L2 request?
-                    let can_allocate = outstandingMisses.canAllocateLoad(cpu_iid);
-
+                    // One of the fill states.  If the load can be merged then
+                    // add it to an outstanding fill request.  Otherwise, retry
+                    // later.
                     if (outstandingMisses.loadOutstanding(cpu_iid, line_addr) &&
                         can_allocate)
                     begin
@@ -510,108 +762,241 @@ module [HASIM_MODULE] mkL1DCache ();
                         outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
 
                         statReadMiss.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: LOAD MISS (ALREADY OUTSTANDING): line 0x%h", line_addr));
-                    end
-                    else if (can_allocate && local_state.toL2QNotFull)
-                    begin
-                        // Allocate the next miss ID
-                        new_miss_tok_req = True;
-                        outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
-
-                        // Record that we are using the memory queue.
-                        local_state.toL2QUsed = True;
-
-                        statReadMiss.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: LOAD MISS: line 0x%h", line_addr));
+                        debugLog.record(cpu_iid, $format("3: LOAD MISS (ALREADY OUTSTANDING): line 0x%h, state ", line_addr) + fshow(state.opaque));
                     end
                     else
                     begin
                         // Miss, but miss tracker is full or L2 is busy.
-                        local_state.loadRspImm = tagged Valid initDCacheLoadRetry(req);
-
-                        debugLog.record(cpu_iid, $format("3: LOAD RETRY: line 0x%h, can alloc %0d, l2 notFull %0d", line_addr, can_allocate, local_state.toL2QNotFull));
+                        debugLog.record(cpu_iid, $format("3: LOAD BUSY RETRY: line 0x%h, can alloc %0d, state ", line_addr, can_allocate) + fshow (state.opaque));
                     end
                 end
+            endcase
+        end
+        else if (entry.state matches tagged Blocked)
+        begin
+            // No victim available.  Retry.
+            debugLog.record(cpu_iid, $format("3: LOAD BLOCKED (no victim avail): line 0x%h", line_addr));
+        end
+        else if (! can_allocate)
+        begin
+            // No miss token available
+            debugLog.record(cpu_iid, $format("3: NO MISS TOKEN: line 0x%h", line_addr));
+        end
+        else if (! local_state.toL2QNotFull[0])
+        begin
+            // Channel for requesting fill is full.
+            debugLog.record(cpu_iid, $format("3: L2Q[0] REQ FULL: line 0x%h", line_addr));
+        end
+        else if (entry.state matches tagged MustEvict .state &&&
+                 state.opaque == L1D_STATE_M &&&
+                 ! local_state.toL2QNotFull[1])
+        begin
+            // Channel for requesting writeback is full.
+            debugLog.record(cpu_iid, $format("3: L2Q[1] WB FULL: line 0x%h", line_addr));
+        end
+        else
+        begin
+            // A miss and the necessary request channels are all available.
+
+            // Miss token should be new since no miss is currently outstanding
+            // for this address.  (Misses are recorded in the cache state tag.)
+            assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr));
+
+            // Writeback?  The protocol only sends notification of writeback.
+            // Silent eviction simplifies the protocol.
+            if (entry.state matches tagged MustEvict .state &&&
+                state.opaque == L1D_STATE_M)
+            begin
+                CACHE_PROTOCOL_WB_INVAL wb_meta = defaultValue;
+                wb_meta.inval = True;
+                wb_meta.isWriteback = True;
+
+                let l2_req = cacheMsg_WBInval(state.linePAddr,
+                                              ?,
+                                              wb_meta);
+                local_state.toL2QData[1] = l2_req;
+                local_state.toL2QUsed[1] = True;
+
+                debugLog.record(cpu_iid, $format("3: WB: line 0x%h", state.linePAddr));
             end
 
-            tagged STORE_REQ .req:
-            begin
-                //
-                // Did the store hit in the cache?
-                //
-                let entry <- dCacheAlg.lookupByAddrRsp(cpu_iid);
+            // Allocate the next miss ID
+            new_miss_tok_req = True;
+            outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
 
-                // Set up the write to the cache in case it is possible.  The
-                // write will be enabled by setting local_state.writePortUsed
-                // later, if necessary.
-                let line_addr = toLineAddress(req.physicalAddress);
-                local_state.writePortIdx = entry.idx;
-                local_state.writePortData = line_addr;
+            // Record that we are using the memory queue.
+            local_state.toL2QUsed[0] = True;
 
-                if (entry.state matches tagged Valid .state)
+            // Update cache state
+            local_state.cacheUpdUsed = True;
+            local_state.cacheUpdState = L1D_STATE_FILL_S;
+
+            statReadMiss.incr(cpu_iid);
+            debugLog.record(cpu_iid, $format("3: LOAD MISS: line 0x%h, ", line_addr) + fshow(local_state.cacheUpdIdx));
+        end
+
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+        
+
+    rule stage3_STORE_REQ (getOper(stage3Ctrl) matches tagged STORE_REQ .req);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        //
+        // Did the load hit in the cache?
+        //
+        let entry <- dCacheAlg.lookupByAddrRsp(cpu_iid);
+
+        // Is there space in the miss tracker for a new L2 request?
+        let can_allocate = outstandingMisses.canAllocateStore(cpu_iid);
+        let line_addr = toLineAddress(req.physicalAddress);
+
+        local_state.cacheUpdIdx = entry.idx;
+        local_state.cacheUpdPAddr = line_addr;
+
+        if (entry.state matches tagged Valid .state)
+        begin
+            // Line is present in the cache.
+            case (state.opaque)
+                L1D_STATE_M,
+                L1D_STATE_E:
                 begin
-                    // Hit!
+                    // A hit, so give the data back.
                     local_state.storeRspImm = tagged Valid initDCacheStoreOk();
                     statWriteHit.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("3: STORE HIT: line 0x%h", line_addr));
 
-                    // We're writeback.  Update the line in the cache.
-                    local_state.writePortUsed = True;
-                    local_state.writeDataDirty = True;
-
-                    // If there was also a load request this cycle and the load
-                    // is the same address as the store then bypass the value
-                    // and service the load this cycle.  The load request is stored
-                    // as a retry request, since it lost to the store earlier
-                    // in this pipeline.
-                    if (local_state.loadRspImm matches tagged Valid .rsp &&&
-                       rsp.rspType matches tagged DCACHE_retry &&&
-                       rsp.bundle.physicalAddress == req.physicalAddress)
+                    if (state.opaque == L1D_STATE_E)
                     begin
-                        local_state.loadRspImm = tagged Valid initDCacheLoadHit(rsp.bundle);
-
-                        debugLog.record(cpu_iid, $format("3: LOAD BYPASS: PA 0x%h", rsp.bundle.physicalAddress));
-                        statReadBypass.incr(cpu_iid);
+                        // Transition to modified
+                        local_state.cacheUpdUsed = True;
+                        local_state.cacheUpdState = L1D_STATE_M;
+                        debugLog.record(cpu_iid, $format("3: STORE HIT M->E: line 0x%h, state ", state.linePAddr) + fshow(state.opaque));
+                    end
+                    else
+                    begin
+                        debugLog.record(cpu_iid, $format("3: STORE HIT M: line 0x%h, state ", state.linePAddr) + fshow(state.opaque));
                     end
                 end
-                else
-                begin
-                    // A miss.  We need to bring the line into the cache to deal
-                    // with any coherence issues.
-                    let can_allocate = outstandingMisses.canAllocateStore(cpu_iid);
 
-                    if (can_allocate && local_state.toL2QNotFull)
+                L1D_STATE_S,
+                L1D_STATE_FILL_S:
+                begin
+                    // Present but shared or fill outstanding for shared.
+                    // Request exclusive control and respond RETRY to CPU.
+                    if (can_allocate)
                     begin
                         // Get a MissID to go to memory.
                         new_miss_tok_req = True;
                         outstandingMisses.allocateStoreReq(cpu_iid);
 
                         // Record that we're using the toL2Q.
-                        local_state.toL2QUsed = True;
+                        local_state.toL2QUsed[0] = True;
 
-                        // Tell the CPU to delay until the store returns.
+                        // Update entry state to transition to exclusive.
+                        local_state.cacheUpdUsed = True;
+                        local_state.cacheUpdState =
+                            (state.opaque == L1D_STATE_S) ? L1D_STATE_S_E :
+                                                            L1D_STATE_FILL_E;
+
                         statWriteMiss.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: STORE MISS: line 0x%h", line_addr));
+                        debugLog.record(cpu_iid, $format("3: STORE ") + fshow(state.opaque) + $format("->") + fshow(local_state.cacheUpdState) + $format(": line 0x%h", state.linePAddr));
                     end
                     else
                     begin
-                        // Can't allocate a miss tracker or L2 is busy.
-                        // The CPU will have to retry this store.
-                        local_state.storeRspImm = tagged Valid initDCacheStoreRetry();
-                        debugLog.record(cpu_iid, $format("3: STORE RETRY: line 0x%h, can alloc %0d, l2 notFull %0d", line_addr, can_allocate, local_state.toL2QNotFull));
+                        debugLog.record(cpu_iid, $format("3: STORE NO TOKEN: line 0x%h, state ", line_addr) + fshow (state.opaque));
                     end
                 end
+
+                default:
+                begin
+                    debugLog.record(cpu_iid, $format("3: STORE BUSY RETRY: line 0x%h, can alloc %0d, state ", line_addr, can_allocate) + fshow (state.opaque));
+                end
+            endcase
+        end
+        else if (entry.state matches tagged Blocked)
+        begin
+            // No victim available.  Retry.
+            debugLog.record(cpu_iid, $format("3: STORE BLOCKED (no victim avail): line 0x%h", line_addr));
+        end
+        else if (! can_allocate)
+        begin
+            // No miss token available
+            debugLog.record(cpu_iid, $format("3: NO MISS TOKEN: line 0x%h", line_addr));
+        end
+        else if (! local_state.toL2QNotFull[0])
+        begin
+            // Channel for requesting fill is full.
+            debugLog.record(cpu_iid, $format("3: L2Q[0] REQ FULL: line 0x%h", line_addr));
+        end
+        else if (entry.state matches tagged MustEvict .state &&&
+                 state.opaque == L1D_STATE_M &&&
+                 ! local_state.toL2QNotFull[1])
+        begin
+            // Channel for requesting writeback is full.
+            debugLog.record(cpu_iid, $format("3: L2Q[1] WB FULL: line 0x%h", line_addr));
+        end
+        else
+        begin
+            // A miss and the necessary request channels are all available.
+
+            // Miss token should be new since no miss is currently outstanding
+            // for this address.  (Misses are recorded in the cache state tag.)
+            assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr));
+
+            // Writeback?  The protocol only sends notification of writeback.
+            // Silent eviction simplifies the protocol.
+            if (entry.state matches tagged MustEvict .state &&&
+                state.opaque == L1D_STATE_M)
+            begin
+                CACHE_PROTOCOL_WB_INVAL wb_meta = defaultValue;
+                wb_meta.inval = True;
+                wb_meta.isWriteback = True;
+
+                let l2_req = cacheMsg_WBInval(state.linePAddr,
+                                              ?,
+                                              wb_meta);
+                local_state.toL2QData[1] = l2_req;
+                local_state.toL2QUsed[1] = True;
+
+                debugLog.record(cpu_iid, $format("3: WB: line 0x%h", state.linePAddr));
             end
 
-            tagged Invalid:
-            begin
-                debugLog.record(cpu_iid, $format("3: Bubble"));
-            end
-        endcase
+            // Allocate the next miss ID
+            new_miss_tok_req = True;
+            outstandingMisses.allocateStoreReq(cpu_iid);
+
+            // Record that we are using the memory queue.
+            local_state.toL2QUsed[0] = True;
+
+            // Update cache state
+            local_state.cacheUpdUsed = True;
+            local_state.cacheUpdState = L1D_STATE_FILL_E;
+
+            statWriteMiss.incr(cpu_iid);
+            debugLog.record(cpu_iid, $format("3: STORE MISS: line 0x%h, ", line_addr) + fshow(local_state.cacheUpdIdx));
+        end
 
         stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
     endrule
 
+
+    rule stage3_Invalid (getOper(stage3Ctrl) matches tagged Invalid);
+        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+        Bool new_miss_tok_req = False;
+
+        debugLog.record(cpu_iid, $format("3: Bubble"));
+
+        stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
+    endrule
+
+
+    // ====================================================================
+    //
+    //  Stage 4:  Not much left to do.  All operations trigger the same
+    //            rule.
+    //
+    // ====================================================================
 
     rule stage4 (True);
         match {.cpu_iid, {.oper,
@@ -619,14 +1004,14 @@ module [HASIM_MODULE] mkL1DCache ();
                           .new_miss_tok_req}} <- stage4Ctrl.nextReadyInstance();
 
         case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
+            tagged MULTI_FILL .miss_tok:
             begin
-                debugLog.record(cpu_iid, $format("4: Bubble MULTI_LOAD"));
+                debugLog.record(cpu_iid, $format("4: Bubble MULTI_FILL"));
             end
 
-            tagged FILL_RSP .fill:
+            tagged CACHE_MSG .msg:
             begin
-                debugLog.record(cpu_iid, $format("4: Bubble FILL"));
+                debugLog.record(cpu_iid, $format("4: Bubble CACHE_MSG"));
             end
 
             tagged LOAD_REQ .req:
@@ -636,7 +1021,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
                     local_state.loadRspImm = tagged Valid initDCacheLoadMiss(req, miss_tok.index);
 
-                    if (! local_state.toL2QUsed)
+                    if (! local_state.toL2QUsed[0])
                     begin
                         debugLog.record(cpu_iid, $format("4: LOAD MISS (ALREADY OUTSTANDING): %0d", miss_tok.index));
                     end
@@ -647,7 +1032,7 @@ module [HASIM_MODULE] mkL1DCache ();
                         let l2_req = cacheMsg_ReqLoad(line_addr,
                                                       toMemOpaque(miss_tok),
                                                       defaultValue);
-                        local_state.toL2QData = l2_req;
+                        local_state.toL2QData[0] = l2_req;
 
                         debugLog.record(cpu_iid, $format("4: LOAD MISS: line 0x%h, tok %0d", line_addr, miss_tok.index));
                     end
@@ -671,7 +1056,7 @@ module [HASIM_MODULE] mkL1DCache ();
                     let l2_req = cacheMsg_ReqLoad(line_addr,
                                                   toMemOpaque(miss_tok),
                                                   fill_req);
-                    local_state.toL2QData = l2_req;
+                    local_state.toL2QData[0] = l2_req;
 
                     // Tell the CPU to delay until the store returns.
                     local_state.storeRspImm = tagged Valid initDCacheStoreDelay(miss_tok.index);
@@ -716,12 +1101,10 @@ module [HASIM_MODULE] mkL1DCache ();
     rule stage5 (True);
         match {.cpu_iid, {.oper, .local_state}} <- stage5Ctrl.nextReadyInstance();
 
-        debugLog.record(cpu_iid, $format("5: Done"));
-
         loadRspDelToCPU.send(cpu_iid, local_state.loadRsp);
         storeRspDelToCPU.send(cpu_iid, local_state.storeRsp);
 
-        if (oper matches tagged FILL_RSP .rsp)
+        if (oper matches tagged CACHE_MSG .msg)
         begin
             portFromL2.doDeq(cpu_iid);
         end
@@ -731,38 +1114,50 @@ module [HASIM_MODULE] mkL1DCache ();
         end
 
         // Take care of the memory queue.
-        if (local_state.toL2QUsed)
+        for (Integer i = 0; i < 2; i = i + 1)
         begin
-            portToL2[0].doEnq(cpu_iid, local_state.toL2QData);
-        end
-        else
-        begin
-            portToL2[0].noEnq(cpu_iid);
-        end
-        
-        portToL2[1].noEnq(cpu_iid);
-
-        // Take care of the cache update.
-        if (local_state.writePortUsed)
-        begin
-            let state = initCacheEntryState(local_state.writePortData,
-                                            local_state.writeDataDirty,
-                                            ?);
-            if (oper matches tagged FILL_RSP .rsp)
+            if (local_state.toL2QUsed[i])
             begin
-                // Fill allocates a new line.
-                dCacheAlg.allocate(cpu_iid,
-                                   local_state.writePortIdx,
-                                   state,
-                                   CACHE_ALLOC_FILL);
+                portToL2[i].doEnq(cpu_iid, local_state.toL2QData[i]);
             end
             else
             begin
-                // Store is the only other path.  It updates the state of an
-                // existing entry.
+                portToL2[i].noEnq(cpu_iid);
+            end
+        end
+
+        // Take care of the cache update.
+        if (local_state.cacheUpdInval)
+        begin
+            dCacheAlg.invalidate(cpu_iid, local_state.cacheUpdIdx);
+
+            debugLog.record(cpu_iid, $format("5: INVAL: ") + fshow(local_state.cacheUpdIdx));
+        end
+        else if (local_state.cacheUpdUsed)
+        begin
+            Bool is_dirty = (local_state.cacheUpdState == L1D_STATE_M);
+            let state = initCacheEntryState(local_state.cacheUpdPAddr,
+                                            is_dirty,
+                                            local_state.cacheUpdState);
+
+            if ((local_state.cacheUpdState == L1D_STATE_FILL_S) ||
+                (local_state.cacheUpdState == L1D_STATE_FILL_E))
+            begin
+                // Fill allocates a new line.
+                dCacheAlg.allocate(cpu_iid,
+                                   local_state.cacheUpdIdx,
+                                   state,
+                                   CACHE_ALLOC_FILL);
+
+                debugLog.record(cpu_iid, $format("5: ALLOC: ") + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(state));
+            end
+            else
+            begin
                 dCacheAlg.update(cpu_iid,
-                                 local_state.writePortIdx,
+                                 local_state.cacheUpdIdx,
                                  state);
+
+                debugLog.record(cpu_iid, $format("5: UPDATE: ") + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(state));
             end
         end
         
@@ -771,6 +1166,8 @@ module [HASIM_MODULE] mkL1DCache ();
         begin
             outstandingMisses.free(cpu_iid, miss_tok);
         end
+
+        debugLog.record(cpu_iid, $format("5: Done"));
 
         // End of model cycle. (Path 1)
         localCtrl.endModelCycle(cpu_iid, 1); 

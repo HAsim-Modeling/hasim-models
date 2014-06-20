@@ -69,7 +69,7 @@ import DefaultValue::*;
 
 typedef union tagged
 {
-    L1_DCACHE_MISS_TOKEN MULTI_LOAD;
+    L1_DCACHE_MISS_TOKEN MULTI_FILL;
     CACHE_PROTOCOL_MSG   FILL_RSP;
     DCACHE_LOAD_INPUT    LOAD_REQ;
     DCACHE_STORE_INPUT   STORE_REQ;
@@ -276,7 +276,7 @@ module [HASIM_MODULE] mkL1DCache ();
         // Are any previously returned fills going to multiple loads?
         if (outstandingMisses.fillToDeliver(cpu_iid) matches tagged Valid .miss_tok)
         begin
-            oper = tagged MULTI_LOAD miss_tok;
+            oper = tagged MULTI_FILL miss_tok;
             debugLog.record(cpu_iid, $format("1: FILL MULTIPLE RSP: %0d", miss_tok.index));
         end
         else if (m_fill matches tagged Valid .fill)
@@ -326,7 +326,7 @@ module [HASIM_MODULE] mkL1DCache ();
         match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
         case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
+            tagged MULTI_FILL .miss_tok:
             begin
                 // A fill that came in previously is going to multiple miss tokens.
                 local_state.missTokToFree = tagged Valid miss_tok;
@@ -418,9 +418,9 @@ module [HASIM_MODULE] mkL1DCache ();
         Bool new_miss_tok_req = False;
 
         case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
+            tagged MULTI_FILL .miss_tok:
             begin
-                debugLog.record(cpu_iid, $format("3: Bubble MULTI_LOAD"));
+                debugLog.record(cpu_iid, $format("3: Bubble MULTI_FILL"));
             end
 
             tagged FILL_RSP .fill:
@@ -645,9 +645,9 @@ module [HASIM_MODULE] mkL1DCache ();
                           .new_miss_tok_req}} <- stage4Ctrl.nextReadyInstance();
 
         case (oper) matches
-            tagged MULTI_LOAD .miss_tok:
+            tagged MULTI_FILL .miss_tok:
             begin
-                debugLog.record(cpu_iid, $format("4: Bubble MULTI_LOAD"));
+                debugLog.record(cpu_iid, $format("4: Bubble MULTI_FILL"));
             end
 
             tagged FILL_RSP .fill:
