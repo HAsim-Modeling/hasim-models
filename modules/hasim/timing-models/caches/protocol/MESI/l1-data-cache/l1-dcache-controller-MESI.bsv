@@ -103,6 +103,13 @@ instance FShow#(L1D_ENTRY_STATE);
     endfunction
 endinstance
 
+instance FShow#(Tuple2#(L1D_ENTRY_STATE, L1D_ENTRY_STATE));
+    function Fmt fshow(Tuple2#(L1D_ENTRY_STATE, L1D_ENTRY_STATE) states);
+        match {.s_from, .s_to} = states;
+        return fshow(s_from) + $format("->") + fshow(s_to);
+    endfunction
+endinstance
+
 
 typedef union tagged
 {
@@ -371,7 +378,7 @@ module [HASIM_MODULE] mkL1DCache ();
                 L1_DCACHE_MISS_TOKEN miss_tok = fromMemOpaque(fromL2.opaque);
                 debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2) + $format(", idx %0d", miss_tok.index));
             end
-            else if (fromL2.kind matches tagged FORCE_WB .wb_meta)
+            else if (fromL2.kind matches tagged FORCE_INVAL .inval_meta)
             begin
                 // Writeback or invalidation request.
                 debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2));
@@ -494,7 +501,7 @@ module [HASIM_MODULE] mkL1DCache ();
 
 
     rule stage2_INVAL_REQ (getOper(stage2Ctrl) matches tagged CACHE_MSG .inval &&&
-                           inval.kind matches tagged FORCE_WB .wb_meta);
+                           inval.kind matches tagged FORCE_INVAL .inval_meta);
 
         match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
@@ -553,6 +560,7 @@ module [HASIM_MODULE] mkL1DCache ();
     //  Stage 3:  Exactly one stage3 rule must fire for proper pipelining.
     //
     // ====================================================================
+
 
     rule stage3_MULTI_FILL (getOper(stage3Ctrl) matches tagged MULTI_FILL .miss_tok);
         match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
@@ -637,7 +645,7 @@ module [HASIM_MODULE] mkL1DCache ();
                 end
             endcase
 
-            debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(state.opaque) + $format(" -> ") + fshow(local_state.cacheUpdState));
+            debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(tuple2(state.opaque, local_state.cacheUpdState)));
             assertInFillState(! error);
         end
         else
@@ -654,7 +662,7 @@ module [HASIM_MODULE] mkL1DCache ();
 
 
     rule stage3_INVAL_REQ (getOper(stage3Ctrl) matches tagged CACHE_MSG .inval &&&
-                           inval.kind matches tagged FORCE_WB .wb_meta);
+                           inval.kind matches tagged FORCE_INVAL .inval_meta);
 
         match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
         Bool new_miss_tok_req = False;
@@ -664,12 +672,11 @@ module [HASIM_MODULE] mkL1DCache ();
         local_state.cacheUpdIdx = entry.idx;
 
         CACHE_PROTOCOL_WB_INVAL rsp_meta = defaultValue;
-        rsp_meta.toDir = wb_meta.fromDir;
-        rsp_meta.inval = wb_meta.inval;
+        rsp_meta.toDir = inval_meta.fromDir;
 
         if (! local_state.toL2QNotFull[1])
         begin
-            // Can't forward the writeback response because the port 
+            // Can't forward the writeback response because the port is busy
             local_state.cacheUpdUsed = False;
             oper = newL1DCOper(tagged Invalid);
             debugLog.record(cpu_iid, $format("3: INVAL RETRY LATER: line 0x%h", inval.linePAddr));
@@ -677,23 +684,28 @@ module [HASIM_MODULE] mkL1DCache ();
         else if (entry.state matches tagged Valid .state)
         begin
             case (state.opaque)
-                L1D_STATE_M,
-                L1D_STATE_E,
+                L1D_STATE_M:
+                begin
+                    local_state.cacheUpdInval = True;
+                    rsp_meta.exclusive = True;
+                    rsp_meta.dirty = True;
+                end
+
+                L1D_STATE_E:
+                begin
+                    local_state.cacheUpdInval = True;
+                    rsp_meta.exclusive = True;
+                end
+
                 L1D_STATE_S:
                 begin
-                    rsp_meta.isWriteback = (state.opaque == L1D_STATE_M);
-                    local_state.cacheUpdInval = wb_meta.inval;
-                    // Shared state (irrelevant if cacheUpdInval gets set)
-                    local_state.cacheUpdState = L1D_STATE_S;
+                    local_state.cacheUpdInval = True;
                 end
 
                 L1D_STATE_S_E:
                 begin
-                    if (wb_meta.inval)
-                    begin
-                        // Drop shared but still waiting for fill for write
-                        local_state.cacheUpdState = L1D_STATE_FILL_E;
-                    end
+                    // Drop shared but still waiting for fill for write
+                    local_state.cacheUpdState = L1D_STATE_FILL_E;
                 end
             endcase
 
@@ -701,7 +713,10 @@ module [HASIM_MODULE] mkL1DCache ();
             local_state.toL2QData[1] = cacheMsg_WBInval(inval.linePAddr,
                                                         ?,
                                                         rsp_meta);
-            debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(state.opaque) + $format(" -> ") + fshow(local_state.cacheUpdState));
+            if (local_state.cacheUpdInval)
+                debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
+            else
+                debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(tuple2(state.opaque, local_state.cacheUpdState)));
         end
         else
         begin
@@ -715,6 +730,21 @@ module [HASIM_MODULE] mkL1DCache ();
 
         stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
     endrule
+
+
+    //
+    // evictLineMsg --
+    //   Generate an eviction message for a current line.  Used by multiple
+    //   stage3 rules below.
+    //
+    function CACHE_PROTOCOL_MSG evictLineMsg(CACHE_ENTRY_STATE#(L1D_ENTRY_STATE) state);
+        CACHE_PROTOCOL_WB_INVAL inval_meta = defaultValue;
+        inval_meta.exclusive = (state.opaque == L1D_STATE_M ||
+                                state.opaque == L1D_STATE_E);
+        inval_meta.dirty = (state.opaque == L1D_STATE_M);
+
+        return cacheMsg_WBInval(state.linePAddr, ?, inval_meta);
+    endfunction
 
 
     rule stage3_LOAD_REQ (getOper(stage3Ctrl) matches tagged LOAD_REQ .req);
@@ -782,17 +812,10 @@ module [HASIM_MODULE] mkL1DCache ();
             // No miss token available
             debugLog.record(cpu_iid, $format("3: NO MISS TOKEN: line 0x%h", line_addr));
         end
-        else if (! local_state.toL2QNotFull[0])
+        else if (! all(id, local_state.toL2QNotFull))
         begin
-            // Channel for requesting fill is full.
-            debugLog.record(cpu_iid, $format("3: L2Q[0] REQ FULL: line 0x%h", line_addr));
-        end
-        else if (entry.state matches tagged MustEvict .state &&&
-                 state.opaque == L1D_STATE_M &&&
-                 ! local_state.toL2QNotFull[1])
-        begin
-            // Channel for requesting writeback is full.
-            debugLog.record(cpu_iid, $format("3: L2Q[1] WB FULL: line 0x%h", line_addr));
+            // Channel for requesting fill or sending writeback is full.
+            debugLog.record(cpu_iid, $format("3: L2Q REQ FULL: line 0x%h", line_addr));
         end
         else
         begin
@@ -802,22 +825,14 @@ module [HASIM_MODULE] mkL1DCache ();
             // for this address.  (Misses are recorded in the cache state tag.)
             assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr));
 
-            // Writeback?  The protocol only sends notification of writeback.
-            // Silent eviction simplifies the protocol.
-            if (entry.state matches tagged MustEvict .state &&&
-                state.opaque == L1D_STATE_M)
+            // Generate the eviction message
+            if (entry.state matches tagged MustEvict .state)
             begin
-                CACHE_PROTOCOL_WB_INVAL wb_meta = defaultValue;
-                wb_meta.inval = True;
-                wb_meta.isWriteback = True;
-
-                let l2_req = cacheMsg_WBInval(state.linePAddr,
-                                              ?,
-                                              wb_meta);
-                local_state.toL2QData[1] = l2_req;
+                let msg = evictLineMsg(state);
+                local_state.toL2QData[1] = msg;
                 local_state.toL2QUsed[1] = True;
 
-                debugLog.record(cpu_iid, $format("3: WB: line 0x%h", state.linePAddr));
+                debugLog.record(cpu_iid, $format("3: EVICT INVAL: line 0x%h, ", state.linePAddr) + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(msg));
             end
 
             // Allocate the next miss ID
@@ -900,7 +915,7 @@ module [HASIM_MODULE] mkL1DCache ();
                                                             L1D_STATE_FILL_E;
 
                         statWriteMiss.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: STORE ") + fshow(state.opaque) + $format("->") + fshow(local_state.cacheUpdState) + $format(": line 0x%h", state.linePAddr));
+                        debugLog.record(cpu_iid, $format("3: STORE ") + fshow(tuple2(state.opaque, local_state.cacheUpdState)) + $format(": line 0x%h", state.linePAddr));
                     end
                     else
                     begin
@@ -924,17 +939,10 @@ module [HASIM_MODULE] mkL1DCache ();
             // No miss token available
             debugLog.record(cpu_iid, $format("3: NO MISS TOKEN: line 0x%h", line_addr));
         end
-        else if (! local_state.toL2QNotFull[0])
+        else if (! all(id, local_state.toL2QNotFull))
         begin
-            // Channel for requesting fill is full.
-            debugLog.record(cpu_iid, $format("3: L2Q[0] REQ FULL: line 0x%h", line_addr));
-        end
-        else if (entry.state matches tagged MustEvict .state &&&
-                 state.opaque == L1D_STATE_M &&&
-                 ! local_state.toL2QNotFull[1])
-        begin
-            // Channel for requesting writeback is full.
-            debugLog.record(cpu_iid, $format("3: L2Q[1] WB FULL: line 0x%h", line_addr));
+            // Channel for requesting fill or sending writeback is full.
+            debugLog.record(cpu_iid, $format("3: L2Q REQ FULL: line 0x%h", line_addr));
         end
         else
         begin
@@ -944,22 +952,14 @@ module [HASIM_MODULE] mkL1DCache ();
             // for this address.  (Misses are recorded in the cache state tag.)
             assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr));
 
-            // Writeback?  The protocol only sends notification of writeback.
-            // Silent eviction simplifies the protocol.
-            if (entry.state matches tagged MustEvict .state &&&
-                state.opaque == L1D_STATE_M)
+            // Generate the eviction message
+            if (entry.state matches tagged MustEvict .state)
             begin
-                CACHE_PROTOCOL_WB_INVAL wb_meta = defaultValue;
-                wb_meta.inval = True;
-                wb_meta.isWriteback = True;
-
-                let l2_req = cacheMsg_WBInval(state.linePAddr,
-                                              ?,
-                                              wb_meta);
-                local_state.toL2QData[1] = l2_req;
+                let msg = evictLineMsg(state);
+                local_state.toL2QData[1] = msg;
                 local_state.toL2QUsed[1] = True;
 
-                debugLog.record(cpu_iid, $format("3: WB: line 0x%h", state.linePAddr));
+                debugLog.record(cpu_iid, $format("3: EVICT INVAL: line 0x%h, ", state.linePAddr) + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(msg));
             end
 
             // Allocate the next miss ID

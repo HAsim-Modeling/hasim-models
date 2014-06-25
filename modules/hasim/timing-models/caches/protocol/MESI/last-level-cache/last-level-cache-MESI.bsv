@@ -49,6 +49,7 @@ import DefaultValue::*;
 `include "awb/provides/memory_base_types.bsh"
 `include "awb/provides/chip_base_types.bsh"
 `include "awb/provides/hasim_chip_topology.bsh"
+`include "awb/provides/hasim_cache_protocol.bsh"
 `include "awb/provides/hasim_cache_algorithms.bsh"
 `include "awb/provides/hasim_last_level_cache_alg.bsh"
 `include "awb/provides/hasim_miss_tracker.bsh"
@@ -142,9 +143,11 @@ module [HASIM_MODULE] mkLastLevelCache();
     // Requests from the local core arrive here.  This router will forward
     // the request to the correct distributed LLC segment.
     //
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, LLC_REQ) reqFromCore <-
-        mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, LLC_RSP) rspToCore <-
+    Vector#(2, PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                            CACHE_PROTOCOL_MSG)) reqFromCore = newVector();
+    reqFromCore[0] <- mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ" + "_0");
+    reqFromCore[1] <- mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ" + "_1");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToCore <-
         mkPortStallSend_Multiplexed("Uncore_to_CorePvtCacheQ");
     
     //
@@ -195,29 +198,31 @@ module [HASIM_MODULE] mkLastLevelCache();
         mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_MEM_REQ));
 
 
-    Vector#(10, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    inctrls[0] = reqFromCore.ctrl.in;
-    inctrls[1] = rspToCore.ctrl.in;
-    inctrls[2] = reqToLocalLLC.ctrl.in;
-    inctrls[3] = rspFromLocalLLC.ctrl.in;
-    inctrls[4] = reqInFromOCN.ctrl.in;
-    inctrls[5] = rspInFromLLC.ctrl.in;
-    inctrls[6] = reqToRemoteLLC.ctrl.in;
-    inctrls[7] = rspToRemoteLLC.ctrl.in;
-    inctrls[8] = dummyMemRspToOCN.ctrl.in;
-    inctrls[9] = dummyReqInToMem.ctrl.in;
+    Vector#(11, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    inctrls[0] = reqFromCore[0].ctrl.in;
+    inctrls[1] = reqFromCore[1].ctrl.in;
+    inctrls[2] = rspToCore.ctrl.in;
+    inctrls[3] = reqToLocalLLC.ctrl.in;
+    inctrls[4] = rspFromLocalLLC.ctrl.in;
+    inctrls[5] = reqInFromOCN.ctrl.in;
+    inctrls[6] = rspInFromLLC.ctrl.in;
+    inctrls[7] = reqToRemoteLLC.ctrl.in;
+    inctrls[8] = rspToRemoteLLC.ctrl.in;
+    inctrls[9] = dummyMemRspToOCN.ctrl.in;
+    inctrls[10] = dummyReqInToMem.ctrl.in;
 
-    Vector#(10, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
-    outctrls[0] = reqFromCore.ctrl.out;
-    outctrls[1] = rspToCore.ctrl.out;
-    outctrls[2] = reqToLocalLLC.ctrl.out;
-    outctrls[3] = rspFromLocalLLC.ctrl.out;
-    outctrls[4] = reqInFromOCN.ctrl.out;
-    outctrls[5] = rspInFromLLC.ctrl.out;
-    outctrls[6] = reqToRemoteLLC.ctrl.out;
-    outctrls[7] = rspToRemoteLLC.ctrl.out;
-    outctrls[8] = dummyMemRspToOCN.ctrl.out;
-    outctrls[9] = dummyReqInToMem.ctrl.out;
+    Vector#(11, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    outctrls[0] = reqFromCore[0].ctrl.out;
+    outctrls[1] = reqFromCore[1].ctrl.out;
+    outctrls[2] = rspToCore.ctrl.out;
+    outctrls[3] = reqToLocalLLC.ctrl.out;
+    outctrls[4] = rspFromLocalLLC.ctrl.out;
+    outctrls[5] = reqInFromOCN.ctrl.out;
+    outctrls[6] = rspInFromLLC.ctrl.out;
+    outctrls[7] = reqToRemoteLLC.ctrl.out;
+    outctrls[8] = rspToRemoteLLC.ctrl.out;
+    outctrls[9] = dummyMemRspToOCN.ctrl.out;
+    outctrls[10] = dummyReqInToMem.ctrl.out;
 
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Hub", inctrls, outctrls);
@@ -271,7 +276,8 @@ module [HASIM_MODULE] mkLastLevelCache();
         // Collect incoming messages.  The "receive" operation here is not a
         // commitment to process a message.  For that, doDeq() must be called.
         //
-        let m_reqFromCore <- reqFromCore.receive(cpu_iid);
+        let m_reqFromCore <- reqFromCore[0].receive(cpu_iid);
+        let dummy <- reqFromCore[1].receive(cpu_iid);
         let m_rspFromLocalLLC <- rspFromLocalLLC.receive(cpu_iid);
         let m_reqInFromOCN <- reqInFromOCN.receive(cpu_iid);
         let m_rspInFromLLC <- rspInFromLLC.receive(cpu_iid);
@@ -377,8 +383,12 @@ module [HASIM_MODULE] mkLastLevelCache();
         //
         Bool did_deq_reqFromCore = False;
 
-        if (m_reqFromCore matches tagged Valid .req)
+        if (m_reqFromCore matches tagged Valid .preq)
         begin
+            let req = MEMORY_REQ { linePAddr: preq.linePAddr,
+                                   opaque: preq.opaque,
+                                   isStore: cacheMsg_IsWBInval(preq) };
+
             // Which instance of the distributed cache is responsible?
             let dst = getLLCDstForAddr(req.linePAddr);
 
@@ -411,12 +421,14 @@ module [HASIM_MODULE] mkLastLevelCache();
 
         if (did_deq_reqFromCore)
         begin
-            reqFromCore.doDeq(cpu_iid);
+            reqFromCore[0].doDeq(cpu_iid);
         end
         else
         begin
-            reqFromCore.noDeq(cpu_iid);
+            reqFromCore[0].noDeq(cpu_iid);
         end
+
+        reqFromCore[1].noDeq(cpu_iid);
 
 
         //
@@ -425,7 +437,7 @@ module [HASIM_MODULE] mkLastLevelCache();
 
         if (m_new_rspToCore matches tagged Valid .rsp)
         begin
-            rspToCore.doEnq(cpu_iid, rsp);
+            rspToCore.doEnq(cpu_iid, cacheMsgFromMemRsp(rsp));
         end
         else
         begin

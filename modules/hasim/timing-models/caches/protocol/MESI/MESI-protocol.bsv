@@ -67,7 +67,7 @@ typedef union tagged
     CACHE_PROTOCOL_REQ_LOAD REQ_LOAD;
     CACHE_PROTOCOL_RSP_LOAD RSP_LOAD;
     CACHE_PROTOCOL_WB_INVAL WB_INVAL;
-    CACHE_PROTOCOL_FORCE_WB FORCE_WB;
+    CACHE_PROTOCOL_FORCE_INVAL FORCE_INVAL;
 }
 CACHE_PROTOCOL_MSG_KIND
     deriving (Eq, Bits);
@@ -105,11 +105,11 @@ endinstance
 
 typedef struct
 {
-    // Line remains in shared state if False. Line no longer present if True.
-    Bool inval;
+    // CPU owns the line
+    Bool exclusive;
     // Does the payload include dirty state needing writeback?
-    Bool isWriteback;
-    // Is the message a response to a FORCE_WB request from the directory?
+    Bool dirty;
+    // Is the message a response to a FORCE_INVAL request from the directory?
     Bool toDir;
 }
 CACHE_PROTOCOL_WB_INVAL
@@ -117,8 +117,8 @@ CACHE_PROTOCOL_WB_INVAL
 
 instance DefaultValue#(CACHE_PROTOCOL_WB_INVAL);
     defaultValue = CACHE_PROTOCOL_WB_INVAL {
-        inval: False,
-        isWriteback: False,
+        exclusive: False,
+        dirty: False,
         toDir: False
         };
 endinstance
@@ -126,17 +126,14 @@ endinstance
 
 typedef struct
 {
-    // Drop the line from the cache if True.
-    Bool inval;
     // Is the request from the directory controller?
     Bool fromDir;
 }
-CACHE_PROTOCOL_FORCE_WB
+CACHE_PROTOCOL_FORCE_INVAL
     deriving (Eq, Bits);
 
-instance DefaultValue#(CACHE_PROTOCOL_FORCE_WB);
-    defaultValue = CACHE_PROTOCOL_FORCE_WB {
-        inval: False,
+instance DefaultValue#(CACHE_PROTOCOL_FORCE_INVAL);
+    defaultValue = CACHE_PROTOCOL_FORCE_INVAL {
         fromDir: False
         };
 endinstance
@@ -164,8 +161,8 @@ function Bool cacheMsg_IsWBInval(CACHE_PROTOCOL_MSG msg);
         return False;
 endfunction
 
-function Bool cacheMsg_IsForceWB(CACHE_PROTOCOL_MSG msg);
-    if (msg.kind matches tagged FORCE_WB .force_wb)
+function Bool cacheMsg_IsForceInval(CACHE_PROTOCOL_MSG msg);
+    if (msg.kind matches tagged FORCE_INVAL .force_inval)
         return True;
     else
         return False;
@@ -218,17 +215,17 @@ function CACHE_PROTOCOL_MSG cacheMsg_WBInval(LINE_ADDRESS linePAddr,
 endfunction
 
 //
-// cacheMsg_ForceWB --
-//   Generate a FORCE_WB response CACHE_PROTOCOL_MSG.
+// cacheMsg_ForceInval --
+//   Generate a FORCE_INVAL response CACHE_PROTOCOL_MSG.
 //
-function CACHE_PROTOCOL_MSG cacheMsg_ForceWB(LINE_ADDRESS linePAddr,
-                                             MEM_OPAQUE opaque,
-                                             CACHE_PROTOCOL_FORCE_WB info);
+function CACHE_PROTOCOL_MSG cacheMsg_ForceInval(LINE_ADDRESS linePAddr,
+                                                MEM_OPAQUE opaque,
+                                                CACHE_PROTOCOL_FORCE_INVAL info);
     return CACHE_PROTOCOL_MSG
     {
         linePAddr: linePAddr,
         opaque: opaque,
-        kind: tagged FORCE_WB info
+        kind: tagged FORCE_INVAL info
     };
 endfunction
 
@@ -276,14 +273,13 @@ instance FShow#(CACHE_PROTOCOL_MSG_KIND);
 
             tagged WB_INVAL .wb:
             begin
-                fs = $format("WB_INVAL inval=%0d, isWB=%0d, toDir=%0d",
-                             wb.inval, wb.isWriteback, wb.toDir);
+                fs = $format("WB_INVAL excl=%0d, dirty=%0d, toDir=%0d",
+                             wb.exclusive, wb.dirty, wb.toDir);
             end
 
-            tagged FORCE_WB .force_wb:
+            tagged FORCE_INVAL .force_inval:
             begin
-                fs = $format("FORCE_WB inval=%0d, fromDir=%0d",
-                             force_wb.inval, force_wb.fromDir);
+                fs = $format("FORCE_INVAL fromDir=%0d", force_inval.fromDir);
             end
         endcase
 

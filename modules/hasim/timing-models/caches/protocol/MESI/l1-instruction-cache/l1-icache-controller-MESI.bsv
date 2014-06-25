@@ -114,9 +114,9 @@ typedef struct
 {
     Maybe#(L1_ICACHE_MISS_TOKEN) missTokToFree;
 
-    Bool toL2QNotFull;
-    Bool toL2QUsed;
-    CACHE_PROTOCOL_MSG toL2QData;
+    Vector#(2, Bool) toL2QNotFull;
+    Vector#(2, Bool) toL2QUsed;
+    Vector#(2, CACHE_PROTOCOL_MSG) toL2QData;
 
     Bool cacheUpdUsed;
     Bool cacheUpdInval;
@@ -134,7 +134,7 @@ instance DefaultValue#(IC_LOCAL_STATE);
     defaultValue = IC_LOCAL_STATE { 
         missTokToFree: tagged Invalid,
         toL2QNotFull: ?,
-        toL2QUsed: False,
+        toL2QUsed: replicate(False),
         toL2QData: ?,
         cacheUpdUsed: False,
         cacheUpdInval: False,
@@ -288,13 +288,8 @@ module [HASIM_MODULE] mkL1ICache ();
         IC_LOCAL_STATE local_state = defaultValue;
 
         // Check if the toL2Q has room for any new requests.
-        let toL2Q_not_full <- portToL2[0].canEnq(cpu_iid);
-        local_state.toL2QNotFull = toL2Q_not_full;
-
-        // The 2nd port to L2 isn't used by the I-cache.  It would normally hold
-        // responses to writeback/invalidation requests, but this I-cache
-        // never sends a response.
-        let dummy <- portToL2[1].canEnq(cpu_iid);
+        local_state.toL2QNotFull[0] <- portToL2[0].canEnq(cpu_iid);
+        local_state.toL2QNotFull[1] <- portToL2[1].canEnq(cpu_iid);
 
         // Consume incoming messages
         let m_fromL2 <- portFromL2.receive(cpu_iid);
@@ -323,7 +318,7 @@ module [HASIM_MODULE] mkL1ICache ();
                 L1_ICACHE_MISS_TOKEN miss_tok = fromMemOpaque(fromL2.opaque);
                 debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2) + $format(", idx %0d", miss_tok.index));
             end
-            else if (fromL2.kind matches tagged FORCE_WB .wb_meta)
+            else if (fromL2.kind matches tagged FORCE_INVAL .inval_meta)
             begin
                 // Writeback or invalidation request.
                 debugLog.record(cpu_iid, $format("1: ") + fshow(fromL2));
@@ -409,7 +404,7 @@ module [HASIM_MODULE] mkL1ICache ();
 
 
     rule stage2_INVAL_REQ (getOper(stage2Ctrl) matches tagged CACHE_MSG .inval &&&
-                           inval.kind matches tagged FORCE_WB .wb_meta);
+                           inval.kind matches tagged FORCE_INVAL .inval_meta);
 
         match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
@@ -496,7 +491,7 @@ module [HASIM_MODULE] mkL1ICache ();
 
 
     rule stage3_INVAL_REQ (getOper(stage3Ctrl) matches tagged CACHE_MSG .inval &&&
-                           inval.kind matches tagged FORCE_WB .wb_meta);
+                           inval.kind matches tagged FORCE_INVAL .inval_meta);
 
         match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
         Bool new_miss_tok_req = False;
@@ -508,30 +503,20 @@ module [HASIM_MODULE] mkL1ICache ();
         if (entry.state matches tagged Valid .state &&&
             state.opaque == L1I_STATE_S)
         begin
-            if (wb_meta.inval)
-            begin
-                //
-                // Line is present and in use.  Invalidate it.
-                //
-                // Note that the this cache never sends a response to the
-                // invalidation request.  This is a simplification of the
-                // protocol.  The L1 dcache will send a response and the
-                // timing will be almost identical.  Sending a response
-                // from the icache would require bookkeeping by the L2
-                // to merge icache and dcache responses.  Instead, we use
-                // the dcache response in the model as a proxy for both
-                // L1 caches.
-                //
-                local_state.cacheUpdInval = True;
-                debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
-            end
-            else
-            begin
-                //
-                // Line is present but request is just writeback.  Keep the line.
-                //
-                debugLog.record(cpu_iid, $format("3: WB-ONLY ENTRY: line 0x%h", inval.linePAddr));
-            end
+            //
+            // Line is present and in use.  Invalidate it.
+            //
+            // Note that the this cache never sends a response to the
+            // invalidation request.  This is a simplification of the
+            // protocol.  The L1 dcache will send a response and the
+            // timing will be almost identical.  Sending a response
+            // from the icache would require bookkeeping by the L2
+            // to merge icache and dcache responses.  Instead, we use
+            // the dcache response in the model as a proxy for both
+            // L1 caches.
+            //
+            local_state.cacheUpdInval = True;
+            debugLog.record(cpu_iid, $format("3: INVAL ENTRY: line 0x%h, ", inval.linePAddr) + fshow(entry.idx));
         end
         else
         begin
@@ -616,14 +601,14 @@ module [HASIM_MODULE] mkL1ICache ();
                 // A miss and no eviction candidate.  Replay.
                 debugLog.record(cpu_iid, $format("3: BLOCKED: line 0x%h (blocking)", line_addr));
             end
-            else if (can_allocate && local_state.toL2QNotFull)
+            else if (can_allocate && local_state.toL2QNotFull[0])
             begin
                 // Allocate the next miss ID
                 new_miss_tok_req = True;
                 outstandingMisses.allocateLoadReq(cpu_iid, line_addr);
 
                 // Record that we are using the memory queue.
-                local_state.toL2QUsed = True;
+                local_state.toL2QUsed[0] = True;
 
                 // Evict now and add the new entry in FILL state.
                 // This design embeds miss tracking in the cache itself.
@@ -633,13 +618,29 @@ module [HASIM_MODULE] mkL1ICache ();
                 local_state.cacheUpdPAddr = line_addr;
                 local_state.cacheUpdState = L1I_STATE_FILL;
 
+                //
+                // Send a writeback message on capacity eviction so the L2
+                // can add the entry.  The L2 acts as a victim cache in this
+                // protocol.
+                //
+                if (entry.state matches tagged MustEvict .state)
+                begin
+                    let l2_req = cacheMsg_WBInval(state.linePAddr,
+                                                  ?,
+                                                  defaultValue);
+                    local_state.toL2QData[1] = l2_req;
+                    local_state.toL2QUsed[1] = True;
+
+                    debugLog.record(cpu_iid, $format("3: WB: line 0x%h", state.linePAddr));
+                end
+
                 statMiss.incr(cpu_iid);
                 debugLog.record(cpu_iid, $format("3: LOAD MISS: line 0x%h", line_addr));
             end
             else
             begin
                 // Miss, but miss tracker is full or L2 is busy.
-                debugLog.record(cpu_iid, $format("3: LOAD RETRY: line 0x%h, can alloc %0d, l2 notFull %0d", line_addr, can_allocate, local_state.toL2QNotFull));
+                debugLog.record(cpu_iid, $format("3: LOAD RETRY: line 0x%h, can alloc %0d, l2 notFull %0d", line_addr, can_allocate, local_state.toL2QNotFull[0]));
             end
         end
 
@@ -687,7 +688,7 @@ module [HASIM_MODULE] mkL1ICache ();
                     let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
                     local_state.loadRspImm = tagged Valid initICacheMiss(req, miss_tok.index);
 
-                    if (! local_state.toL2QUsed)
+                    if (! local_state.toL2QUsed[0])
                     begin
                         debugLog.record(cpu_iid, $format("4: LOAD MISS (ALREADY OUTSTANDING): %0d", miss_tok.index));
                     end
@@ -698,7 +699,7 @@ module [HASIM_MODULE] mkL1ICache ();
                         let l2_req = cacheMsg_ReqLoad(line_addr,
                                                       toMemOpaque(miss_tok),
                                                       defaultValue);
-                        local_state.toL2QData = l2_req;
+                        local_state.toL2QData[0] = l2_req;
 
                         debugLog.record(cpu_iid, $format("4: LOAD MISS: line 0x%h, tok %0d", line_addr, miss_tok.index));
                     end
@@ -747,17 +748,17 @@ module [HASIM_MODULE] mkL1ICache ();
         end
 
         // Take care of the memory queue.
-        if (local_state.toL2QUsed)
+        for (Integer i = 0; i < 2; i = i + 1)
         begin
-            portToL2[0].doEnq(cpu_iid, local_state.toL2QData);
+            if (local_state.toL2QUsed[i])
+            begin
+                portToL2[i].doEnq(cpu_iid, local_state.toL2QData[i]);
+            end
+            else
+            begin
+                portToL2[i].noEnq(cpu_iid);
+            end
         end
-        else
-        begin
-            portToL2[0].noEnq(cpu_iid);
-        end
-        
-        // Second to-L2 port never used by I-cache.
-        portToL2[1].noEnq(cpu_iid);
 
         // Take care of the cache update.
         if (local_state.cacheUpdInval)

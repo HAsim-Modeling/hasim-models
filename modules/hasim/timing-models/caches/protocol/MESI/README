@@ -10,14 +10,12 @@ DATA STRUCTURES
         o exclusive flag: Same as REQ_LOAD.
         o opaque value (from REQ_LOAD)
     * WB_INVAL: Write request
-        o inval flag: Line remains in shared state if false, line no longer
-          present if true.
-        o isWriteback flag: Does the payload include dirty state?
+        o exclusive flag: CPU owns the line (may be dirty and exclusive).
+        o dirty flag: Does the payload include dirty state?
         o toDir flag: Is the message a response to a request from a lower
           level cache?
-    * FORCE_WB: Force writeback, if necessary. The response to FORCE_WB is
+    * FORCE_INVAL: Force writeback, if necessary. The response to FORCE_INVAL is
       a WB_INVAL with toDir set.
-        o inval flag: Drop the line from the cache if true.
         o fromDir: Request from directory controller
 
 
@@ -35,7 +33,7 @@ CHANNELS
   travels from the LLC toward the L1.  
 
     0: REQ_LOAD
-    1: RSP_LOAD, FORCE_WB [ may block when channel 2 full ]
+    1: RSP_LOAD, FORCE_INVAL [ may block when channel 2 full ]
     2: WB_INVAL [ never blocks ]
 
 
@@ -58,25 +56,25 @@ Transitions:
           * If the request can NOT be merged then immediate response RETRY.
         o Not present:  Pick a victim.
           * No victim available:  Immediate response RETRY.
-          o I -> FILL: REQ_LOAD/0 to L2 with not exclusive,
-                       Immediate response MISS.
-          o S -> FILL: REQ_LOAD/0 to L2 with not exclusive,
-                       Immediate response MISS.
-                    (No WB_INVAL msg needed.  The cache hierarchy does not
-                    track the state of the I-cache.  It is assumed to be
-                    basically in sync with the L1 D-cache for timing purposes.)
+          o I -> FILL:
+              REQ_LOAD/0 to L2 with not exclusive.
+              Immediate response MISS.
+          o S -> FILL:
+              WB_INVAL/2 toDir false, dirty false, exclusive false.
+              REQ_LOAD/0 to L2 with not exclusive.
+              Immediate response MISS.
     * RSP_LOAD:
         * {S, I, Not present}: ERROR
         o FILL -> S:  Notify CPU fill complete
-    * FORCE_WB:
+    * FORCE_INVAL:
         The I-cache currently sends no WB_INVAL response.  Doing so would force
         the L2 to wait for a response from both the I and D caches, which would
         complicate the algorithm.  Our run-time model never overwrites
-        instructions, so timing of FORCE_WB/WB_INVAL isn't really critical.
+        instructions, so timing of FORCE_INVAL/WB_INVAL isn't really critical.
 
         o S -> I
         o FILL: No change (Fill must not have been received yet by the LLC.
-                           If it had, the RSP_LOAD would arrive before FORCE_WB.)
+                           If it had, the RSP_LOAD would arrive before FORCE_INVAL.)
         o Not present: No change
 
 
@@ -101,115 +99,95 @@ Transitions:
           * If the request can NOT be merged then immediate response RETRY.
         o Not present: Pick a victim.
           * No victim available:  Immediate response RETRY.
-          o M -> FILL_S:
-              WB_INVAL/2 toDir false, inval true, isWriteback true,
-              REQ_LOAD/0 to L2 with not exclusive,
-              Immediate response MISS to CPU
-          o {E, S} -> FILL_S:
-              REQ_LOAD/0 to L2 with not exclusive,
+          o {M, E, S} -> FILL_S:
+              WB_INVAL/2 toDir false, dirty if from M, exclusive if not from S.
+              REQ_LOAD/0 to L2 with not exclusive.
               Immediate response MISS to CPU
           o I -> FILL_S:
-              REQ_LOAD/0 to L2 with not exclusive,
-              Immediate response MISS
+              REQ_LOAD/0 to L2 with not exclusive.
+              Immediate response MISS to CPU
+          * Transition state: No action.
     * Processor WRITE:
         o M: Immediate response HIT
         o E -> M: Immediate response HIT
-        o S -> S_E: REQ_LOAD/0 with exclusive to L2,
+        o S -> S_E: REQ_LOAD/0 with exclusive to L2.
                     Immediate response RETRY
-        o FILL_S -> FILL_E: REQ_LOAD/0 with exclusive to L2,
+        o FILL_S -> FILL_E: REQ_LOAD/0 with exclusive to L2.
                             Immediate response RETRY
         * {FILL_E, S_E}: Immediate response RETRY
         o Not present (pick a victim):  All immediate response RETRY to CPU.
-          * No victim available:  No action.
-          o M -> FILL_E:
-              WB_INVAL/2 toDir false, inval true, isWriteback true,
-              REQ_LOAD/0 to L2 with exclusive,
-          o {E, S, I} -> FILL_E:
-              REQ_LOAD/0 to L2 with exclusive,
-          * Transition state: No action.
+          * No victim available:  Immediate response RETRY.
+          o {M, E, S} -> FILL_E:
+              WB_INVAL/2 toDir false, dirty if from M, exclusive if not from S.
+              REQ_LOAD/0 to L2 with exclusive.
+          o I -> FILL_E:
+              REQ_LOAD/0 to L2 with exclusive.
     * RSP_LOAD:
         o {M, E, S, I}: ERROR
         o FILL_S -> S: Notify CPU fill complete if load
         o FILL_E -> {exclusive ? E : S_E}: Notify CPU fill complete if load
         o S_E -> E: Error if RSP_LOAD ! exclusive,
                     Notify CPU fill complete if load
-    * FORCE_WB:
-        o {M, E, S} -> (! inval ? S : I):
-            WB_INVAL/2 toDir copied from fromDir,
-                       inval copied from FORCE_WB,
-                       isWriteback if from M
-        o {Not present, FILL_S, FILL_E}: No change
-            WB_INVAL/2 toDir copied from fromDir, inval from FORCE_WB, isWriteback false
+    * FORCE_INVAL:
+        o {M, E, S} -> I:
+            WB_INVAL/2 toDir copied from fromDir, dirty if from M,
+                                                  exclusive if not from S.
+        o {I, FILL_S, FILL_E}: No change
+            WB_INVAL/2 toDir copied from fromDir, dirty false, exclusive false.
             (Line currently behaves as though it is invalid.  Fill request hasn't
              been received by the directory but will still complete, later.)
-        o S_E -> (! inval ? S_E : FILL_E)
-            WB_INVAL/2 toDir copied from fromDir, inval from FORCE_WB, isWriteback false
+        o S_E -> FILL_E
+            WB_INVAL/2 toDir copied from fromDir, dirty false, exclusive false.
             (Switching to FILL_E blocks future reads until the switch
              to exclusive.)
 
 
 L2:
 
+  Note that the L2 is non-inclusive and populated as a victim cache.
+  A line may be present in the L1 without being present in the L2.
+  All FORCE_INVAL messages from the LLC must first be forwarded to the L1.
+  The L1 I-cache never responds to a FORCE_INVAL.  We use the response from
+  the L1 D-cache as a proxy for both halves.
+
 States (stable):
     * M: Present only here or L1 and dirty.
     * E: Present only here or L1 and clean.
     * S: Present in this and, possibly, others.
     * I: Invalid.
-States (transition):
-    * FILL_S: Fill request outstanding (for shared).
-    * FILL_E: Fill request outstanding (for exclusive).
-    * S_E: S to E transition
-    * M_I: M to I transition
-    * ES_I: {E, S} to I transition
 
 Transitions:
     * REQ_LOAD not exclusive:
-        o {M, E, S, S_E}: Immediate RSP_LOAD
-        o {FILL_S, FILL_E}: ERROR (L1 requested 2nd FILL before receiving RSP_LOAD)
-        o Not present (pick a victim and keep REQ_LOAD request):
-          o M -> M_I: FORCE_WB/1 to L1 inval true, fromDir false
-          o {E, S} -> ES_I: FORCE_WB/1 to L1 inval true, fromDir false
-          o I -> FILL_S: REQ_LOAD/0 to LLC with not exclusive
-          o Transition state: Block
+        * {M, E, S}: Hit (RSP_LOAD/1)
+        * I:
+            Forward REQ_LOAD/0 to LLC.
     * REQ_LOAD exclusive:
-        o {M, E}: Immediate RSP_LOAD
-        o S -> S_E: REQ_LOAD/0 with exclusive to LLC
-        o {FILL_S, FILL_E, S_E}: ERROR (L1 requested 2nd FILL before receiving RSP_LOAD)
-        o Not present (pick a victim and keep REQ_LOAD request):
-          o I -> FILL_E: REQ_LOAD/0 to LLC with exclusive
-          o All others same as REQ_LOAD not exclusive, not present
-    * WB_INVAL not fromDir:
-        o M: Done
-        o E -> {isWriteback ? M : E}: Done
-        o S: Done.  ERROR if isWriteback.
-        o I: Done
-        o M_I -> I: WB_INVAL/2 to LLC toDir false, inval true, isWriteback true
-        o ES_I -> I: WB_INVAL/2 to LLC toDir false, inval true, isWriteback copied
-        o All others: ERROR
-    * WB_INVAL fromDir:
-        o M -> I: WB_INVAL/2 to LLC toDir true, inval true, isWriteback true
-        o E -> I: WB_INVAL/2 to LLC toDir true, inval true, isWriteback copied
-        o S -> I: WB_INVAL/2 to LLC toDir true, inval true, isWriteback copied,
-                  ERROR if isWriteback
-        o I: WB_INVAL/2 to LLC toDir true, inval true, isWriteback false
-            (Directory was stale.)
-        o M_I -> I: WB_INVAL/2 to LLC toDir true, inval true, isWriteback true
-        o ES_I -> I: WB_INVAL/2 to LLC toDir true, inval true, isWriteback copied
-        o {FILL_S, FILL_E}: WB_INVAL/2 to LLC toDir true,
-                                              inval true, isWriteback copied
-            (Same as L1 FORCE_WB.  Line currently behaves as though it is invalid.)
-        o S_E -> FILL_E: WB_INVAL/2 toDir true, inval true, isWriteback false
-            (Same as L1 FORCE_WB transition.)
+        * {M, E}: Hit (RSP_LOAD/1)
+        * I:
+            Forward REQ_LOAD/0 to LLC.
+    * WB_INVAL not toDir:
+        * M: Done
+        o E -> {dirty ? M : E}: Done
+        * S: Done.  ERROR if dirty or if exclusive.
+        o Not present:  Pick a victim
+          * Eviction based on current state:
+            * M
+                WB_INVAL/2 toDir false, dirty true, exclusive true.
+            * {E, S, I}: No action.
+          o -> {M if dirty, E if only exclusive, otherwise S}
+    * WB_INVAL toDir:
+        o {M, E, S, I} -> I
+            WB_INVAL/2 to LLC toDir true,
+                              dirty copied and set if state was M,
+                              exclusive copied and set if {M, E}.
+            ERROR if in S and incoming request has exclusive.
     * RSP_LOAD:
-        o {M, E, S, I}: ERROR
-        o FILL_S -> S: RSP_LOAD forwarded to L1.
-        o {FILL_E, S_E} -> E: RSP_LOAD forwarded to L1,
-                              ERROR if RSP_LOAD ! exclusive.
-        o All others: ERROR
-    * FORCE_WB:
-        o {M, E, S, FILL_E}:  Forward to L1
-        o {I, FILL_S}: WB_INVAL/2 toDir true, inval true, isWriteback false
-        o {M_I, ES_I}: Block
+        o S -> {S, E}: Exclusive set if response has exclusive bit set.
+            RSP_LOAD/1 forward to L1.
+        * All others: Do not add to cache.  (L2 is a victim cache.)
+            RSP_LOAD/1 forward to L1.
+    * FORCE_INVAL:
+        * Forward FORCE_INVAL/1 to L1
 
 
 LLC:
@@ -232,7 +210,7 @@ Transitions:
         o LM -> LM_L: Send WB request to directory and keep REQ_LOAD
         o {FILL_S, FILL_E, LM_L}: Block
         o Not present (pick a victim and keep REQ_LOAD request):
-          o L and dirty: WB_INVAL/0 toDir false, inval true, isWriteback true,
+          o L and dirty: WB_INVAL/0 toDir false, inval true, dirty true,
                          clear dirty
           o L and ! dirty -> FILL_S: REQ_LOAD/0 to mem with not exclusive
           o {LS, LM} -> LM_L: Send WB+INVAL request to directory
@@ -243,7 +221,7 @@ Transitions:
         o {LS, LM} -> LM_L: Send WB+INVAL request to directory
         o {FILL_S, FILL_E, LM_L}: Block
         o Not present (pick a victim and keep REQ_LOAD request):
-          o L and dirty: WB_INVAL/0 toDir false, inval true, isWriteback true,
+          o L and dirty: WB_INVAL/0 toDir false, inval true, dirty true,
                          clear dirty
           o L and ! dirty -> FILL_E: REQ_LOAD/0 to mem with not exclusive
           o {LS, LM} -> LM_L: Send WB+INVAL request to directory
@@ -251,19 +229,19 @@ Transitions:
           o Transition state: Block
     * Directory response WB or WB+INVAL
         o Not LM_L: ERROR
-        o LM_L and dirty:  WB_INVAL/0 toDir false, inval false, isWriteback true,
+        o LM_L and dirty:  WB_INVAL/0 toDir false, inval false, dirty true,
                            clear dirty
         o LM_L and ! dirty -> L
     * WB_INVAL: Forward to directory
         o {L, I, FILL_S, FILL_E}: ERROR
-        o LS: ERROR if isWriteback
-        o LM -> (! inval ? LS : L): Set dirty if isWriteback
-        o LM_L: Set dirty if isWriteback
+        o LS: ERROR if dirty
+        o LM -> (! inval ? LS : L): Set dirty if dirty
+        o LM_L: Set dirty if dirty
     * RSP_LOAD:
         o {L, LS, LM, I, LM_L}: ERROR
         o FILL_S -> LS: RSP_LOAD forwarded to L2.
         o FILL_E -> LM: RSP_LOAD with exclusive forwarded to L2.
-    * FORCE_WB: ERROR
+    * FORCE_INVAL: ERROR
 
 
 Directory:
@@ -272,8 +250,8 @@ State:
   * Bit vector, one per L2.  On when data present in L2.
   * Active req flag
 
-    * New FORCE_WB from LLC
+    * New FORCE_INVAL from LLC
       * All bits clear:  Send response to LLC
-      * Not all clear: Set active req, Send FORCE_WB/1 to each L2
+      * Not all clear: Set active req, Send FORCE_INVAL/1 to each L2
     * WB_INVAL: Update bit vector
       * Active req: If all clear send response to LLC
