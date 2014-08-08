@@ -4,7 +4,8 @@ def EVENTS.LLC.MISS             "LLC: Miss";
 //
 // On-chip network lanes are enumerated by dictionary entries.
 //
-def OCN_LANES.LLC_REQ             "OCN Lane: LLC Request";
+def OCN_LANES.LLC_REQ_0           "OCN Lane: LLC Request Lane 0";
+def OCN_LANES.LLC_REQ_1           "OCN Lane: LLC Request Lane 1";
 
 //
 // Responses share an OCN lane with other responses.  These are all transmitted

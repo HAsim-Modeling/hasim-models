@@ -267,15 +267,17 @@ module [HASIM_MODULE] mkL2Cache#(String portFromL1Name,
 
     // ****** Assertions ******
 
-    Vector#(1, ASSERTION_STR_CLIENT) assertNode <- mkAssertionStrClientVec();
+    Vector#(2, ASSERTION_STR_CLIENT) assertNode <- mkAssertionStrClientVec();
 
     let assertStateOk <-
-        mkAssertionStrChecker("l2-cache-controller-unpipelined.bsv: Invalid cache state",
+        mkAssertionStrCheckerWithMsg("l2-cache-controller-unpipelined.bsv: Invalid cache state",
                               ASSERT_ERROR,
                               assertNode[0]);
 
-    let assertNotBlocked <- mkAssertionSimOnly("l2-cache-controller-unpipelined.bsv: Unexpected blocked line",
-                                               ASSERT_ERROR);
+    let assertNotBlocked <-
+        mkAssertionStrCheckerWithMsg("l2-cache-controller-unpipelined.bsv: Unexpected blocked line",
+                                     ASSERT_ERROR,
+                                     assertNode[1]);
 
     // ****** Functions ******
 
@@ -536,8 +538,9 @@ module [HASIM_MODULE] mkL2Cache#(String portFromL1Name,
                     // Nothing to do.
                     if (wb_meta.dirty || wb_meta.exclusive)
                     begin
-                        assertStateOk(False);
-                        debugLog.record(cpu_iid, $format("3: WB INVAL ERROR: In S but exclusive, ") + fshow(oper));
+                        Fmt msg = $format("3: WB INVAL ERROR: In S but exclusive, ") + fshow(oper);
+                        debugLog.record(cpu_iid, msg);
+                        assertStateOk(False, msg + $format(", cpu %0d", cpu_iid));
                     end
                 end
             endcase
@@ -551,7 +554,9 @@ module [HASIM_MODULE] mkL2Cache#(String portFromL1Name,
         begin
             // This should never happen, since this cache has no transition
             // states.
-            assertNotBlocked(False);
+            Fmt msg = $format("3: WB INVAL ERROR: Blocked but should be present, ") + fshow(oper);
+            debugLog.record(cpu_iid, msg);
+            assertNotBlocked(False, msg + $format(", cpu %0d", cpu_iid));
         end
         else
         begin
@@ -624,8 +629,9 @@ module [HASIM_MODULE] mkL2Cache#(String portFromL1Name,
             if (state.opaque == L2C_STATE_S &&
                 (new_wb_meta.dirty || new_wb_meta.exclusive))
             begin
-                assertStateOk(False);
-                debugLog.record(cpu_iid, $format("3: WB INVAL ERROR: In S but exclusive, ") + fshow(oper));
+                Fmt msg = $format("3: WB INVAL ERROR: In S but exclusive, ") + fshow(oper);
+                debugLog.record(cpu_iid, msg);
+                assertStateOk(False, msg + $format(", cpu %0d", cpu_iid));
             end
         end
 

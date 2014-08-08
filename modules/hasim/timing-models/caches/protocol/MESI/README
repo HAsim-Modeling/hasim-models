@@ -192,56 +192,50 @@ Transitions:
 
 LLC:
 
-Flags:
-    * Dirty: LLC way contains update not yet written to memory
+  There is no E state because the LLC will fill only due to a request from
+  the L2.  L1/L2 flushes aren't tracked, which would be needed to note LLC
+  transition back to E.  For similar reasons, there are no MI or SI states.
+
 States (stable):
-    * L: Present only here.
-    * LS: Present in this and, possibly, others in S state.
-    * LM: Present in this and, possibly, modified in a private cache.
+  The first letter in the state is the local state.  The second is the state
+  in L1/L2.
+    * SS: Present here and possibly in L1 or L2.
+    * MS: Modified here and possibly in shared state in L1 or L2.
+    * SM: Present here and possibly modified in some L1 or L2.
+    * MM: Modified here and possibly modified with newer value in some L1 or L2.
     * I: Invalid.
 States (transition):
+    * S_INVAL: Invalidating shared copies of line in all L1 and L2 caches.
+    * M_INVAL: Invalidating line in L1 and L2.  Writeback required at completion.
     * FILL_S: Fill request outstanding (for shared).
     * FILL_E: Fill request outstanding (for exclusive).
-    * LM_L: LM to L transition
 
 Transitions:
     * REQ_LOAD not exclusive:
-        o {L, LS} -> LS: Immediate RSP_LOAD
-        o LM -> LM_L: Send WB request to directory and keep REQ_LOAD
-        o {FILL_S, FILL_E, LM_L}: Block
-        o Not present (pick a victim and keep REQ_LOAD request):
-          o L and dirty: WB_INVAL/0 toDir false, inval true, dirty true,
-                         clear dirty
-          o L and ! dirty -> FILL_S: REQ_LOAD/0 to mem with not exclusive
-          o {LS, LM} -> LM_L: Send WB+INVAL request to directory
-          o I -> FILL_S: REQ_LOAD/0 to mem with not exclusive
-          o Transition state: Block
+        * {SS, MS}: No change (RSP_LOAD/1)
+        * {SM, MM}: No change (RSP_LOAD/1) *** FIXME ***
+        o Not present: Pick a victim.
+          * No victim available:  No action (retry)
+          * {MS, SM, MM}: Writeback to memory. *** FIXME ***
+          o {SS, MS, SM, MM, I} -> FILL_S (Load to memory) *** FIXME ***
     * REQ_LOAD exclusive:
-        o L -> LM: Immediate RSP_LOAD
-        o {LS, LM} -> LM_L: Send WB+INVAL request to directory
-        o {FILL_S, FILL_E, LM_L}: Block
-        o Not present (pick a victim and keep REQ_LOAD request):
-          o L and dirty: WB_INVAL/0 toDir false, inval true, dirty true,
-                         clear dirty
-          o L and ! dirty -> FILL_E: REQ_LOAD/0 to mem with not exclusive
-          o {LS, LM} -> LM_L: Send WB+INVAL request to directory
-          o I -> FILL_E: REQ_LOAD/0 to mem with not exclusive
-          o Transition state: Block
-    * Directory response WB or WB+INVAL
-        o Not LM_L: ERROR
-        o LM_L and dirty:  WB_INVAL/0 toDir false, inval false, dirty true,
-                           clear dirty
-        o LM_L and ! dirty -> L
+        o SS -> SM: Hit (RSP_LOAD/1)
+        o MS -> MM: Hit (RSP_LOAD/1)
+        * SM -> MM: Hit (RSP_LOAD/1) *** FIXME ***
+        o {MM}: Hit (RSP_LOAD/1) *** FIXME ***
+        o Not present: Pick a victim.
+          * No victim available:  No action (retry)
+          * {MS, SM, MM}: Writeback to memory. *** FIXME ***
+          o {SS, MS, SM, MM, I} -> FILL_E (Load to memory) *** FIXME ***
     * WB_INVAL: Forward to directory
-        o {L, I, FILL_S, FILL_E}: ERROR
-        o LS: ERROR if dirty
-        o LM -> (! inval ? LS : L): Set dirty if dirty
-        o LM_L: Set dirty if dirty
-    * RSP_LOAD:
-        o {L, LS, LM, I, LM_L}: ERROR
-        o FILL_S -> LS: RSP_LOAD forwarded to L2.
-        o FILL_E -> LM: RSP_LOAD with exclusive forwarded to L2.
-    * FORCE_INVAL: ERROR
+        o {I, FILL_S, FILL_E}: ERROR
+        o {SS, MS}: ERROR if dirty
+        o SM -> MM: Done
+        o S_INVAL -> M_INVAL: Done
+    * Memory load response:
+        o {SS, MS, SM, MM, I, S_INVAL, M_INVAL}: ERROR
+        o FILL_S -> SS: RSP_LOAD/1 forwarded to L2.
+        o FILL_E -> SM: RSP_LOAD/1 with exclusive forwarded to L2.
 
 
 Directory:

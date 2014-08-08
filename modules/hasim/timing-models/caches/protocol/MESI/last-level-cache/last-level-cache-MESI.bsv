@@ -34,18 +34,22 @@ import FShow::*;
 import DefaultValue::*;
 
 
-// ******* Project Imports *******
+// ******* Application Imports *******
+
+`include "awb/provides/soft_connections.bsh"
+`include "awb/provides/common_services.bsh"
+`include "awb/provides/fpga_components.bsh"
+
+
+// ******* HAsim Imports *******
 
 `include "awb/provides/hasim_common.bsh"
-`include "awb/provides/soft_connections.bsh"
-`include "awb/provides/fpga_components.bsh"
-`include "awb/provides/librl_bsv_base.bsh"
+`include "awb/provides/hasim_model_services.bsh"
+`include "awb/provides/hasim_modellib.bsh"
 
 
 // ******* Timing Model Imports *******
 
-`include "awb/provides/hasim_modellib.bsh"
-`include "awb/provides/hasim_model_services.bsh"
 `include "awb/provides/memory_base_types.bsh"
 `include "awb/provides/chip_base_types.bsh"
 `include "awb/provides/hasim_chip_topology.bsh"
@@ -66,59 +70,63 @@ import DefaultValue::*;
 // ****** Local Definitions *******
 
 //
-// For the distributed LLC with no coherence protocol, requests are just
-// memory requests.
+// A routed LLC message is pair of a cache protocol message and a remote node.
+// Depending on the type of the cache protocol message the node is either the
+// source of a request or destination of a response.
 //
-typedef MEMORY_REQ LLC_REQ;
-typedef MEMORY_RSP LLC_RSP;
-
-
-//
-// An LLC memory request is a memory request coming either from the local core
-// (src is Invalid) or from a remote network station.  Routed requests contain
-// the base request plus routing information.
+// The node ID is wrapped in a Maybe type in order to provide a simple encoding
+// of messages that are associated with the local core.
 //
 typedef struct
 {
-    Maybe#(STATION_ID) src;
-    LLC_REQ lreq;
+    Maybe#(STATION_ID) nodeID;
+    CACHE_PROTOCOL_MSG msg;
 }
-ROUTED_LLC_REQ
+ROUTED_LLC_MSG
     deriving (Eq, Bits);
 
-typedef struct
-{
-    Maybe#(STATION_ID) dst;
-    LLC_RSP lrsp;
-}
-ROUTED_LLC_RSP
-    deriving (Eq, Bits);
-
-function ROUTED_LLC_RSP initLLCMemRspFromReq(ROUTED_LLC_REQ req);
-    return ROUTED_LLC_RSP { dst: req.src, lrsp: initMemRspFromReq(req.lreq) };
-endfunction
-
-instance FShow#(ROUTED_LLC_REQ);
-    function Fmt fshow(ROUTED_LLC_REQ req);
-        let src_msg =
-            case (req.src) matches
-                tagged Valid .src: return $format(", src=%0d", src);
+instance FShow#(ROUTED_LLC_MSG);
+    function Fmt fshow(ROUTED_LLC_MSG rmsg);
+        let node_id =
+            case (rmsg.nodeID) matches
+                tagged Valid .nodeID: return $format(", node=%0d", nodeID);
                 tagged Invalid: return $format(", local");
             endcase;
-        return fshow(req.lreq) + src_msg;
+        return fshow(rmsg.msg) + node_id;
     endfunction
 endinstance
 
-instance FShow#(ROUTED_LLC_RSP);
-    function Fmt fshow(ROUTED_LLC_RSP req);
-        let dst_msg =
-            case (req.dst) matches
-                tagged Valid .dst: return $format(", dst=%0d", dst);
-                tagged Invalid: return $format(", local");
-            endcase;
-        return fshow(req.lrsp) + dst_msg;
+
+//
+// OCN messages are passed in an opaque type and passed partially through
+// through the OCN and partially passed as a pointer to a message in a side
+// buffer.  The OCN_SEND_TYPE typeclass manages the conversion.
+//
+instance OCN_SEND_TYPE#(CACHE_PROTOCOL_MSG);
+    function OCN_MSG_HEAD_AND_PAYLOAD cvtToOCNFlits(STATION_ID tgt,
+                                                    CACHE_PROTOCOL_MSG msg);
+        OCN_MSG_HEAD_AND_PAYLOAD info;
+
+        info.headFlit = OCN_FLIT_HEAD { src: ?,
+                                        dst: tgt,
+                                        isStore: False };
+
+        info.payload = zeroExtend(pack(msg));
+
+        return info;
+    endfunction
+
+    function Tuple2#(STATION_ID, CACHE_PROTOCOL_MSG) cvtFromOCNFlits(
+        OCN_MSG_HEAD_AND_PAYLOAD ocnMsg
+        );
+
+        let head = ocnMsg.headFlit;
+        CACHE_PROTOCOL_MSG msg = unpack(truncate(ocnMsg.payload));
+
+        return tuple2(head.src, msg);
     endfunction
 endinstance
+
 
 
 //
@@ -132,7 +140,11 @@ endinstance
 //   Very little work is done here.  It is just a stage for passing
 //   messages to the right places.
 //
-module [HASIM_MODULE] mkLastLevelCache();
+module [HASIM_MODULE] mkLastLevelCache
+    // Interface:
+    ()
+    provisos (NumAlias#(n_CHAN_FROM_CORE, 2),
+              NumAlias#(n_CHAN_TO_CORE, 1));
 
     TIMEP_DEBUG_FILE_MULTIPLEXED#(MAX_NUM_CPUS) debugLog <- mkTIMEPDebugFile_Multiplexed("cache_llc.out");
 
@@ -143,10 +155,14 @@ module [HASIM_MODULE] mkLastLevelCache();
     // Requests from the local core arrive here.  This router will forward
     // the request to the correct distributed LLC segment.
     //
-    Vector#(2, PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                            CACHE_PROTOCOL_MSG)) reqFromCore = newVector();
-    reqFromCore[0] <- mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ" + "_0");
-    reqFromCore[1] <- mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ" + "_1");
+    Vector#(n_CHAN_FROM_CORE,
+            PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         CACHE_PROTOCOL_MSG)) reqFromCore = newVector();
+    for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
+    begin
+        reqFromCore[i] <- mkPortStallRecv_Multiplexed("CorePvtCache_to_UncoreQ_" + integerToString(i));
+    end
+
     PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, CACHE_PROTOCOL_MSG) rspToCore <-
         mkPortStallSend_Multiplexed("Uncore_to_CorePvtCacheQ");
     
@@ -154,9 +170,15 @@ module [HASIM_MODULE] mkLastLevelCache();
     // Queues to/from local LLC segment.  These may either come from the local
     // core or a remote core.
     //
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_REQ) reqToLocalLLC <-
-        mkPortStallSend_Multiplexed("LLCHub_to_LLC_req");
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_RSP) rspFromLocalLLC <-
+    Vector#(n_CHAN_FROM_CORE,
+            PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         ROUTED_LLC_MSG)) reqToLocalLLC = newVector();
+    for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
+    begin
+        reqToLocalLLC[i] <- mkPortStallSend_Multiplexed("LLCHub_to_LLC_req_" + integerToString(i));
+    end
+
+    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_MSG) rspFromLocalLLC <-
         mkPortStallRecv_Multiplexed("LLC_to_LLCHub_rsp");
 
     //
@@ -165,9 +187,16 @@ module [HASIM_MODULE] mkLastLevelCache();
     // OCN uses model-independent port/lane name bindings.
     //
 
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 OCN_MSG_HEAD_AND_PAYLOAD) reqToRemoteLLC <-
-        mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_LLC_REQ));
+    Vector#(n_CHAN_FROM_CORE,
+            PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         OCN_MSG_HEAD_AND_PAYLOAD)) reqToRemoteLLC = newVector();
+    if (valueOf(n_CHAN_FROM_CORE) != 2)
+    begin
+        // OCN lane numbering isn't a vector.  Need a better solution here.
+        error("Expected n_CHAN_FROM_CORE to be 2!");
+    end
+    reqToRemoteLLC[0] <- mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_LLC_REQ_0));
+    reqToRemoteLLC[1] <- mkPortStallSend_Multiplexed(laneNameToOCN("Core", `OCN_LANES_LLC_REQ_1));
 
     // LLC responses use the memory response lane since the lane is not
     // otherwise used by core nodes.
@@ -183,9 +212,11 @@ module [HASIM_MODULE] mkLastLevelCache();
     // Ports from the OCN to the LLC.
     //
 
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
-                                 OCN_MSG_HEAD_AND_PAYLOAD) reqInFromOCN <-
-        mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_LLC_REQ));
+    Vector#(n_CHAN_FROM_CORE,
+            PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                         OCN_MSG_HEAD_AND_PAYLOAD)) reqInFromOCN = newVector();
+    reqInFromOCN[0] <- mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_LLC_REQ_0));
+    reqInFromOCN[1] <- mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_LLC_REQ_1));
 
     PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
                                  OCN_MSG_HEAD_AND_PAYLOAD) rspInFromLLC <-
@@ -198,31 +229,37 @@ module [HASIM_MODULE] mkLastLevelCache();
         mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_MEM_REQ));
 
 
-    Vector#(11, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    inctrls[0] = reqFromCore[0].ctrl.in;
-    inctrls[1] = reqFromCore[1].ctrl.in;
-    inctrls[2] = rspToCore.ctrl.in;
-    inctrls[3] = reqToLocalLLC.ctrl.in;
-    inctrls[4] = rspFromLocalLLC.ctrl.in;
-    inctrls[5] = reqInFromOCN.ctrl.in;
-    inctrls[6] = rspInFromLLC.ctrl.in;
-    inctrls[7] = reqToRemoteLLC.ctrl.in;
-    inctrls[8] = rspToRemoteLLC.ctrl.in;
-    inctrls[9] = dummyMemRspToOCN.ctrl.in;
-    inctrls[10] = dummyReqInToMem.ctrl.in;
+    Vector#(TAdd#(6, TMul#(4, n_CHAN_FROM_CORE)),
+            INSTANCE_CONTROL_IN#(MAX_NUM_CPUS)) inctrls = newVector();
+    inctrls[0] = rspToCore.ctrl.in;
+    inctrls[1] = rspFromLocalLLC.ctrl.in;
+    inctrls[2] = rspInFromLLC.ctrl.in;
+    inctrls[3] = rspToRemoteLLC.ctrl.in;
+    inctrls[4] = dummyMemRspToOCN.ctrl.in;
+    inctrls[5] = dummyReqInToMem.ctrl.in;
+    for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
+    begin
+        inctrls[6 + i * 4] = reqFromCore[i].ctrl.in;
+        inctrls[7 + i * 4] = reqToLocalLLC[i].ctrl.in;
+        inctrls[8 + i * 4] = reqInFromOCN[i].ctrl.in;
+        inctrls[9 + i * 4] = reqToRemoteLLC[i].ctrl.in;
+    end
 
-    Vector#(11, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
-    outctrls[0] = reqFromCore[0].ctrl.out;
-    outctrls[1] = reqFromCore[1].ctrl.out;
-    outctrls[2] = rspToCore.ctrl.out;
-    outctrls[3] = reqToLocalLLC.ctrl.out;
-    outctrls[4] = rspFromLocalLLC.ctrl.out;
-    outctrls[5] = reqInFromOCN.ctrl.out;
-    outctrls[6] = rspInFromLLC.ctrl.out;
-    outctrls[7] = reqToRemoteLLC.ctrl.out;
-    outctrls[8] = rspToRemoteLLC.ctrl.out;
-    outctrls[9] = dummyMemRspToOCN.ctrl.out;
-    outctrls[10] = dummyReqInToMem.ctrl.out;
+    Vector#(TAdd#(6, TMul#(4, n_CHAN_FROM_CORE)),
+            INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    outctrls[0] = rspToCore.ctrl.out;
+    outctrls[1] = rspFromLocalLLC.ctrl.out;
+    outctrls[2] = rspInFromLLC.ctrl.out;
+    outctrls[3] = rspToRemoteLLC.ctrl.out;
+    outctrls[4] = dummyMemRspToOCN.ctrl.out;
+    outctrls[5] = dummyReqInToMem.ctrl.out;
+    for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
+    begin
+        outctrls[6 + i * 4] = reqFromCore[i].ctrl.out;
+        outctrls[7 + i * 4] = reqToLocalLLC[i].ctrl.out;
+        outctrls[8 + i * 4] = reqInFromOCN[i].ctrl.out;
+        outctrls[9 + i * 4] = reqToRemoteLLC[i].ctrl.out;
+    end
 
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC Hub", inctrls, outctrls);
@@ -276,11 +313,17 @@ module [HASIM_MODULE] mkLastLevelCache();
         // Collect incoming messages.  The "receive" operation here is not a
         // commitment to process a message.  For that, doDeq() must be called.
         //
-        let m_reqFromCore <- reqFromCore[0].receive(cpu_iid);
-        let dummy <- reqFromCore[1].receive(cpu_iid);
         let m_rspFromLocalLLC <- rspFromLocalLLC.receive(cpu_iid);
-        let m_reqInFromOCN <- reqInFromOCN.receive(cpu_iid);
         let m_rspInFromLLC <- rspInFromLLC.receive(cpu_iid);
+
+        Vector#(n_CHAN_FROM_CORE, Maybe#(CACHE_PROTOCOL_MSG)) m_reqFromCore = newVector();
+        Vector#(n_CHAN_FROM_CORE,
+                Maybe#(OCN_MSG_HEAD_AND_PAYLOAD)) m_reqInFromOCN = newVector();
+        for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
+        begin
+            m_reqFromCore[i] <- reqFromCore[i].receive(cpu_iid);
+            m_reqInFromOCN[i] <- reqInFromOCN[i].receive(cpu_iid);
+        end
 
         // Tie off the dummy memory request port.
         let dummy_send_mem_rsp <- dummyMemRspToOCN.canEnq(cpu_iid);
@@ -290,18 +333,26 @@ module [HASIM_MODULE] mkLastLevelCache();
 
         // Check credits for sending to output ports.
         let can_enq_rspToCore <- rspToCore.canEnq(cpu_iid);
-        let can_enq_reqToLocalLLC <- reqToLocalLLC.canEnq(cpu_iid);
-        let can_enq_reqToRemoteLLC <- reqToRemoteLLC.canEnq(cpu_iid);
+        Vector#(n_CHAN_FROM_CORE, Bool) can_enq_reqToLocalLLC = newVector();
+        Vector#(n_CHAN_FROM_CORE, Bool) can_enq_reqToRemoteLLC = newVector();
+        for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
+        begin
+            can_enq_reqToLocalLLC[i] <- reqToLocalLLC[i].canEnq(cpu_iid);
+            can_enq_reqToRemoteLLC[i] <- reqToRemoteLLC[i].canEnq(cpu_iid);
+        end
         let can_enq_rspToRemoteLLC <- rspToRemoteLLC.canEnq(cpu_iid);
 
         //
         // Make routing choices.  The priority of competing ports is static.
         //
 
-        Maybe#(LLC_RSP) m_new_rspToCore = tagged Invalid;
-        Maybe#(ROUTED_LLC_REQ) m_new_reqToLocalLLC = tagged Invalid;
-        Maybe#(Tuple2#(STATION_ID, LLC_REQ)) m_new_reqToRemoteLLC = tagged Invalid;
-        Maybe#(Tuple2#(STATION_ID, LLC_RSP)) m_new_rspToRemoteLLC = tagged Invalid;
+        Maybe#(CACHE_PROTOCOL_MSG) m_new_rspToCore = tagged Invalid;
+        Vector#(n_CHAN_FROM_CORE,
+                Maybe#(ROUTED_LLC_MSG)) m_new_reqToLocalLLC = replicate(tagged Invalid);
+        Vector#(n_CHAN_FROM_CORE,
+                Maybe#(Tuple2#(STATION_ID, CACHE_PROTOCOL_MSG))) m_new_reqToRemoteLLC =
+            replicate(tagged Invalid);
+        Maybe#(Tuple2#(STATION_ID, CACHE_PROTOCOL_MSG)) m_new_rspToRemoteLLC = tagged Invalid;
 
         Bool did_deq_rspFromLocalLLC = False;
 
@@ -310,12 +361,12 @@ module [HASIM_MODULE] mkLastLevelCache();
         //
         if (m_rspFromLocalLLC matches tagged Valid .rsp &&& can_enq_rspToCore)
         begin
-            if (rsp.dst matches tagged Valid .dst)
+            if (rsp.nodeID matches tagged Valid .dst)
             begin
                 // Response is to a remote core.  Is the OCN port available?
                 if (can_enq_rspToRemoteLLC && ! isValid(m_new_rspToRemoteLLC))
                 begin
-                    m_new_rspToRemoteLLC = tagged Valid tuple2(dst, rsp.lrsp);
+                    m_new_rspToRemoteLLC = tagged Valid tuple2(dst, rsp.msg);
                     did_deq_rspFromLocalLLC = True;
                     debugLog.record(cpu_iid, $format("1: LLC to remote Core, ") + fshow(rsp));
                 end
@@ -323,9 +374,9 @@ module [HASIM_MODULE] mkLastLevelCache();
             // Reponse is to the local core.
             else if (can_enq_rspToCore &&& ! isValid(m_new_rspToCore))
             begin
-                m_new_rspToCore = tagged Valid rsp.lrsp;
+                m_new_rspToCore = tagged Valid rsp.msg;
                 did_deq_rspFromLocalLLC = True;
-                debugLog.record(cpu_iid, $format("1: LLC to local Core, ") + fshow(rsp.lrsp));
+                debugLog.record(cpu_iid, $format("1: LLC to local Core, ") + fshow(rsp.msg));
             end
         end
 
@@ -345,7 +396,7 @@ module [HASIM_MODULE] mkLastLevelCache();
             can_enq_rspToCore &&&
             ! isValid(m_new_rspToCore))
         begin
-            Tuple2#(STATION_ID, LLC_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
+            Tuple2#(STATION_ID, CACHE_PROTOCOL_MSG) ocn_rsp = cvtFromOCNFlits(ocn_msg);
             match {.src, .rsp} = ocn_rsp;
 
             m_new_rspToCore = tagged Valid rsp;
@@ -361,74 +412,76 @@ module [HASIM_MODULE] mkLastLevelCache();
         //
         // New requests from remote cores to local LLC.
         //
-        if (m_reqInFromOCN matches tagged Valid .ocn_msg &&&
-            can_enq_reqToLocalLLC &&&
-            ! isValid(m_new_reqToLocalLLC))
+        for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
         begin
-            Tuple2#(STATION_ID, LLC_REQ) ocn_req = cvtFromOCNFlits(ocn_msg);
-            match {.src, .lreq} = ocn_req;
+            if (m_reqInFromOCN[i] matches tagged Valid .ocn_msg &&&
+                can_enq_reqToLocalLLC[i] &&&
+                ! isValid(m_new_reqToLocalLLC[i]))
+            begin
+                Tuple2#(STATION_ID, CACHE_PROTOCOL_MSG) ocn_req = cvtFromOCNFlits(ocn_msg);
+                match {.src, .lreq} = ocn_req;
 
-            let req = ROUTED_LLC_REQ { src: tagged Valid src, lreq: lreq };
-            m_new_reqToLocalLLC = tagged Valid req;
-            reqInFromOCN.doDeq(cpu_iid);
-            debugLog.record(cpu_iid, $format("1: Remote REQ to local LLC, ") + fshow(req));
-        end
-        else
-        begin
-            reqInFromOCN.noDeq(cpu_iid);
+                let req = ROUTED_LLC_MSG { nodeID: tagged Valid src, msg: lreq };
+                m_new_reqToLocalLLC[i] = tagged Valid req;
+                reqInFromOCN[i].doDeq(cpu_iid);
+                debugLog.record(cpu_iid, $format("1: Remote REQ[%0d] to local LLC, ", i) + fshow(req));
+            end
+            else
+            begin
+                reqInFromOCN[i].noDeq(cpu_iid);
+            end
         end
         
         //
         // New requests from the local core to the LLC.
         //
-        Bool did_deq_reqFromCore = False;
-
-        if (m_reqFromCore matches tagged Valid .preq)
+        for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
         begin
-            let req = MEMORY_REQ { linePAddr: preq.linePAddr,
-                                   opaque: preq.opaque,
-                                   isStore: cacheMsg_IsWBInval(preq) };
+            Bool did_deq_reqFromCore = False;
 
-            // Which instance of the distributed cache is responsible?
-            let dst = getLLCDstForAddr(req.linePAddr);
-
-            if (dst == station_id)
+            if (m_reqFromCore[i] matches tagged Valid .req)
             begin
-                // Local cache handles the address.
-                if (can_enq_reqToLocalLLC &&& ! isValid(m_new_reqToLocalLLC))
+                // Which instance of the distributed cache is responsible?
+                let dst = getLLCDstForAddr(req.linePAddr);
+
+                if (dst == station_id)
                 begin
-                    // Port to LLC is available.  Send the local request.
+                    // Local cache handles the address.
+                    if (can_enq_reqToLocalLLC[i] &&&
+                        ! isValid(m_new_reqToLocalLLC[i]))
+                    begin
+                        // Port to LLC is available.  Send the local request.
+                        did_deq_reqFromCore = True;
+                        m_new_reqToLocalLLC[i] = tagged Valid ROUTED_LLC_MSG { nodeID: tagged Invalid,
+                                                                               msg: req };
+                        debugLog.record(cpu_iid, $format("1: Core REQ[%0d] to local LLC, ", i) + fshow(req));
+                    end
+                end
+                else if (can_enq_reqToRemoteLLC[i] &&
+                         ! isValid(m_new_reqToRemoteLLC[i]))
+                begin
+                    // Remote cache instance handles the address and the OCN request
+                    // port is available.
+                    //
+                    // These requests share the OCN request port since only one
+                    // type of request goes to a given remote station.  Memory
+                    // stations get memory requests above.  LLC stations get
+                    // core requests here.
                     did_deq_reqFromCore = True;
-                    m_new_reqToLocalLLC = tagged Valid ROUTED_LLC_REQ { src: tagged Invalid,
-                                                                        lreq: req };
-                    debugLog.record(cpu_iid, $format("1: Core REQ to local LLC, ") + fshow(req));
+                    m_new_reqToRemoteLLC[i] = tagged Valid tuple2(dst, req);
+                    debugLog.record(cpu_iid, $format("1: Core REQ[%0d] to LLC %0d, ", i, dst) + fshow(req));
                 end
             end
-            else if (can_enq_reqToRemoteLLC && ! isValid(m_new_reqToRemoteLLC))
+
+            if (did_deq_reqFromCore)
             begin
-                // Remote cache instance handles the address and the OCN request
-                // port is available.
-                //
-                // These requests share the OCN request port since only one
-                // type of request goes to a given remote station.  Memory
-                // stations get memory requests above.  LLC stations get
-                // core requests here.
-                did_deq_reqFromCore = True;
-                m_new_reqToRemoteLLC = tagged Valid tuple2(dst, req);
-                debugLog.record(cpu_iid, $format("1: Core REQ to LLC %0d, ", dst) + fshow(req));
+                reqFromCore[i].doDeq(cpu_iid);
+            end
+            else
+            begin
+                reqFromCore[i].noDeq(cpu_iid);
             end
         end
-
-        if (did_deq_reqFromCore)
-        begin
-            reqFromCore[0].doDeq(cpu_iid);
-        end
-        else
-        begin
-            reqFromCore[0].noDeq(cpu_iid);
-        end
-
-        reqFromCore[1].noDeq(cpu_iid);
 
 
         //
@@ -437,29 +490,32 @@ module [HASIM_MODULE] mkLastLevelCache();
 
         if (m_new_rspToCore matches tagged Valid .rsp)
         begin
-            rspToCore.doEnq(cpu_iid, cacheMsgFromMemRsp(rsp));
+            rspToCore.doEnq(cpu_iid, rsp);
         end
         else
         begin
             rspToCore.noEnq(cpu_iid);
         end
 
-        if (m_new_reqToLocalLLC matches tagged Valid .req)
+        for (Integer i = 0; i < valueOf(n_CHAN_FROM_CORE); i = i + 1)
         begin
-            reqToLocalLLC.doEnq(cpu_iid, req);
-        end
-        else
-        begin
-            reqToLocalLLC.noEnq(cpu_iid);
-        end
+            if (m_new_reqToLocalLLC[i] matches tagged Valid .req)
+            begin
+                reqToLocalLLC[i].doEnq(cpu_iid, req);
+            end
+            else
+            begin
+                reqToLocalLLC[i].noEnq(cpu_iid);
+            end
 
-        if (m_new_reqToRemoteLLC matches tagged Valid {.tgt, .req})
-        begin
-            reqToRemoteLLC.doEnq(cpu_iid, cvtToOCNFlits(tgt, req));
-        end
-        else
-        begin
-            reqToRemoteLLC.noEnq(cpu_iid);
+            if (m_new_reqToRemoteLLC[i] matches tagged Valid {.tgt, .req})
+            begin
+                reqToRemoteLLC[i].doEnq(cpu_iid, cvtToOCNFlits(tgt, req));
+            end
+            else
+            begin
+                reqToRemoteLLC[i].noEnq(cpu_iid);
+            end
         end
 
         if (m_new_rspToRemoteLLC matches tagged Valid {.tgt, .rsp})
@@ -483,21 +539,128 @@ endmodule
 //
 // ========================================================================
 
-typedef union tagged
+//
+// States associated with entries.  Invalid isn't listed because it is provided
+// as part of the cache algorithm.
+//
+typedef enum
 {
-    Tuple2#(STATION_ID, LLC_RSP) FILL_RSP;
-    ROUTED_LLC_REQ               LOAD_REQ;
-    ROUTED_LLC_REQ               STORE_REQ;
-    void Invalid;
+    // Shared here and possibly in L1 or L2.
+    LLC_STATE_SS,
+    // Modified here and possibly in shared state in L1 or L2.
+    LLC_STATE_MS,
+    // Present here and possibly modified in some L1 or L2.
+    LLC_STATE_SM,
+    // Modified here and possibly modified with newer value in some L1 or L2.
+    LLC_STATE_MM,
+
+    // Invalidating shared copies of line in all L1 and L2 caches.
+    LLC_STATE_S_INVAL,
+    // Invalidating line in L1 and L2.  Writeback required at completion.
+    LLC_STATE_M_INVAL,
+    // Fill to shared in progress.  No data yet.
+    LLC_STATE_FILL_S,
+    // Fill to exclusive in progress.  No data yet.
+    LLC_STATE_FILL_E
 }
-LLC_OPER
+LLC_ENTRY_STATE
     deriving (Eq, Bits);
 
-// newLLCOper --
-//   The compiler sometimes fails to infer the type when initialized.  This
-//   function makes types clear.
-function LLC_OPER newLLCOper(LLC_OPER oper) = oper;
+instance FShow#(LLC_ENTRY_STATE);
+    function Fmt fshow(LLC_ENTRY_STATE state);
+        let str =
+            case (state) matches
+                LLC_STATE_SS: return "SS";
+                LLC_STATE_MS: return "MS";
+                LLC_STATE_SM: return "SM";
+                LLC_STATE_MM: return "MM";
+                LLC_STATE_S_INVAL: return "S_INVAL";
+                LLC_STATE_M_INVAL: return "M_INVAL";
+                LLC_STATE_FILL_S: return "FILL_S";
+                LLC_STATE_FILL_E: return "FILL_E";
+                default: return "UNDEFINED";
+            endcase;
 
+        return $format(str);
+    endfunction
+endinstance
+
+instance FShow#(Tuple2#(LLC_ENTRY_STATE, LLC_ENTRY_STATE));
+    function Fmt fshow(Tuple2#(LLC_ENTRY_STATE, LLC_ENTRY_STATE) states);
+        match {.s_from, .s_to} = states;
+        return fshow(s_from) + $format("->") + fshow(s_to);
+    endfunction
+endinstance
+
+
+//
+// Miss tracking state.
+//
+typedef `LLC_MISS_ID_SIZE LLC_MISS_ID_SIZE;
+typedef Bit#(LLC_MISS_ID_SIZE) LLC_MISS_ID;
+
+instance FShow#(Maybe#(LLC_MISS_ID));
+    function Fmt fshow(Maybe#(LLC_MISS_ID) m_id);
+        if (m_id matches tagged Valid .id)
+            return $format("%0d", id);
+        else
+            return $format("NIL");
+    endfunction
+endinstance
+
+
+typedef struct
+{
+    Maybe#(STATION_ID) reqNode;
+    MEM_OPAQUE opaque;
+}
+LLC_MISS_TOKEN
+    deriving (Eq, Bits);
+
+
+//
+// The meta-data stored in each cache entry is the line's state and a pointer
+// to a set of miss tokens.  In real hardware the miss tracker would be
+// a CAM indexed by address, which would require much less memory than the
+// extra state we store along with each line. CAMs are expensive on FPGAs,
+// so we simulate the CAM by adding a pre-sorted list from each line's
+// meta-data.  The timing is the same.
+//
+typedef struct
+{
+    LLC_ENTRY_STATE state;
+
+    // The miss token list pointers have meaning only when the entry is in
+    // a fill state.
+    LLC_MISS_ID missTokenListHead;
+    LLC_MISS_ID missTokenListTail;
+}
+LLC_ENTRY_META
+    deriving (Eq, Bits);
+
+function LLC_ENTRY_META initLLCEntryMeta(LLC_ENTRY_STATE state);
+    return LLC_ENTRY_META { state: state,
+                            missTokenListHead: ?,
+                            missTokenListTail: ? };
+endfunction
+
+instance FShow#(LLC_ENTRY_META);
+    function Fmt fshow(LLC_ENTRY_META entryMeta);
+        Fmt msg = $format("[") + fshow(entryMeta.state);
+
+        if ((entryMeta.state == LLC_STATE_FILL_S) ||
+            (entryMeta.state == LLC_STATE_FILL_E))
+        begin
+            msg = msg + $format(", missIDs (%0d, %0d)", entryMeta.missTokenListHead, entryMeta.missTokenListTail);
+        end
+
+        return msg + $format("]");
+    endfunction
+endinstance
+
+
+typedef Maybe#(ROUTED_LLC_MSG) LLC_OPER;
+function LLC_OPER llcInval() = tagged Invalid;
 
 //
 // LLC_LOCAL_STATE
@@ -506,45 +669,41 @@ function LLC_OPER newLLCOper(LLC_OPER oper) = oper;
 //
 typedef struct
 {
-    Maybe#(LLC_MISS_TOKEN) missTokToFree;
+    // Miss token free list head.  Cached so the state is only read in
+    // one place.
+    Maybe#(LLC_MISS_ID) tokenFreeList;
 
-    Bool memQNotFull;
-    Bool memQUsed;
-    LLC_REQ memQData;
+    // Once initialized with a cache lookup, cacheMeta is the current entry's
+    // state.  cacheMeta is updated in the pipeline and will be written back
+    // to the entry if cacheUpdUsed is set.
+    LLC_ENTRY_META cacheMeta;
+
+    Bool cacheUpdUsed;
+    LLC_CACHE_IDX cacheUpdIdx;
+    LINE_ADDRESS cacheUpdPAddr;
+
+    Bool toMemQNotFull;
+    Maybe#(MEMORY_REQ) toMemQ;
     
-    Bool writePortUsed;
-    LLC_CACHE_IDX writePortIdx;
-    Bool writeDataDirty;
-    LINE_ADDRESS writePortData;
-    
-    Bool coreQNotFull;
-    Bool coreQUsed;
-    ROUTED_LLC_RSP coreQData;
+    Bool toCoreQNotFull;
+    Maybe#(ROUTED_LLC_MSG) toCoreQ;
 }
 LLC_LOCAL_STATE
     deriving (Eq, Bits);
 
 instance DefaultValue#(LLC_LOCAL_STATE);
     defaultValue = LLC_LOCAL_STATE { 
-        missTokToFree: tagged Invalid,
-        memQNotFull: False,
-        memQUsed: False,
-        memQData: ?,
-        coreQNotFull: False,
-        coreQUsed: False,
-        coreQData: ?,
-        writePortUsed: False,
-        writePortIdx: ?,
-        writeDataDirty: False,
-        writePortData: ?
+        tokenFreeList: tagged Invalid,
+        cacheMeta: initLLCEntryMeta(?),
+        cacheUpdUsed: False,
+        cacheUpdIdx: ?,
+        cacheUpdPAddr: ?,
+        toMemQNotFull: False,
+        toMemQ: tagged Invalid,
+        toCoreQNotFull: False,
+        toCoreQ: tagged Invalid
         };
 endinstance
-
-
-typedef `LLC_MISS_ID_SIZE LLC_MISS_ID_SIZE;
-typedef CACHE_MISS_INDEX#(LLC_MISS_ID_SIZE) LLC_MISS_ID;
-typedef CACHE_MISS_TOKEN#(LLC_MISS_ID_SIZE) LLC_MISS_TOKEN;
-typedef TExp#(LLC_MISS_ID_SIZE) NUM_LLC_MISS_IDS;
 
 
 //
@@ -558,25 +717,58 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
 
     // ****** Submodels ******
 
+    //
     // The cache algorithm which determines hits, misses, and evictions.
-    LLC_CACHE_ALG#(MAX_NUM_CPUS, void) llcAlg <-
-        mkLastLevelCacheAlg(constFn(True));
+    // The mayEvict function is used inside the algorithm when returning
+    // a candidate for replacement.  mayEvict indicates when an entry
+    // may not be victimized.
+    //
+    function Bool mayEvict(LLC_ENTRY_META entryMeta) =
+        (pack(entryMeta.state) <= pack(LLC_STATE_MM));
 
-    // Track the next Miss ID to give out.
-    CACHE_MISS_TRACKER#(MAX_NUM_CPUS, LLC_MISS_ID_SIZE) outstandingMisses <- mkCacheMissTracker();
+    LLC_CACHE_ALG#(MAX_NUM_CPUS, LLC_ENTRY_META) llcAlg <-
+        mkLastLevelCacheAlg(mayEvict);
 
-    // A RAM To map our miss IDs into the original opaques, that we return to higher levels.
+
+    // ****** Miss tracking state ******
+
+    // Track the next Miss ID to give out.  Each instance has its own list.
+    // The starting value is entry 0 in each instance's group.  The
+    // remainder of the list is initialized with missTrackerPool.
+    MULTIPLEXED_REG#(MAX_NUM_CPUS, Maybe#(LLC_MISS_ID)) missTokenFreeListPool <-
+        mkMultiplexedReg(tagged Valid 0);
+
+    // Miss tracker storage.  Each instance has log2(LLC_MISS_ID_SIZE) entries.
     MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS,
                             LLC_MISS_ID,
-                            Tuple2#(Maybe#(STATION_ID), LLC_MISS_TOKEN)) opaquesPool <-
+                            LLC_MISS_TOKEN) missTrackerDataPool <-
         mkMemory_Multiplexed(mkBRAM);
+
+    // Each entry in the missTrackerDataPool has a next pointer.  The pointer
+    // is stored in a separate memory to manage read/write ports.
+    function Maybe#(LLC_MISS_ID) freeListInitFunc(Bit#(n_BITS) idx);
+        LLC_MISS_ID cur_id = truncateNP(idx);
+
+        // Next id is the following entry or Invalid if cur_id is the last one.
+        return
+            (cur_id == maxBound ? tagged Invalid : tagged Valid (cur_id + 1));
+    endfunction
+
+    MEMORY_IFC_MULTIPLEXED#(MAX_NUM_CPUS,
+                            LLC_MISS_ID,
+                            Maybe#(LLC_MISS_ID)) missTrackerNextPool <-
+        mkMemory_Multiplexed(mkBRAMInitializedWith(freeListInitFunc));
+
+
 
     // ****** Ports ******
 
     // Queues to/from Cache hierarchy.
-    PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_REQ) reqFromCore <-
-        mkPortStallRecv_Multiplexed("LLCHub_to_LLC_req");
-    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_RSP) rspToCore <-
+    Vector#(2, PORT_STALL_RECV_MULTIPLEXED#(MAX_NUM_CPUS,
+                                            ROUTED_LLC_MSG)) reqFromCore = newVector();
+    reqFromCore[0] <- mkPortStallRecv_Multiplexed("LLCHub_to_LLC_req_0");
+    reqFromCore[1] <- mkPortStallRecv_Multiplexed("LLCHub_to_LLC_req_1");
+    PORT_STALL_SEND_MULTIPLEXED#(MAX_NUM_CPUS, ROUTED_LLC_MSG) rspToCore <-
         mkPortStallSend_Multiplexed("LLC_to_LLCHub_rsp");
     
     // Requests to memory from the LLC instance responsible for an address.
@@ -587,17 +779,19 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
                                  OCN_MSG_HEAD_AND_PAYLOAD) rspFromMem <-
         mkPortStallRecv_Multiplexed(laneNameFromOCN("Core", `OCN_LANES_SHARED_RSP_MEM_RSP));
     
-    Vector#(4, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
-    inctrls[0] = reqFromCore.ctrl.in;
-    inctrls[1] = rspToCore.ctrl.in;
-    inctrls[2] = reqToMem.ctrl.in;
-    inctrls[3] = rspFromMem.ctrl.in;
+    Vector#(5, INSTANCE_CONTROL_IN#(MAX_NUM_CPUS))  inctrls = newVector();
+    inctrls[0] = reqFromCore[0].ctrl.in;
+    inctrls[1] = reqFromCore[1].ctrl.in;
+    inctrls[2] = rspToCore.ctrl.in;
+    inctrls[3] = reqToMem.ctrl.in;
+    inctrls[4] = rspFromMem.ctrl.in;
 
-    Vector#(4, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
-    outctrls[0] = reqFromCore.ctrl.out;
-    outctrls[1] = rspToCore.ctrl.out;
-    outctrls[2] = reqToMem.ctrl.out;
-    outctrls[3] = rspFromMem.ctrl.out;
+    Vector#(5, INSTANCE_CONTROL_OUT#(MAX_NUM_CPUS)) outctrls = newVector();
+    outctrls[0] = reqFromCore[0].ctrl.out;
+    outctrls[1] = reqFromCore[1].ctrl.out;
+    outctrls[2] = rspToCore.ctrl.out;
+    outctrls[3] = reqToMem.ctrl.out;
+    outctrls[4] = rspFromMem.ctrl.out;
 
     LOCAL_CONTROLLER#(MAX_NUM_CPUS) localCtrl <- mkNamedLocalController("LLC", inctrls, outctrls);
 
@@ -644,22 +838,40 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
     STAT_VECTOR#(MAX_NUM_CPUS) statReadRetry <-
         mkStatCounter_Multiplexed(statName("MODEL_LLC_READ_RETRY",
                                            "LLC Read Retries"));
-    STAT_VECTOR#(MAX_NUM_CPUS) statWriteHit <-
-        mkStatCounter_Multiplexed(statName("MODEL_LLC_WRITE_HIT",
-                                           "LLC Write Hits"));
-    STAT_VECTOR#(MAX_NUM_CPUS) statWriteMiss <-
-        mkStatCounter_Multiplexed(statName("MODEL_LLC_WRITE_MISS",
-                                           "LLC Write Misses"));
-    STAT_VECTOR#(MAX_NUM_CPUS) statWriteRetry <-
-        mkStatCounter_Multiplexed(statName("MODEL_LLC_WRITE_RETRY",
-                                           "LLC Write Retries"));
-    STAT_VECTOR#(MAX_NUM_CPUS) statFillRetry <-
-        mkStatCounter_Multiplexed(statName("MODEL_LLC_FILL_RETRY",
-                                           "LLC Fill Retries"));
 
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventHit  <- mkEventRecorder_Multiplexed(`EVENTS_LLC_HIT);
     EVENT_RECORDER_MULTIPLEXED#(MAX_NUM_CPUS) eventMiss <- mkEventRecorder_Multiplexed(`EVENTS_LLC_MISS);
 
+    // ****** Assertions ******
+
+    Vector#(2, ASSERTION_STR_CLIENT) assertNode <- mkAssertionStrClientVec();
+
+    let assertExpectedMessage <-
+        mkAssertionStrCheckerWithMsg("last-level-cache-MESI.bsv: Unexpected message type!",
+                                     ASSERT_ERROR,
+                                     assertNode[0]);
+    let assertValidState <-
+        mkAssertionStrCheckerWithMsg("last-level-cache-MESI.bsv: Cache in invalid state!",
+                                     ASSERT_ERROR,
+                                     assertNode[1]);
+
+    // ****** Functions ******
+
+    //
+    // getOper --
+    //   Pick out the LLC_OPER argument from a stage controller payload.
+    //   Assumes the operation is always the first element in the payload
+    //   tuple.
+    //
+    function LLC_OPER getOper(STAGE_CONTROLLER#(MAX_NUM_CPUS, t_ARGS) ctrl)
+        provisos (Has_tpl_1#(t_ARGS, LLC_OPER));
+
+        match {.cpu_iid, .payload} = ctrl.peekReadyInstance();
+        return tpl_1(payload);
+    endfunction
+
+
+    // ****** Rules ******
 
     (* conservative_implicit_conditions *)
     rule stage1_pickOperation (True);
@@ -671,375 +883,533 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         let local_state = defaultValue;
 
         // Check whether the request ports have room for any new requests.
-        let can_enq_mem_req <- reqToMem.canEnq(cpu_iid);
-        let can_enq_core_rsp <- rspToCore.canEnq(cpu_iid);
-        local_state.memQNotFull = can_enq_mem_req;
-        local_state.coreQNotFull = can_enq_core_rsp;
+        local_state.toMemQNotFull <- reqToMem.canEnq(cpu_iid);
+        local_state.toCoreQNotFull <- rspToCore.canEnq(cpu_iid);
 
         // Consume incoming messages
         let m_mem_rsp <- rspFromMem.receive(cpu_iid);
-        let m_core_req <- reqFromCore.receive(cpu_iid);
+        Vector#(2, Maybe#(ROUTED_LLC_MSG)) m_core_req = newVector();
+        for (Integer i = 0; i < 2; i = i + 1)
+        begin
+            m_core_req[i] <- reqFromCore[i].receive(cpu_iid);
+        end
 
-        LLC_OPER oper = tagged Invalid;
+        //
+        // Pick an action for the model cycle.
+        //
 
-        if (m_mem_rsp matches tagged Valid .ocn_msg &&&
-            can_enq_core_rsp)
+        LLC_OPER m_oper = llcInval();
+
+        if (m_mem_rsp matches tagged Valid .ocn_msg)
         begin
             //
-            // FILL received and the core response port is available.
+            // FILL received from memory.
             //
+            Tuple2#(STATION_ID, MEMORY_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
+            match {.dst, .rsp} = ocn_rsp;
 
-            // Convert OCN message to a LLC_RSP
-            Tuple2#(STATION_ID, LLC_RSP) ocn_rsp = cvtFromOCNFlits(ocn_msg);
-            oper = tagged FILL_RSP ocn_rsp;
+            if (local_state.toCoreQNotFull)
+            begin
+                //
+                // Turn the MEMORY_RSP into a CACHE_PROTOCOL_MSG.  The new
+                // message will be a RSP_LOAD.  This is the only source of
+                // incoming RSP_LOAD messages, so is easily distinguished
+                // from other messages.
+                //
+                // The destination won't be known until the miss entry is read.
+                //
+                ROUTED_LLC_MSG rrsp = ROUTED_LLC_MSG { nodeID: tagged Invalid,
+                                                       msg: cacheMsgFromMemRsp(rsp) };
+                m_oper = tagged Valid rrsp;
 
-            match {.src, .rsp} = ocn_rsp;
-            LLC_MISS_TOKEN miss_tok = fromMemOpaque(rsp.opaque);
-            debugLog.record(cpu_iid, $format("1: FILL RSP: %0d, ", miss_tok) + fshow(rsp));
+                Fmt dbg_msg = $format("1: FILL RSP: ") + fshow(rrsp);
+                debugLog.record(cpu_iid, dbg_msg);
+                assertExpectedMessage(cacheMsg_IsRspLoad(rrsp.msg),
+                                      dbg_msg + $format(", cpu %0d", cpu_iid));
+            end
+            else
+            begin
+                debugLog.record(cpu_iid, $format("1: RETRY FROM MEM: ") + fshow(rsp));
+            end
         end
-        else if (m_core_req matches tagged Valid .req)
+        else if (m_core_req[0] matches tagged Valid .req)
         begin
             //
             // New request from core received.
             //
-            if (req.lreq.isStore)
+            Fmt dbg_msg;
+
+            if (local_state.toCoreQNotFull && local_state.toMemQNotFull)
             begin
-                oper = tagged STORE_REQ req;
-                debugLog.record(cpu_iid, $format("1: STORE REQ: ") + fshow(req));
+                m_oper = tagged Valid req;
+                dbg_msg = $format("1: FROM CORE[0]: ") + fshow(req);
             end
             else
             begin
-                oper = tagged LOAD_REQ req;
-                debugLog.record(cpu_iid, $format("1: LOAD REQ: ") + fshow(req));
+                dbg_msg = $format("1: RETRY FROM CORE[0]: ") + fshow(req);
             end
+
+            debugLog.record(cpu_iid, dbg_msg);
+
+            // Only load requests come in on this channel.
+            assertExpectedMessage(cacheMsg_IsReqLoad(req.msg),
+                                  dbg_msg + $format(", cpu %0d", cpu_iid));
         end
         else
         begin
             debugLog.record(cpu_iid, $format("1: Bubble"));
         end
 
-        stage2Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+        stage2Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
     endrule
 
     rule stage2 (True);
-        match {.cpu_iid, {.oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage2Ctrl.nextReadyInstance();
 
-        case (oper) matches
-            tagged FILL_RSP {.src, .rsp}:
+        //
+        // Look up the request's address in the cache.
+        //
+        if (m_oper matches tagged Valid .oper)
+        begin
+            Bool upd_replacement = False;
+            Bool is_load = False;
+
+            if (oper.msg.kind matches tagged REQ_LOAD .fill_meta)
             begin
-                let fill = rsp;
-
-                // Fill will write to the cache.  The write may still be turned
-                // off later in this pipeline and retried in another model cycle
-                // if a needed eviction is blocked.
-                local_state.writePortUsed = True;
-                local_state.writePortData = fill.linePAddr;
-                local_state.writeDataDirty = False;
-
-                // Get the Miss ID.
-                LLC_MISS_TOKEN miss_tok = fromMemOpaque(fill.opaque);
-
-                // Free the token in the next stage, in case we had to retry.
-                local_state.missTokToFree = tagged Valid miss_tok;
-
-                // Only respond to loads.
-                if (missTokIsLoad(miss_tok))
-                begin
-                    local_state.coreQUsed = True;
-                    local_state.coreQData = ROUTED_LLC_RSP { dst: ?,
-                                                             lrsp: fill };
-
-                    // The destination and opaque are stored in opaquesPool.
-                    // Retrieve them and overwrite dst/opaque in coreQData
-                    // in stage 2.
-                    opaquesPool.readReq(cpu_iid, missTokIndex(miss_tok));
-
-                    debugLog.record(cpu_iid, $format("2: FILL LOAD RSP: %0d, ", miss_tok) + fshow(fill));
-                end
-                else
-                begin
-                    debugLog.record(cpu_iid, $format("2: FILL RSP: %0d, ", miss_tok) + fshow(fill));
-                end
-
-                // Pick the victim
-                llcAlg.lookupByAddrReq(cpu_iid,
-                                       fill.linePAddr,
-                                       False,
-                                       missTokIsLoad(miss_tok));
+                upd_replacement = True;
+                is_load = ! fill_meta.exclusive;
             end
 
-            tagged LOAD_REQ .req:
-            begin
-                // Look up the address in the cache.
-                llcAlg.lookupByAddrReq(cpu_iid, req.lreq.linePAddr, True, True);
-                debugLog.record(cpu_iid, $format("2: LOAD REQ: ") + fshow(req));
-            end
+            llcAlg.lookupByAddrReq(cpu_iid, oper.msg.linePAddr,
+                                   upd_replacement, is_load);
 
-            tagged STORE_REQ .req:
-            begin
-                // Look up the address in the cache.
-                llcAlg.lookupByAddrReq(cpu_iid, req.lreq.linePAddr, True, False);
-                debugLog.record(cpu_iid, $format("2: STORE REQ: ") + fshow(req));
-            end
+            debugLog.record(cpu_iid, $format("2: LOOKUP: upd %0d, isLoad %0d, ", upd_replacement, is_load) + fshow(oper));
+        end
+        else
+        begin
+            debugLog.record(cpu_iid, $format("2: Bubble"));
+        end
 
-            default:
-            begin
-                debugLog.record(cpu_iid, $format("2: Bubble"));
-            end
-        endcase
+        // Read the context's free list head pointer here.  Reading it multiple
+        // times would replicate the storage, which we avoid by storing it in
+        // local_state.
+        Reg#(Maybe#(LLC_MISS_ID)) missTokenFreeList =
+            missTokenFreeListPool.getReg(cpu_iid);
+        local_state.tokenFreeList = missTokenFreeList;
 
-        stage3Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+        stage3Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
     endrule
 
-    rule stage3 (True);
-        match {.cpu_iid, {.oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+
+
+    // ====================================================================
+    //
+    //  Stage 3:  Exactly one stage3 rule must fire for proper pipelining.
+    //
+    // ====================================================================
+
+    rule stage3_REQ_LOAD (getOper(stage3Ctrl) matches tagged Valid .req &&&
+                          req.msg.kind matches tagged REQ_LOAD .load_meta);
+
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+
+        let src = req.nodeID;
+        let msg = req.msg;
+
+        let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
+        local_state.cacheUpdIdx = entry.idx;
+        local_state.cacheUpdPAddr = msg.linePAddr;
 
         // Hit/miss events will be recorded in this rule.
         Maybe#(EVENT_PARAM) evt_hit = tagged Invalid;
         Maybe#(EVENT_PARAM) evt_miss = tagged Invalid;
 
-        case (oper) matches
-            tagged FILL_RSP {.src, .rsp}:
+        if (entry.state matches tagged Valid .state)
+        begin
+            LLC_ENTRY_STATE line_state = state.opaque.state;
+
+            // Line is already in the cache
+            if (pack(line_state) <= pack(LLC_STATE_MM))
             begin
-                if (local_state.coreQUsed)
-                begin
-                    //
-                    // Restore the opaque to the context that sent the request
-                    // to this cache.  This cache modified only the bits required
-                    // for a local miss token.  Merge the unmodified bits (still
-                    // in the opaque) and the preserved, overwritten bits (stored
-                    // in opaquesPool).
-                    //
-                    match {.prev_src, .prev_opaque} <- opaquesPool.readRsp(cpu_iid);
-                    local_state.coreQData.dst = prev_src;
-                    local_state.coreQData.lrsp.opaque =
-                        updateMemOpaque(local_state.coreQData.lrsp.opaque,
-                                        prev_opaque);
-                end
+                // FIXME.  In case respond always as hit.
+                CACHE_PROTOCOL_RSP_LOAD rsp_meta = defaultValue;
+                rsp_meta.exclusive = load_meta.exclusive;
 
-                let evict <- llcAlg.lookupByAddrRsp(cpu_iid);
+                let rsp = ROUTED_LLC_MSG { nodeID: src,
+                                           msg: cacheMsg_RspLoad(msg.linePAddr,
+                                                                 msg.opaque,
+                                                                 rsp_meta) };
+                local_state.toCoreQ = tagged Valid rsp;
 
-                local_state.writePortIdx = evict.idx;
+                statReadHit.incr(cpu_iid);
+                evt_hit = tagged Valid resize({ msg.linePAddr, 1'b0 });
 
-                if (evict.state matches tagged Blocked)
-                begin
-                    // No available victim due to temporary state of the old
-                    // line.  Wait for it to settle.
-                    oper = newLLCOper(tagged Invalid);
-                    local_state = defaultValue;
-
-                    statFillRetry.incr(cpu_iid);
-                    debugLog.record(cpu_iid, $format("3: BLOCKED EVICTION: new line 0x%h", rsp.linePAddr));
-                end
-                else if (evict.state matches tagged MustEvict .state &&&
-                         state.dirty)
-                begin
-                    // Is there any room in the memQ?
-                    if (local_state.memQNotFull)
-                    begin
-                        debugLog.record(cpu_iid, $format("3: DIRTY EVICTION: new line 0x%h, old line 0x%h, ", rsp.linePAddr, state.linePAddr) + fshow(evict.idx));
-
-                        // Record that we're using the memQ.
-                        local_state.memQUsed = True;
-                        local_state.memQData = initMemStore(state.linePAddr);
-                    end
-                    else
-                    begin
-                        debugLog.record(cpu_iid, $format("3: DIRTY EVICTION WB BLOCKED: new line 0x%h, old line 0x%h, ", rsp.linePAddr, state.linePAddr) + fshow(evict.idx));
-
-                        // Retry on a later model cycle.
-                        statFillRetry.incr(cpu_iid);
-                        oper = newLLCOper(tagged Invalid);
-                        local_state = defaultValue;
-                    end
-                end
-                else
-                begin
-                    // Clean eviction.  No writeback needed.
-                    if (evict.state matches tagged Valid .state)
-                    begin
-                        debugLog.record(cpu_iid, $format("3: ALREADY PRESENT: line 0x%h, ", rsp.linePAddr) + fshow(evict.idx));
-                    end
-                    else
-                    begin
-                        debugLog.record(cpu_iid, $format("3: CLEAN EVICTION: line 0x%h", rsp.linePAddr) + fshow(evict.idx));
-                    end
-                end
+                debugLog.record(cpu_iid, $format("3: REQ_LOAD HIT (") + fshow(line_state) + $format("): ") + fshow(req) + $format(", ") + fshow(entry.idx));
             end
-
-            tagged LOAD_REQ .req:
+            else
             begin
-                let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
-
-                if (entry.state matches tagged Valid .state)
-                begin
-                    // Hit!
-                    if (local_state.coreQNotFull)
-                    begin
-                        // Load response indicates data present.
-                        local_state.coreQUsed = True;
-                        local_state.coreQData = initLLCMemRspFromReq(req);
-
-                        statReadHit.incr(cpu_iid);
-                        evt_hit = tagged Valid resize({ req.lreq.linePAddr, 1'b0 });
-
-                        debugLog.record(cpu_iid, $format("3: LOAD HIT: ") + fshow(req) + $format(", ") + fshow(entry.idx));
-                    end
-                    else
-                    begin
-                        // A load hit, but the response port is busy.
-                        statReadRetry.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: LOAD HIT RETRY: ") + fshow(req) + $format(", ") + fshow(entry.idx));
-
-                        oper = newLLCOper(tagged Invalid);
-                        local_state = defaultValue;
-                    end
-                end
-                else
-                begin
-                    // Miss.  Fill the line from memory.
-                    if (outstandingMisses.canAllocateLoad(cpu_iid) &&
-                        local_state.memQNotFull)
-                    begin
-                        // Allocate the next miss ID.
-                        local_state.memQUsed = True;
-                        outstandingMisses.allocateLoadReq(cpu_iid,
-                                                          req.lreq.linePAddr);
-
-                        statReadMiss.incr(cpu_iid);
-                        evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b0 });
-
-                        debugLog.record(cpu_iid, $format("3: LOAD MISS: ") + fshow(req));
-                    end
-                    else
-                    begin
-                        // The request must stall.
-                        statReadRetry.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: LOAD MISS RETRY"));
-
-                        oper = newLLCOper(tagged Invalid);
-                        local_state = defaultValue;
-                    end
-                end
+                // Line is already in transition due to an earlier request
+                // from another core.  Retry later.
+                m_oper = llcInval();
+                local_state = defaultValue;
+                statReadRetry.incr(cpu_iid);
+                debugLog.record(cpu_iid, $format("3: REQ_LOAD RETRY (") + fshow(line_state) + $format("): ") + fshow(req) + $format(", ") + fshow(entry.idx));
             end
+        end
+        else if (entry.state matches tagged Blocked)
+        begin
+            //
+            // Line not present and no victim is available due to outstanding
+            // activity.  Retry later.
+            //
+            m_oper = llcInval();
+            local_state = defaultValue;
+            statReadRetry.incr(cpu_iid);
+            debugLog.record(cpu_iid, $format("3: REQ_LOAD BLOCKED (retry later): ") + fshow(req));
+        end
+        else if (local_state.tokenFreeList matches tagged Valid .miss_tok_idx)
+        begin
+            // Fill the line.  (FIXME:  Need to evict first!)
+            let mem_req = initMemLoad(msg.linePAddr);
+            mem_req.opaque = msg.opaque;
+            local_state.toMemQ = tagged Valid mem_req;
 
-            tagged STORE_REQ .req:
-            begin
-                let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
+            // Set the new line's state.
+            local_state.cacheUpdUsed = True;
+            let new_state = load_meta.exclusive ? LLC_STATE_FILL_E :
+                                                  LLC_STATE_FILL_S;
+            local_state.cacheMeta = initLLCEntryMeta(new_state);
+            local_state.cacheMeta.missTokenListHead = miss_tok_idx;
+            local_state.cacheMeta.missTokenListTail = miss_tok_idx;
 
-                if (entry.state matches tagged Valid .state)
-                begin
-                    // Hit!  Store sets the dirty bit.
-                    local_state.writePortUsed = True;
-                    local_state.writePortData = req.lreq.linePAddr;
-                    local_state.writePortIdx = entry.idx;
-                    local_state.writeDataDirty = True;
+            // Record the load request details in the miss tracker.
+            missTrackerDataPool.write(cpu_iid, miss_tok_idx,
+                                      LLC_MISS_TOKEN { reqNode: src,
+                                                       opaque: msg.opaque });
 
-                    statWriteHit.incr(cpu_iid);
-                    evt_hit = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
+            // Read the miss token's next entry in order to update the free
+            // list in the next stage.
+            missTrackerNextPool.readReq(cpu_iid, miss_tok_idx);
 
-                    debugLog.record(cpu_iid, $format("3: STORE HIT: ") + fshow(req) + $format(", ") + fshow(entry.idx));
-                end
-                else
-                begin
-                    // Miss.  Fill the line from memory.
-                    if (outstandingMisses.canAllocateStore(cpu_iid) &&
-                        local_state.memQNotFull)
-                    begin
-                        // Allocate the next miss ID
-                        local_state.memQUsed = True;
-                        outstandingMisses.allocateStoreReq(cpu_iid);
+            statReadMiss.incr(cpu_iid);
+            evt_miss = tagged Valid resize({ msg.linePAddr, 1'b0 });
 
-                        statWriteMiss.incr(cpu_iid);
-                        evt_miss = tagged Valid resize({ req.lreq.linePAddr, 1'b1 });
-
-                        debugLog.record(cpu_iid, $format("3: STORE MISS: ") + fshow(req));
-                    end
-                    else
-                    begin
-                        // Memory request queue if busy.  The request must stall.
-                        statWriteRetry.incr(cpu_iid);
-                        debugLog.record(cpu_iid, $format("3: STORE MISS RETRY: ") + fshow(req));
-
-                        oper = newLLCOper(tagged Invalid);
-                        local_state = defaultValue;
-                    end
-                end
-            end
-
-            default:
-            begin
-                debugLog.record(cpu_iid, $format("3: Bubble"));
-            end
-        endcase
+            debugLog.record(cpu_iid, $format("3: REQ_LOAD FILL (") + fshow(local_state.cacheMeta) + $format("): ") + fshow(req) + $format(", ") + fshow(entry.idx));
+        end
+        else
+        begin
+            //
+            // Line not present and miss token is available.  Retry later.
+            //
+            m_oper = llcInval();
+            local_state = defaultValue;
+            statReadRetry.incr(cpu_iid);
+            debugLog.record(cpu_iid, $format("3: REQ_LOAD NO FREE MISS TOKEN (retry later): ") + fshow(req));
+        end
 
         eventHit.recordEvent(cpu_iid, evt_hit);
         eventMiss.recordEvent(cpu_iid, evt_miss);
 
-        stage4Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+        stage4Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
     endrule
-    
 
-    rule stage4 (True);
-        match {.cpu_iid, {.oper, .local_state}} <- stage4Ctrl.nextReadyInstance();
 
-        case (oper) matches
-            tagged FILL_RSP {.src, .rsp}:
-            begin
-                debugLog.record(cpu_iid, $format("4: FILL RSP Bubble"));
-            end
+    rule stage3_RSP_LOAD (getOper(stage3Ctrl) matches tagged Valid .rsp &&&
+                          rsp.msg.kind matches tagged RSP_LOAD .fill_meta);
 
-            tagged LOAD_REQ .req:
-            begin
-                if (local_state.memQUsed)
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+
+        let msg = rsp.msg;
+
+        let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
+        local_state.cacheUpdIdx = entry.idx;
+        local_state.cacheUpdPAddr = msg.linePAddr;
+
+        //
+        // The entry must be in a FILL state.
+        //
+        if (entry.state matches tagged Valid .state)
+        begin
+            local_state.cacheMeta = state.opaque;
+
+            LLC_ENTRY_STATE line_state = state.opaque.state;
+            case (line_state)
+                LLC_STATE_FILL_S:
                 begin
-                    // A fill request is being sent to memory.  Complete the
-                    // request details.
-                    let miss_tok <- outstandingMisses.allocateLoadRsp(cpu_iid);
+                    local_state.cacheUpdUsed = True;
+                    local_state.cacheMeta.state = LLC_STATE_SS;
 
-                    // Record the source core of the request and the original
-                    // opaque.
-                    opaquesPool.write(cpu_iid, missTokIndex(miss_tok),
-                                      tuple2(req.src, fromMemOpaque(req.lreq.opaque)));
-
-                    // Use the opaque bits to store the miss token.
-                    let mem_req = initMemLoad(req.lreq.linePAddr);
-                    mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
-                    local_state.memQData = mem_req;
-
-                    debugLog.record(cpu_iid, $format("4: LOAD MISS: %0d, ", miss_tok.index) + fshow(req));
+                    debugLog.record(cpu_iid, $format("3: FILL_S->") + fshow(local_state.cacheMeta) + $format(": ") + fshow(rsp) + $format(", ") + fshow(entry.idx));
                 end
-            end
 
-            tagged STORE_REQ .req:
-            begin
-                if (local_state.memQUsed)
+                LLC_STATE_FILL_E:
                 begin
-                    // A fill request is being sent to memory.  Complete the
-                    // request details.
-                    let miss_tok <- outstandingMisses.allocateStoreRsp(cpu_iid);
+                    local_state.cacheUpdUsed = True;
+                    local_state.cacheMeta.state = LLC_STATE_SM;
 
-                    // Use the opaque bits to store the miss token.
-                    // We use a load to simulate getting exclusive access.
-                    let mem_req = initMemLoad(req.lreq.linePAddr);
-                    mem_req.opaque = updateMemOpaque(req.lreq.opaque, miss_tok);
-                    local_state.memQData = mem_req;
-
-                    debugLog.record(cpu_iid, $format("4: STORE MISS: %0d, ", miss_tok.index) + fshow(req));
+                    debugLog.record(cpu_iid, $format("3: FILL_E->") + fshow(local_state.cacheMeta) + $format(": ") + fshow(rsp) + $format(", ") + fshow(entry.idx));
                 end
-            end
 
-            default:
-            begin
-                debugLog.record(cpu_iid, $format("4: Bubble"));
-            end
-        endcase
+                default:
+                begin
+                    // Error.  Expected FILL_S or FILL_E.
+                    Fmt dbg_msg = $format("3: FILL: Must be in FILL_S or FILL_E but in ") + fshow(line_state) + $format(", ") + fshow(rsp);
+                    debugLog.record(cpu_iid, dbg_msg);
+                    assertValidState(False, dbg_msg + $format(", cpu %0d", cpu_iid));
 
-        stage5Ctrl.ready(cpu_iid, tuple2(oper, local_state));
+                    m_oper = llcInval();
+                    local_state = defaultValue;
+                end
+            endcase
+        end
+        else
+        begin
+            // Error.  Expected FILL_S or FILL_E.
+            Fmt dbg_msg = $format("3: FILL: Must be in FILL_S or FILL_E but is INVALID, ") + fshow(rsp);
+            debugLog.record(cpu_iid, dbg_msg);
+            assertValidState(False, dbg_msg + $format(", cpu %0d", cpu_iid));
+
+            m_oper = llcInval();
+            local_state = defaultValue;
+        end
+
+        //
+        // Cache was in acceptable state and fill response will be sent.
+        // Get the target of the response from the miss tracker.
+        //
+        if (isValid(m_oper))
+        begin
+            missTrackerDataPool.readReq(cpu_iid,
+                                        local_state.cacheMeta.missTokenListHead);
+
+            // This token entry will be pushed as the head of the free list.
+            missTrackerNextPool.write(cpu_iid,
+                                      local_state.cacheMeta.missTokenListHead,
+                                      local_state.tokenFreeList);
+
+            debugLog.record(cpu_iid, $format("3: RSP_LOAD missID %0d next is ", local_state.cacheMeta.missTokenListHead) + fshow(local_state.tokenFreeList));
+
+            local_state.tokenFreeList = tagged Valid local_state.cacheMeta.missTokenListHead;
+        end
+
+        eventHit.recordEvent(cpu_iid, tagged Invalid);
+        eventMiss.recordEvent(cpu_iid, tagged Invalid);
+
+        stage4Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
     endrule
-    
+
+    rule stage3_WB_INVAL (getOper(stage3Ctrl) matches tagged Valid .wb &&&
+                          wb.msg.kind matches tagged WB_INVAL .wb_meta);
+
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+
+        let src = wb.nodeID;
+        let msg = wb.msg;
+
+        let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
+        local_state.cacheUpdIdx = entry.idx;
+        local_state.cacheUpdPAddr = msg.linePAddr;
+
+        //
+        // Given the eviction protocol the entry must be present.  No entry may
+        // be in a private cache without also being in the LLC.
+        //
+        if (entry.state matches tagged Valid .state)
+        begin
+            LLC_ENTRY_STATE line_state = state.opaque.state;
+            let new_state = line_state;
+
+            debugLog.record(cpu_iid, $format("3: WB_INVAL (") + fshow(tuple2(line_state, new_state)) + $format("): ") + fshow(wb) + $format(", ") + fshow(entry.idx));
+
+            case (line_state)
+                LLC_STATE_SS,
+                LLC_STATE_MS:
+                begin
+                    // LLC believes private caches are in S state.  They better
+                    // not believe the private line was exclusive or dirty.
+                    assertValidState(! wb_meta.exclusive && ! wb_meta.dirty,
+                                     fshow(line_state) + $format(", cpu %0d", cpu_iid));
+                end
+
+                LLC_STATE_SM:
+                begin
+                    if (wb_meta.dirty) new_state = LLC_STATE_MM;
+                end
+
+                LLC_STATE_MM,
+                LLC_STATE_M_INVAL:
+                begin
+                    noAction;
+                end
+
+                LLC_STATE_S_INVAL:
+                begin
+                    if (wb_meta.dirty) new_state = LLC_STATE_M_INVAL;
+                end
+
+                default:
+                begin
+                    assertValidState(False,
+                                     fshow(line_state) + $format(", cpu %0d", cpu_iid));
+                end
+            endcase
+
+            local_state.cacheUpdUsed = True;
+            local_state.cacheMeta.state = new_state;
+        end
+        else
+        begin
+            // Error: not present!
+            Fmt dbg_msg = $format("3: WB_INVAL: Line not present, ") + fshow(wb);
+            debugLog.record(cpu_iid, dbg_msg);
+            assertValidState(False, dbg_msg + $format(", cpu %0d", cpu_iid));
+
+            m_oper = llcInval();
+            local_state = defaultValue;
+        end
+
+        eventHit.recordEvent(cpu_iid, tagged Invalid);
+        eventMiss.recordEvent(cpu_iid, tagged Invalid);
+
+        stage4Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
+    endrule
+
+
+    rule stage3_FORCE_INVAL (getOper(stage3Ctrl) matches tagged Valid .req &&&
+                             req.msg.kind matches tagged FORCE_INVAL .meta);
+
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+
+        let dst = req.nodeID;
+        let msg = req.msg;
+
+        let entry <- llcAlg.lookupByAddrRsp(cpu_iid);
+        local_state.cacheUpdIdx = entry.idx;
+        local_state.cacheUpdPAddr = msg.linePAddr;
+
+        // Forward to core private caches.
+        local_state.toCoreQ = tagged Valid req;
+
+        debugLog.record(cpu_iid, $format("3: FWD TO Core[%0d]: ", dst) + fshow(msg));
+
+        eventHit.recordEvent(cpu_iid, tagged Invalid);
+        eventMiss.recordEvent(cpu_iid, tagged Invalid);
+
+        stage4Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
+    endrule
+
+    rule stage3_Invalid (getOper(stage3Ctrl) matches tagged Invalid);
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage3Ctrl.nextReadyInstance();
+
+        debugLog.record(cpu_iid, $format("3: Bubble"));
+
+        eventHit.recordEvent(cpu_iid, tagged Invalid);
+        eventMiss.recordEvent(cpu_iid, tagged Invalid);
+
+        stage4Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
+    endrule
+
+
+
+    // ====================================================================
+    //
+    //  Stage 4:  Exactly one stage4 rule must fire for proper pipelining.
+    //
+    // ====================================================================
+
+    rule stage4_REQ_LOAD (getOper(stage4Ctrl) matches tagged Valid .req &&&
+                          req.msg.kind matches tagged REQ_LOAD .load_meta);
+
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage4Ctrl.nextReadyInstance();
+
+        //
+        // Update the miss token free list if a token was allocated.
+        //
+        if (isValid(local_state.toMemQ))
+        begin
+            Reg#(Maybe#(LLC_MISS_ID)) missTokenFreeList =
+                missTokenFreeListPool.getReg(cpu_iid);
+
+            let new_head <- missTrackerNextPool.readRsp(cpu_iid);
+            missTokenFreeList <= new_head;
+
+            debugLog.record(cpu_iid, $format("4: REQ_LOAD tok update free head missID ") + fshow(new_head));
+        end
+        else
+        begin
+            debugLog.record(cpu_iid, $format("4: REQ_LOAD Bubble"));
+        end
+
+        stage5Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
+    endrule
+
+    rule stage4_RSP_LOAD (getOper(stage4Ctrl) matches tagged Valid .rsp &&&
+                          rsp.msg.kind matches tagged RSP_LOAD .fill_meta);
+
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage4Ctrl.nextReadyInstance();
+
+        //
+        // Update the response with correct destination and state.
+        //
+        let miss_info <- missTrackerDataPool.readRsp(cpu_iid);
+        ROUTED_LLC_MSG upd_rsp = rsp;
+        upd_rsp.nodeID = miss_info.reqNode;
+        upd_rsp.msg.opaque = miss_info.opaque;
+
+        // Forward response to the core
+        local_state.toCoreQ = tagged Valid upd_rsp;
+
+        //
+        // Put the miss entry back on the free list.
+        //
+        Reg#(Maybe#(LLC_MISS_ID)) missTokenFreeList =
+            missTokenFreeListPool.getReg(cpu_iid);
+        missTokenFreeList <= local_state.tokenFreeList;
+
+        debugLog.record(cpu_iid, $format("4: RSP_LOAD free missID ") + fshow(local_state.tokenFreeList));
+        debugLog.record(cpu_iid, $format("4: ") + fshow(upd_rsp));
+
+        stage5Ctrl.ready(cpu_iid, tuple2(tagged Valid upd_rsp, local_state));
+    endrule
+
+    rule stage4_WB_INVAL (getOper(stage4Ctrl) matches tagged Valid .wb &&&
+                          wb.msg.kind matches tagged WB_INVAL .wb_meta);
+
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage4Ctrl.nextReadyInstance();
+
+        debugLog.record(cpu_iid, $format("4: WB_INVAL Bubble"));
+
+        stage5Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
+    endrule
+
+    rule stage4_FORCE_INVAL (getOper(stage4Ctrl) matches tagged Valid .req &&&
+                             req.msg.kind matches tagged FORCE_INVAL .meta);
+
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage4Ctrl.nextReadyInstance();
+
+        debugLog.record(cpu_iid, $format("4: FORCE_INVAL Bubble"));
+
+        stage5Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
+    endrule
+
+    rule stage4_Invalid (getOper(stage4Ctrl) matches tagged Invalid);
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage4Ctrl.nextReadyInstance();
+
+        debugLog.record(cpu_iid, $format("4: Bubble"));
+
+        stage5Ctrl.ready(cpu_iid, tuple2(m_oper, local_state));
+    endrule
+
+
+
+    // ====================================================================
+    //
+    //   Flow merges back to a single rule for the final message routing.
+    //
+    // ====================================================================
+
     rule stage5_end (True);
-        match {.cpu_iid, {.oper, .local_state}} <- stage5Ctrl.nextReadyInstance();
+        match {.cpu_iid, {.m_oper, .local_state}} <- stage5Ctrl.nextReadyInstance();
 
         debugLog.record(cpu_iid, $format("5: Done"));
 
@@ -1047,7 +1417,8 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         // Indicate whether requests were consumed.
         //
 
-        if (oper matches tagged FILL_RSP {.src, .rsp})
+        if (m_oper matches tagged Valid .oper &&&
+            cacheMsg_IsRspLoad(oper.msg))
         begin
             rspFromMem.doDeq(cpu_iid);
         end
@@ -1057,17 +1428,29 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         end
 
 
-        if (oper matches tagged LOAD_REQ .req)
+        //
+        // Messages from the core are constrained to come in a specific channels
+        // based on message type.
+        //
+
+        if (m_oper matches tagged Valid .oper &&&
+            cacheMsg_IsReqLoad(oper.msg))
         begin
-            reqFromCore.doDeq(cpu_iid);
-        end
-        else if (oper matches tagged STORE_REQ .req)
-        begin
-            reqFromCore.doDeq(cpu_iid);
+            reqFromCore[0].doDeq(cpu_iid);
         end
         else
         begin
-            reqFromCore.noDeq(cpu_iid);
+            reqFromCore[0].noDeq(cpu_iid);
+        end
+
+        if (m_oper matches tagged Valid .oper &&&
+            cacheMsg_IsWBInval(oper.msg))
+        begin
+            reqFromCore[1].doDeq(cpu_iid);
+        end
+        else
+        begin
+            reqFromCore[1].noDeq(cpu_iid);
         end
 
 
@@ -1076,55 +1459,23 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         //
 
         // Take care of the memory queue.
-        if (local_state.memQUsed)
+        if (local_state.toMemQ matches tagged Valid .mem_req)
         begin
-            let req = local_state.memQData;
-
             // Which memory controller handles the request's address?
-            let dst = getMemCtrlDstForAddr(req.linePAddr);
+            let dst = getMemCtrlDstForAddr(mem_req.linePAddr);
 
-            reqToMem.doEnq(cpu_iid, cvtToOCNFlits(dst, req));
-            debugLog.record(cpu_iid, $format("5: REQ TO MEM %0d: ", dst) + fshow(req));
+            reqToMem.doEnq(cpu_iid, cvtToOCNFlits(dst, mem_req));
+            debugLog.record(cpu_iid, $format("5: REQ TO MEM %0d: ", dst) + fshow(mem_req));
         end
         else
         begin
             reqToMem.noEnq(cpu_iid);
         end
         
-        // Take care of the cache update.
-        if (local_state.writePortUsed)
-        begin
-            CACHE_ENTRY_STATE#(void) state =
-                initCacheEntryState(local_state.writePortData,
-                                    local_state.writeDataDirty,
-                                    ?);
-
-            if (oper matches tagged FILL_RSP .rsp)
-            begin
-                // Fill allocates a new line.
-                llcAlg.allocate(cpu_iid,
-                                local_state.writePortIdx,
-                                state,
-                                CACHE_ALLOC_FILL);
-
-                debugLog.record(cpu_iid, $format("5: ALLOC: ") + fshow(local_state.writePortIdx) + $format(", ") + fshow(state));
-            end
-            else
-            begin
-                // Store is the only other path.  It updates the state of an
-                // existing entry.
-                llcAlg.update(cpu_iid,
-                              local_state.writePortIdx,
-                              state);
-
-                debugLog.record(cpu_iid, $format("5: UPDATE: ") + fshow(local_state.writePortIdx) + $format(", ") + fshow(state));
-            end
-        end
-        
         // Take care of CPU rsp
-        if (local_state.coreQUsed)
+        if (local_state.toCoreQ matches tagged Valid .rsp)
         begin
-            rspToCore.doEnq(cpu_iid, local_state.coreQData); 
+            rspToCore.doEnq(cpu_iid, rsp);
         end
         else
         begin
@@ -1132,12 +1483,41 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         end
 
 
-        // Free at the end so we don't reuse token accidentally.
-        if (local_state.missTokToFree matches tagged Valid .miss_tok)
+        // Take care of the cache update.
+        if (local_state.cacheUpdUsed)
         begin
-            outstandingMisses.free(cpu_iid, miss_tok);
-        end
+            LLC_ENTRY_STATE new_state = local_state.cacheMeta.state;
+            Bool is_dirty = ((new_state == LLC_STATE_MS) ||
+                             (new_state == LLC_STATE_MM) ||
+                             (new_state == LLC_STATE_M_INVAL));
 
+            CACHE_ENTRY_STATE#(LLC_ENTRY_META) state =
+                initCacheEntryState(local_state.cacheUpdPAddr,
+                                    is_dirty,
+                                    local_state.cacheMeta);
+
+            if (m_oper matches tagged Valid .oper &&&
+                oper.msg.kind matches tagged REQ_LOAD .rsp)
+            begin
+                // Fill allocates a new line.
+                llcAlg.allocate(cpu_iid,
+                                local_state.cacheUpdIdx,
+                                state,
+                                CACHE_ALLOC_FILL);
+
+                debugLog.record(cpu_iid, $format("5: ALLOC: ") + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(state));
+            end
+            else
+            begin
+                // Update an existing entry.
+                llcAlg.update(cpu_iid,
+                              local_state.cacheUpdIdx,
+                              state);
+
+                debugLog.record(cpu_iid, $format("5: UPDATE: ") + fshow(local_state.cacheUpdIdx) + $format(", ") + fshow(state));
+            end
+        end
+        
         // End of model cycle.
         localCtrl.endModelCycle(cpu_iid, 1); 
         debugLog.nextModelCycle(cpu_iid);

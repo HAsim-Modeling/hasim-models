@@ -291,24 +291,24 @@ module [HASIM_MODULE] mkL1DCache ();
     Vector#(4, ASSERTION_STR_CLIENT) assertNode <- mkAssertionStrClientVec();
 
     let assertL2MsgOk <-
-        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Unexpected message from L2",
-                              ASSERT_ERROR,
-                              assertNode[0]);
+        mkAssertionStrCheckerWithMsg("l1-dcache-controller-MESI.bsv: Unexpected message from L2",
+                                     ASSERT_ERROR,
+                                     assertNode[0]);
 
     let assertValidExclusiveFlag <-
-        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Exclusive flag set for LOAD or clear for STORE",
-                              ASSERT_ERROR,
-                              assertNode[1]);
+        mkAssertionStrCheckerWithMsg("l1-dcache-controller-MESI.bsv: Exclusive flag set for LOAD or clear for STORE",
+                                     ASSERT_ERROR,
+                                     assertNode[1]);
 
-    let assertInFillState <-
-        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Entry not in proper FILL state",
-                              ASSERT_ERROR,
-                              assertNode[2]);
+    let assertInFill <-
+        mkAssertionStrCheckerWithMsg("l1-dcache-controller-MESI.bsv: Entry not in proper FILL state",
+                                     ASSERT_ERROR,
+                                     assertNode[2]);
 
     let assertNewToken <-
-        mkAssertionStrChecker("l1-dcache-controller-MESI.bsv: Entry unexpected merged FILL token",
-                              ASSERT_ERROR,
-                              assertNode[3]);
+        mkAssertionStrCheckerWithMsg("l1-dcache-controller-MESI.bsv: Entry unexpected merged FILL token",
+                                     ASSERT_ERROR,
+                                     assertNode[3]);
 
 
     // ****** Functions ******
@@ -386,8 +386,10 @@ module [HASIM_MODULE] mkL1DCache ();
             else
             begin
                 // Unexpected message!
-                debugLog.record(cpu_iid, $format("1: UNEXPECTED: ") + fshow(fromL2));
-                assertL2MsgOk(False);
+                Fmt msg = $format("1: UNEXPECTED: ") + fshow(fromL2);
+                debugLog.record(cpu_iid, msg);
+                assertL2MsgOk(False,
+                              msg + $format(", cpu %0d", cpu_iid));
             end
         end
         else if (m_cpu_req_store matches tagged Valid .req)
@@ -474,15 +476,17 @@ module [HASIM_MODULE] mkL1DCache ();
         if (missTokIsLoad(miss_tok))
         begin
             // The fill is a load response. Return it to the CPU.
-            debugLog.record(cpu_iid, $format("2: MEM RSP LOAD: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+            Fmt msg = $format("2: MEM RSP LOAD: %0d, ", miss_tok.index) + fshow(fill);
+            debugLog.record(cpu_iid, msg);
             local_state.loadRsp = tagged Valid initDCacheLoadMissRsp(miss_tok.index);
-            assertValidExclusiveFlag(fill_meta.exclusive == False);
+            assertValidExclusiveFlag(fill_meta.exclusive == False,
+                                     msg + $format(", cpu %0d", cpu_iid));
         end
         else
         begin
             // The fill is a store response. Tell the CPU the entry has
             // been updated.
-            debugLog.record(cpu_iid, $format("2: MEM RSP STORE: %0d, line 0x%h", miss_tok.index, fill.linePAddr));
+            debugLog.record(cpu_iid, $format("2: MEM RSP STORE: %0d, ", miss_tok.index) + fshow(fill));
             local_state.storeRsp = tagged Valid initDCacheStoreDelayOk(miss_tok.index);
 //            assertValidExclusiveFlag(fill_meta.exclusive == True);
             let new_meta = fill_meta;
@@ -645,14 +649,16 @@ module [HASIM_MODULE] mkL1DCache ();
                 end
             endcase
 
-            debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(tuple2(state.opaque, local_state.cacheUpdState)));
-            assertInFillState(! error);
+            Fmt msg = $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx) + $format(", ") + fshow(tuple2(state.opaque, local_state.cacheUpdState));
+            debugLog.record(cpu_iid, msg);
+            assertInFill(! error, msg + $format(", cpu %0d", cpu_iid));
         end
         else
         begin
             // Error:  line should be in the cache already in FILL state.
-            assertInFillState(False);
-            debugLog.record(cpu_iid, $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr));
+            Fmt msg = $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr);
+            debugLog.record(cpu_iid, msg);
+            assertInFill(False, msg + $format(", cpu %0d", cpu_iid));
         end
 
         stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
@@ -823,7 +829,8 @@ module [HASIM_MODULE] mkL1DCache ();
 
             // Miss token should be new since no miss is currently outstanding
             // for this address.  (Misses are recorded in the cache state tag.)
-            assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr));
+            assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr),
+                           $format(""));
 
             // Generate the eviction message
             if (entry.state matches tagged MustEvict .state)
@@ -950,7 +957,8 @@ module [HASIM_MODULE] mkL1DCache ();
 
             // Miss token should be new since no miss is currently outstanding
             // for this address.  (Misses are recorded in the cache state tag.)
-            assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr));
+            assertNewToken(! outstandingMisses.loadOutstanding(cpu_iid, line_addr),
+                           $format(""));
 
             // Generate the eviction message
             if (entry.state matches tagged MustEvict .state)

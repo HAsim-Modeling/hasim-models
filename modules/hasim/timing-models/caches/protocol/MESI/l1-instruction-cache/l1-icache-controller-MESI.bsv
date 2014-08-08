@@ -247,11 +247,17 @@ module [HASIM_MODULE] mkL1ICache ();
 
     // ****** Assertions ******
 
-    let assertInFill <- mkAssertionSimOnly("l1-icache-controller-MESI.bsv: Entry not in FILL state",
-                                          ASSERT_ERROR);
+    Vector#(2, ASSERTION_STR_CLIENT) assertNode <- mkAssertionStrClientVec();
 
-    let assertL2MsgOk <- mkAssertionSimOnly("l1-icache-controller-MESI.bsv: Unexpected message from L2",
-                                            ASSERT_ERROR);
+    let assertInFill <-
+        mkAssertionStrCheckerWithMsg("l1-icache-controller-MESI.bsv: Entry not in FILL state",
+                                     ASSERT_ERROR,
+                                     assertNode[0]);
+
+    let assertL2MsgOk <-
+        mkAssertionStrCheckerWithMsg("l1-icache-controller-MESI.bsv: Unexpected message from L2",
+                                     ASSERT_ERROR,
+                                     assertNode[1]);
 
 
     // ****** Functions ******
@@ -326,8 +332,10 @@ module [HASIM_MODULE] mkL1ICache ();
             else
             begin
                 // Unexpected message!
-                debugLog.record(cpu_iid, $format("1: UNEXPECTED: ") + fshow(fromL2));
-                assertL2MsgOk(False);
+                Fmt msg = $format("1: UNEXPECTED: ") + fshow(fromL2);
+                debugLog.record(cpu_iid, msg);
+                assertL2MsgOk(False,
+                              msg + $format(", cpu %0d", cpu_iid));
             end
         end
         else if (m_cpu_req_load matches tagged Valid .req)
@@ -476,14 +484,18 @@ module [HASIM_MODULE] mkL1ICache ();
 
         if (entry.state matches tagged Valid .state)
         begin
-            assertInFill(state.opaque == L1I_STATE_FILL);
-            debugLog.record(cpu_iid, $format("3: FILL: line 0x%h, ", fill.linePAddr) + fshow(entry.idx));
+            Fmt msg = $format("3: FILL: line 0x%h, state ", fill.linePAddr) + fshow(state) + $format(", ") + fshow(entry.idx);
+            debugLog.record(cpu_iid, msg);
+            assertInFill(state.opaque == L1I_STATE_FILL,
+                         msg + $format(", cpu %0d", cpu_iid));
         end
         else
         begin
             // Error:  line should be in the cache already in FILL state.
-            assertInFill(False);
-            debugLog.record(cpu_iid, $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr));
+            Fmt msg = $format("3: ERROR: Filled line not present, line 0x%h", fill.linePAddr);
+            debugLog.record(cpu_iid, msg);
+            assertInFill(False,
+                         msg + $format(", cpu %0d", cpu_iid));
         end
 
         stage4Ctrl.ready(cpu_iid, tuple3(oper, local_state, new_miss_tok_req));
