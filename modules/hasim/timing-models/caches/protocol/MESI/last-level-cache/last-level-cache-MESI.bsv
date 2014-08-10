@@ -1356,6 +1356,19 @@ module [HASIM_MODULE] mkDistributedLastLevelCache();
         upd_rsp.nodeID = miss_info.reqNode;
         upd_rsp.msg.opaque = miss_info.opaque;
 
+        //
+        // Is the response exclusive access?  Update the RSP_LOAD if necessary.
+        // The .kind definitely be RSP_LOAD if this point is reached.  The
+        // test is required by Bluespec.
+        //
+        if (local_state.cacheMeta.state == LLC_STATE_SM &&&
+            upd_rsp.msg.kind matches tagged RSP_LOAD .info)
+        begin
+            let upd_info = info;
+            upd_info.exclusive = True;
+            upd_rsp.msg.kind = tagged RSP_LOAD upd_info;
+        end
+
         // Forward response to the core
         local_state.toCoreQ = tagged Valid upd_rsp;
 
